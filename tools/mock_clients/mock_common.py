@@ -65,6 +65,11 @@ class MockClient:
         # mock does - wait for it instead of firing and forgetting.
         self._pending_acks: dict[str, asyncio.Future] = {}
         self.last_ack: dict | None = None
+        # F1: ONE task owns the socket reader.  Application frames are handed to
+        # the consumer loop through this queue, so awaiting an ack inside
+        # on_message() can never block the code that would deliver that ack.
+        self._inbox: asyncio.Queue[dict | None] | None = None
+        self._reader_task: asyncio.Task | None = None
 
     def log(self, *args) -> None:
         print(f"[{self.client_type}]", *args, flush=True)
@@ -131,6 +136,43 @@ class MockClient:
         if fut is not None and not fut.done():
             fut.set_result(frame)
 
+    async def _read_frames(self) -> None:
+        """Read the socket until EOF.
+
+        Only this task touches ``self.reader``.  Heartbeats and acks are
+        protocol plumbing and are handled inline; everything else goes to the
+        inbox so a slow ``on_message`` (e.g. waiting for an ack) never stops
+        the reader — that self-lock made the POS mock report
+        "ack timeout ... (not persisted?)" even though the host had already
+        persisted and acked (F1).
+        """
+        assert self.reader is not None and self._inbox is not None
+        while True:
+            frame = await read_frame(self.reader)
+            msg_type = frame.get("type")
+            if msg_type == MSG_HEARTBEAT:
+                await self.send(make_frame(
+                    MSG_HEARTBEAT_ACK, ref_msg_id=frame.get("msg_id")))
+                continue
+            if msg_type == MSG_ACK:
+                self._on_ack(frame)
+                continue
+            await self._inbox.put(frame)
+
+    async def _cancel_reader(self) -> None:
+        """Stop the reader task and drain the inbox (used on reconnect)."""
+        task, self._reader_task = self._reader_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass  # expected: we just cancelled it
+            except Exception:  # noqa: BLE001 - reader errors are surfaced by run()
+                pass
+        if self._inbox is not None:
+            self._inbox = asyncio.Queue()
+
     async def run(self) -> None:
         while True:
             try:
@@ -139,22 +181,26 @@ class MockClient:
                         return
                     await asyncio.sleep(3)
                     continue
+                await self._cancel_reader()
+                self._inbox = asyncio.Queue()
+                self._reader_task = asyncio.create_task(self._read_frames())
                 while True:
-                    frame = await read_frame(self.reader)
-                    msg_type = frame.get("type")
-                    if msg_type == MSG_HEARTBEAT:
-                        await self.send(make_frame(
-                            MSG_HEARTBEAT_ACK, ref_msg_id=frame.get("msg_id")))
-                        continue
-                    if msg_type == MSG_ACK:
-                        self._on_ack(frame)
-                        continue
+                    frame = await self._inbox.get()
+                    # a reader failure surfaces here instead of hanging the loop
+                    if self._reader_task is not None and self._reader_task.done():
+                        exc = self._reader_task.exception()
+                        if exc is not None:
+                            raise exc
                     await self.on_message(self, frame)
             except (asyncio.IncompleteReadError, ConnectionError, OSError) as exc:
                 self.log("connection lost:", exc)
+                await self._cancel_reader()
                 if not self.reconnect:
                     return
                 await asyncio.sleep(3)
+            except asyncio.CancelledError:
+                await self._cancel_reader()
+                raise
 
 
 def common_args(description: str) -> argparse.ArgumentParser:

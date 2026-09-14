@@ -1,0 +1,34 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# runtime data
+runs/
+logs/
+*.log
+.lock
+
+# scratch area (probe scripts, test scratch dirs, reference snapshots);
+# see tmp/README.md — nothing in here is a product artifact
+tmp/
+
+# local-only POS kernel parameter sets (AID/CAPK/TERM).
+# Generated from the POS assets by tools/export_kernel_params.py; contains CAPK
+# moduli (key material) and must never be committed.
+cases/*/kernel_params.json
+
+# editor / os
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

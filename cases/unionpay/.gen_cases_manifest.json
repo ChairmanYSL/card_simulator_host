@@ -1,0 +1,20 @@
+{
+  "files": [
+    "contactless/cases/QPB-B-002/QPB-B-002-01.json",
+    "contactless/cases/QPB-B-002/group.json",
+    "contactless/cases/QPB-D-001/QPB-D-001-01.json",
+    "contactless/cases/QPB-D-001/QPB-D-001-02.json",
+    "contactless/cases/QPB-D-001/QPB-D-001-03.json",
+    "contactless/cases/QPB-D-001/QPB-D-001-04.json",
+    "contactless/cases/QPB-D-001/group.json",
+    "contactless/cases/QPB-I-010/QPB-I-010-01.json",
+    "contactless/cases/QPB-I-010/group.json",
+    "contactless/cases/UPI-CL-001.json",
+    "contactless/cases/UPI-CL-002.json",
+    "contactless/cases/UPI-CL-003.json",
+    "contactless/cases/UPI-CL-004.json",
+    "contactless/cases/UPI-CL-006.json",
+    "contactless/cases/UPI-CL-007.json",
+    "scheme.json"
+  ]
+}

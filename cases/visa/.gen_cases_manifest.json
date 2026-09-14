@@ -1,0 +1,14 @@
+{
+  "files": [
+    "contactless/cases/OPBD-001/OPBD-001-01.json",
+    "contactless/cases/OPBD-001/OPBD-001-02.json",
+    "contactless/cases/OPBD-001/OPBD-001-03.json",
+    "contactless/cases/OPBD-001/OPBD-001-04.json",
+    "contactless/cases/OPBD-001/group.json",
+    "contactless/cases/VISA-CL-001.json",
+    "contactless/cases/VISA-CL-002.json",
+    "contactless/cases/VISA-CL-003.json",
+    "contactless/cases/VISA-CL-004.json",
+    "scheme.json"
+  ]
+}

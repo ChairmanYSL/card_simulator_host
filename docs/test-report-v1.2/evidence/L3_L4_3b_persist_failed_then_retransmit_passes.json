@@ -1,0 +1,151 @@
+{
+  "scenario": "L4_3b_persist_failed_then_retransmit_passes",
+  "started_at": "2026-09-14 14:53:08",
+  "finished_at": "2026-09-14 14:53:23",
+  "run_id": "20260914T145311_95107b78",
+  "runs_root": "E:\\Work\\ZT\\card_simulator_host\\runs",
+  "cases_root": "E:\\Work\\ZT\\card_simulator_host\\cases",
+  "serve_extra": [
+    "--trace-enabled"
+  ],
+  "overall_ok": true,
+  "checks": [
+    {
+      "name": "host reported the persist failure",
+      "expected": true,
+      "actual": true,
+      "ok": true
+    },
+    {
+      "name": "run still waiting (not judged)",
+      "expected": true,
+      "actual": true,
+      "ok": true
+    },
+    {
+      "name": "retry client made at least 2 attempts",
+      "expected": true,
+      "actual": true,
+      "ok": true
+    },
+    {
+      "name": "first attempt was persist_failed",
+      "expected": "persist_failed",
+      "actual": "persist_failed",
+      "ok": true
+    },
+    {
+      "name": "a later attempt was persisted",
+      "expected": "persisted",
+      "actual": "persisted",
+      "ok": true
+    },
+    {
+      "name": "retry persisted as PASS",
+      "expected": "PASS",
+      "actual": "PASS",
+      "ok": true
+    },
+    {
+      "name": "run.status",
+      "expected": "FINISHED",
+      "actual": "FINISHED",
+      "ok": true
+    }
+  ],
+  "failed_checks": [],
+  "notes": [],
+  "extra": {
+    "run_status": "FINISHED",
+    "result": {
+      "case_id": "VISA-CL-001",
+      "attempt": 0,
+      "attempt_id": "0de3f93f7dca4c499bd839710d4193fc",
+      "received_at": 1789368803.3589928,
+      "raw_result": {
+        "resp_code": "00",
+        "outcome": "approved",
+        "online": "offline",
+        "approval_code": "112233",
+        "cvm": "no_cvm",
+        "tags": {
+          "gen_ac": {
+            "9F26": "AABBCCDDEEFF0011",
+            "9F27": "8000000000"
+          }
+        },
+        "amount": "100.00",
+        "currency": "156",
+        "entry_mode": "contactless"
+      },
+      "pos_meta": {
+        "device_id": "rawretry",
+        "app_version": null,
+        "ts": 1789368803.358555,
+        "msg_id": "cc0d6fb0f0d8411cac5256f9077fe958"
+      },
+      "verdict": {
+        "status": "PASS",
+        "rules": [
+          {
+            "path": "resp_code",
+            "op": "eq",
+            "expect": "00",
+            "severity": "pass",
+            "ok": true,
+            "actual": "00",
+            "message": "resp_code eq '00': actual='00'"
+          },
+          {
+            "path": "outcome",
+            "op": "eq",
+            "expect": "approved",
+            "severity": "pass",
+            "ok": true,
+            "actual": "approved",
+            "message": "outcome eq 'approved': actual='approved'"
+          },
+          {
+            "path": "online",
+            "op": "eq",
+            "expect": "offline",
+            "severity": "pass",
+            "ok": true,
+            "actual": "offline",
+            "message": "online eq 'offline': actual='offline'"
+          },
+          {
+            "path": "tags.gen_ac.9F26",
+            "op": "present",
+            "expect": null,
+            "severity": "pass",
+            "ok": true,
+            "actual": "AABBCCDDEEFF0011",
+            "message": "tags.gen_ac.9F26 present"
+          }
+        ]
+      },
+      "status": "PASS",
+      "finished_at": 1789368803.3590367
+    },
+    "retry_attempts": [
+      {
+        "n": 1,
+        "msg_id": "840781e298854ab68e6d043cf40cb875",
+        "ok": false,
+        "detail": "persist_failed"
+      },
+      {
+        "n": 2,
+        "msg_id": "cc0d6fb0f0d8411cac5256f9077fe958",
+        "ok": true,
+        "detail": "persisted"
+      }
+    ]
+  },
+  "logs": {
+    "host": "### [2026-09-14 14:53:09] launched: C:\\Python314\\python.exe -m emv_host serve --port 8000 --device-port 9100 --cases E:\\Work\\ZT\\card_simulator_host\\cases --runs E:\\Work\\ZT\\card_simulator_host\\runs --log-dir E:\\Work\\ZT\\card_simulator_host\\tmp\\v12test\\proc\\L4_3b_persist_failed_then_retransmit_passes_logs --trace-enabled (cwd=E:\\Work\\ZT\\card_simulator_host) pid=33940\n2026-09-14 14:53:10,117 INFO    emv_host.cases | scheme visa: loaded local kernel params (AID=19 CAPK=28 term=yes)\n2026-09-14 14:53:10,125 WARNING emv_host.cli | E:\\Work\\ZT\\card_simulator_host\\cases\\visa\\kernel_params.json: [visa] kernel_params.aid[15] D9999999992020 除 9F06 外没有任何元素\n2026-09-14 14:53:10,125 WARNING emv_host.cli | E:\\Work\\ZT\\card_simulator_host\\cases\\visa\\kernel_params.json: [visa] kernel_params.aid[16] D666666666 除 9F06 外没有任何元素\n2026-09-14 14:53:10,125 WARNING emv_host.cli | E:\\Work\\ZT\\card_simulator_host\\cases\\visa\\kernel_params.json: [visa] kernel_params.aid[17] A0000002282010 除 9F06 外没有任何元素\n2026-09-14 14:53:10,125 WARNING emv_host.cli | E:\\Work\\ZT\\card_simulator_host\\cases\\visa\\kernel_params.json: [visa] kernel_params.aid[18] A0000007231010 除 9F06 外没有任何元素\n2026-09-14 14:53:10,239 INFO    emv_host.protocol | device TCP server listening on 0.0.0.0:9100\n2026-09-14 14:53:10,239 INFO    emv_host.protocol | device protocol port: 9100\n2026-09-14 14:53:10,295 INFO    emv_host.cli | EMV test host v0.1.0 starting: web http://127.0.0.1:8000, device TCP 0.0.0.0:9100, cases=E:\\Work\\ZT\\card_simulator_host\\cases\nINFO:     Started server process [33940]\nINFO:     Waiting for application startup.\nINFO:     Application startup complete.\nINFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)\n2026-09-14 14:53:10,852 INFO    emv_host.protocol | connection closed: ?@127.0.0.1: peer closed connection\n2026-09-14 14:53:10,882 INFO    emv_host.web | HTTP GET /api/health -> 200 (2 ms)\nINFO:     127.0.0.1:58527 - \"GET /api/health HTTP/1.1\" 200 OK\n2026-09-14 14:53:11,260 INFO    emv_host.protocol | client connected: android@mock-android\n2026-09-14 14:53:11,260 INFO    emv_host.runner | device connected: android@mock-android\n2026-09-14 14:53:11,260 INFO    emv_host.protocol | handshake ok: android@mock-android (device=mock-android app=mock-0.1 protocol=1.2)\n2026-09-14 14:53:11,265 INFO    emv_host.protocol | client connected: pos@rawretry\n2026-09-14 14:53:11,266 INFO    emv_host.runner | device connected: pos@rawretry\n2026-09-14 14:53:11,266 INFO    emv_host.protocol | handshake ok: pos@rawretry (device=rawretry app=rawretry-0.1 protocol=1.2)\n2026-09-14 14:53:11,299 INFO    emv_host.web | HTTP GET /api/health -> 200 (1 ms)\nINFO:     127.0.0.1:58534 - \"GET /api/health HTTP/1.1\" 200 OK\n2026-09-14 14:53:11,788 INFO    emv_host.runner | run 20260914T145311_95107b78 queued: visa/contactless (1 cases, kind=single)\n2026-09-14 14:53:11,794 INFO    emv_host.runner | run 20260914T145311_95107b78 started: visa/contactless\n2026-09-14 14:53:11,799 INFO    emv_host.runner | [VISA-CL-001] attempt 0 starting\n2026-09-14 14:53:11,800 INFO    emv_host.web | HTTP POST /api/run -> 200 (19 ms)\nINFO:     127.0.0.1:58535 - \"POST /api/run HTTP/1.1\" 200 OK\n2026-09-14 14:53:11,800 INFO    emv_host.runner | [android] ready ac_crypto=fake profile=VISA-CL-001\n2026-09-14 14:53:12,317 INFO    emv_host.runner | android status: emulating (case=VISA-CL-001)\n2026-09-14 14:53:12,318 INFO    emv_host.runner | [android] trace case=VISA-CL-001 attempt=0de3f93f7dca4c499bd839710d4193fc: {'event': 'apdu', 'direction': 'COMMAND', 'seq': 1, 'cla': 0, 'ins': 164, 'p1': 4, 'p2': 0, 'data_hex': '325041592E5359532E4444463031', 'elapsed_ms': 0}\n2026-09-14 14:53:12,321 INFO    emv_host.runner | [android] trace case=VISA-CL-001 attempt=0de3f93f7dca4c499bd839710d4193fc: {'event': 'apdu', 'direction': 'RESPONSE', 'seq': 1, 'data_hex': '6F1A840E325041592E5359532E4444463031', 'sw': '9000', 'elapsed_ms': 12}\n2026-09-14 14:53:12,323 INFO    emv_host.runner | [android] trace case=VISA-CL-001 attempt=0de3f93f7dca4c499bd839710d4193fc: {'event': 'apdu', 'direction': 'COMMAND', 'seq': 2, 'cla': 0, 'ins': 164, 'p1': 4, 'p2': 0, 'data_hex': '325041592E5359532E4444463031', 'elapsed_ms': 0}\n2026-09-14 14:53:12,326 INFO    emv_host.runner | [android] trace case=VISA-CL-001 attempt=0de3f93f7dca4c499bd839710d4193fc: {'event': 'apdu', 'direction': 'RESPONSE', 'seq': 2, 'data_hex': '6F1A840E325041592E5359532E4444463031', 'sw': '9000', 'elapsed_ms': 12}\n2026-09-14 14:53:12,327 INFO    emv_host.runner | [VISA-CL-001] pos_kernel_config applied (AID 19 条 / CAPK 28 条)\n2026-09-14 14:53:12,328 INFO    emv_host.runner | [VISA-CL-001] pos_config applied (4 项 tag 参数)\n2026-09-14 14:53:17,344 ERROR   emv_host.runner | failed to persist transaction_result for VISA-CL-001\nTraceback (most recent call last):\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\runner\\executor.py\", line 450, in _on_transaction_result\n    outcome, detail = self._judge(session, case, frame)\n                      ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\runner\\executor.py\", line 985, in _judge\n    self.store.write_case_result(session.run, case.case_id, record)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\store\\run_store.py\", line 127, in write_case_result\n    _atomic_write_json(path, record)\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\store\\run_store.py\", line 44, in _atomic_write_json\n    os.replace(tmp, path)\n    ~~~~~~~~~~^^^^^^^^^^^\nPermissionError: [WinError 5] 拒绝访问。: 'E:\\\\Work\\\\ZT\\\\card_simulator_host\\\\runs\\\\2026-09-14\\\\20260914T145311_95107b78\\\\results\\\\VISA-CL-001.json.tmp' -> 'E:\\\\Work\\\\ZT\\\\card_simulator_host\\\\runs\\\\2026-09-14\\\\20260914T145311_95107b78\\\\results\\\\VISA-CL-001.json'\n2026-09-14 14:53:17,347 ERROR   emv_host.runner | [VISA-CL-001] 结果落盘失败，未 ack 成功：[WinError 5] 拒绝访问。: 'E:\\\\Work\\\\ZT\\\\card_simulator_host\\\\runs\\\\2026-09-14\\\\20260914T145311_95107b78\\\\results\\\\VISA-CL-001.json.tmp' -> 'E:\\\\Work\\\\ZT\\\\card_simulator_host\\\\runs\\\\2026-09-14\\\\20260914T145311_95107b78\\\\results\\\\VISA-CL-001.json'\n2026-09-14 14:53:23,373 INFO    emv_host.runner | transaction result received for VISA-CL-001 attempt 0de3f93f7dca4c499bd839710d4193fc -> pass\n2026-09-14 14:53:23,374 INFO    emv_host.runner | [VISA-CL-001] attempt 0 -> pass\n2026-09-14 14:53:23,383 INFO    emv_host.runner | [VISA-CL-001] final: PASS\n2026-09-14 14:53:23,393 INFO    emv_host.runner | run 20260914T145311_95107b78 ended: FINISHED (completed)\n2026-09-14 14:53:23,394 INFO    emv_host.runner | android status: stopped (case=VISA-CL-001)\n2026-09-14 14:53:23,394 INFO    emv_host.protocol | connection closed: pos@rawretry: peer closed connection\n2026-09-14 14:53:23,394 WARNING emv_host.runner | device disconnected: pos@rawretry\n2026-09-14 14:53:23,598 ERROR   emv_host.protocol | unexpected connection error for ('127.0.0.1', 58532): [WinError 64] 指定的网络名不再可用。\nTraceback (most recent call last):\n  File \"C:\\Python314\\Lib\\asyncio\\windows_events.py\", line 463, in finish_socket_func\n    return ov.getresult()\n           ~~~~~~~~~~~~^^\nOSError: [WinError 64] 指定的网络名不再可用。\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\protocol\\server.py\", line 75, in _drive\n    await conn.run()\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\protocol\\connection.py\", line 109, in run\n    await self._read_loop()\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\protocol\\connection.py\", line 192, in _read_loop\n    frame = await asyncio.wait_for(\n            ^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n    )\n    ^\n  File \"C:\\Python314\\Lib\\asyncio\\tasks.py\", line 488, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\protocol\\connection.py\", line 180, in reader_read_frame\n    return await read_frame(self.reader)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\Work\\ZT\\card_simulator_host\\backend\\emv_host\\protocol\\frame.py\", line 49, in read_frame\n    header = await reader.readexactly(HEADER_LEN)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Python314\\Lib\\asyncio\\streams.py\", line 769, in readexactly\n    await self._wait_for_data('readexactly')\n  File \"C:\\Python314\\Lib\\asyncio\\streams.py\", line 539, in _wait_for_data\n    await self._waiter\n  File \"C:\\Python314\\Lib\\asyncio\\proactor_events.py\", line 286, in _loop_reading\n    length = fut.result()\n  File \"C:\\Python314\\Lib\\asyncio\\windows_events.py\", line 804, in _poll\n    value = callback(transferred, key, ov)\n  File \"C:\\Python314\\Lib\\asyncio\\windows_events.py\", line 467, in finish_socket_func\n    raise ConnectionResetError(*exc.args)\nConnectionResetError: [WinError 64] 指定的网络名不再可用。\n2026-09-14 14:53:23,603 WARNING emv_host.runner | device disconnected: android@mock-android\nINFO:     Shutting down\nINFO:     Waiting for application shutdown.\nINFO:     Application shutdown complete.\nINFO:     Finished server process [33940]\n2026-09-14 14:53:23,726 INFO    emv_host.cli | bye\n",
+    "android": "### [2026-09-14 14:53:10] launched: C:\\Python314\\python.exe E:\\Work\\ZT\\card_simulator_host\\tools\\mock_clients\\mock_android.py --port 9100 --tap-delay 0.5 (cwd=E:\\Work\\ZT\\card_simulator_host) pid=68916\n[android] connected, session android-1789368791259-58532\n[android] card_config: profile=VISA-CL-001 acBehavior=offline_approved keys=no trace=True noResponseCommands=(none)\n[android] status: ready\n[android] start_emulation case=VISA-CL-001 attempt=0de3f93f7dca4c499bd839710d4193fc\n[android] status: emulating (case=VISA-CL-001)\n[android] trace: emitted 2 APDU pairs\n[android] status: stopped (case=VISA-CL-001)\n",
+    "pos": ""
+  }
+}

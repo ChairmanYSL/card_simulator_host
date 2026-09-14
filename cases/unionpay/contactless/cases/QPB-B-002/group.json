@@ -1,0 +1,35 @@
+{
+  "group_id": "QPB-B-002",
+  "title": "QPB.B.002.00 状态检查请求（Status Check Requested）",
+  "summary": "授权金额为一个货币单位且低于各限额时，读写器应在终端交易属性9F66 中请求联机密文（字节2位8='1'）",
+  "purpose": "读卡器支持状态检查；授权金额 < 读写器非接触脱机金额（若存在）；授权金额 < 最低限额（若存在）；要求进行状态检查（即：授权金额为一个货币单位）",
+  "test_conditions": "读卡器支持状态检查；授权金额为一个货币单位且低于读写器非接触脱机金额/最低限额",
+  "scheme": "unionpay",
+  "entry_mode": "contactless",
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "交易预处理和探测卡片成功完成",
+      "expect": "进入应用选择流程"
+    },
+    {
+      "step": 2,
+      "action": "选择应用：卡片 SELECT AID 的 FCI 响应含 9F38 PDOL（请求 9F37/9F02/5F2A/9F66）",
+      "expect": "读写器取得 PDOL"
+    },
+    {
+      "step": 3,
+      "action": "初始化应用处理：读写器按 PDOL 组 GPO 命令数据，其中含终端交易属性 9F66",
+      "expect": "卡片收到含 9F66 的 GPO 命令并正常应答"
+    },
+    {
+      "step": 4,
+      "action": "授权金额（标签 9F02）为：小于读写器非接触交易最低限额；小于相关最低限额；一个货币单位（0.01）",
+      "expect": "读写器在 9F66 字节2位8='1' 请求联机密文，执行联机授权"
+    }
+  ],
+  "pass_criteria": [
+    "读写器应在终端交易属性（标签 9F66）中表示请求联机密文，即字节2位8='1'（本 demo 期望 9F66=36804000）。",
+    "本 host 断言映射（用户约定）：result.tags.gpo.9F66=36804000；outcome=approved、online=online、resp_code=00（需测试收单主机）。"
+  ]
+}

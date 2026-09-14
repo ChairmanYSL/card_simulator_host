@@ -1,0 +1,129 @@
+{
+  "case_id": "VISA-CL-004",
+  "title": "Visa contactless transaction data tags present",
+  "summary": "contactless transaction with ac_behavior=offline_approved",
+  "scheme": "visa",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "VISA-CL-004",
+    "name": "Visa transaction data tags present",
+    "network": "VISA",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A0000000031010",
+        "label": "VISA CREDIT",
+        "priority": 0
+      }
+    ],
+    "pan": "4761340400000007",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "281231",
+    "cardholderName": "VISA TEST CARD",
+    "track2EquivalentData": "343736313334303430303030303030373d32383132323031",
+    "applicationLabel": "VISA CREDIT",
+    "applicationVersionNumber": "0001",
+    "aip": "5800",
+    "afl": "08010100",
+    "issuerCountryCode": "0156",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "cardholderName",
+          "expiryDate",
+          "issuerCountryCode",
+          "cvmList"
+        ]
+      }
+    ],
+    "acBehavior": "offline_approved"
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "100.00",
+      "currency": "CNY",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "tap the phone on the POS reader when it shows the amount"
+    },
+    "expected_values": {
+      "amount": "100.00",
+      "currency": "156",
+      "entry_mode": "contactless"
+    },
+    "pos_params": [
+      {
+        "tag": "9F02",
+        "name": "amount",
+        "value": "100.00"
+      },
+      {
+        "tag": "5F2A",
+        "name": "currency",
+        "value": "156"
+      },
+      {
+        "tag": "9C",
+        "name": "transaction_type",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS in sale mode, amount entered manually by operator"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes card profile and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "host pushes POS transaction parameters (tags)",
+      "expect": "POS applies them before the operator finishes the transaction"
+    },
+    {
+      "step": 3,
+      "action": "operator enters 100.00 on the POS and completes the transaction with the simulated card",
+      "expect": "POS app reports transaction_result"
+    },
+    {
+      "step": 4,
+      "action": "host asserts expected_results",
+      "expect": "case judged PASS/FAIL/WARN"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    },
+    {
+      "path": "tags.gen_ac.9F26",
+      "op": "present"
+    },
+    {
+      "path": "tags.gen_ac.9F10",
+      "op": "present"
+    },
+    {
+      "path": "tags.gen_ac.5F2A",
+      "op": "eq",
+      "expect": "0156"
+    },
+    {
+      "path": "amount",
+      "op": "eq",
+      "expect": "100.00"
+    }
+  ]
+}

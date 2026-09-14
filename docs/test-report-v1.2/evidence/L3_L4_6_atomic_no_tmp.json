@@ -1,0 +1,36 @@
+{
+  "scenario": "L4_6_atomic_no_tmp",
+  "started_at": "2026-09-14 14:53:35",
+  "finished_at": "2026-09-14 14:53:36",
+  "run_id": null,
+  "runs_root": "E:\\Work\\ZT\\card_simulator_host\\runs",
+  "cases_root": "E:\\Work\\ZT\\card_simulator_host\\cases",
+  "serve_extra": [],
+  "overall_ok": true,
+  "checks": [
+    {
+      "name": "no *.tmp residue under runs/",
+      "expected": [],
+      "actual": [],
+      "ok": true
+    },
+    {
+      "name": "no *.tmp residue under the temp cases roots",
+      "expected": [],
+      "actual": [],
+      "ok": true
+    }
+  ],
+  "failed_checks": [],
+  "notes": [],
+  "extra": {
+    "runs_tmp": [],
+    "cases_tmp": [],
+    "runs_scanned": "E:\\Work\\ZT\\card_simulator_host\\runs"
+  },
+  "logs": {
+    "host": "",
+    "android": "",
+    "pos": ""
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "results": [
+    {
+      "id": "U-1",
+      "name": "ber_length short/long form",
+      "ok": true,
+      "detail": "0x7F=b'\\x7f' 0x80=b'\\x81\\x80' 248=b'\\x81\\xf8'"
+    },
+    {
+      "id": "U-2",
+      "name": "248B modulus encode->decode round-trip",
+      "ok": true,
+      "detail": "DF02 len=248B identical=True; tags=['9F06', '9F22', 'DF02', 'DF03', 'DF04', 'DF05', 'DF06', 'DF07']"
+    },
+    {
+      "id": "U-3",
+      "name": "auto DF03 == SHA1(9F06||9F22||DF02||DF04)",
+      "ok": true,
+      "detail": "DF03=FDBBB121294034B5D899A25854FB15547CDA274E expected=FDBBB121294034B5D899A25854FB15547CDA274E"
+    },
+    {
+      "id": "U-4",
+      "name": "DF05=PHWWIPQI rejected at model layer (ValueError)",
+      "ok": true,
+      "detail": "raised=True msg='1 validation error for CapkParam'"
+    },
+    {
+      "id": "U-5",
+      "name": "9F06: 9B rejected, 7B/8B accepted",
+      "ok": true,
+      "detail": "9B rejected=True 7B accepted=True 8B accepted=True"
+    },
+    {
+      "id": "U-6",
+      "name": "validate_kernel_params(None, x) -> no issues",
+      "ok": true,
+      "detail": "issues=[]"
+    },
+    {
+      "id": "U-7",
+      "name": "KernelParams().empty is True",
+      "ok": true,
+      "detail": "empty=True aids=[] caps=[] term=''"
+    }
+  ],
+  "failed": []
+}

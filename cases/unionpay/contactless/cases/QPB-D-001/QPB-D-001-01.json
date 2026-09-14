@@ -1,0 +1,110 @@
+{
+  "case_id": "QPB-D-001-01",
+  "title": "卡片返回格式正确的FCI信息",
+  "summary": "PPSE 子案例：PPSE 正常 FCI(auto)（档案随案例内嵌）",
+  "scheme": "unionpay",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "QPB-D-001-01",
+    "name": "UnionPay PPSE 正常 FCI(auto)",
+    "network": "UNIONPAY",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000333010101",
+        "label": "UNIONPAY",
+        "priority": 0
+      }
+    ],
+    "pan": "6222021000000005",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "281231",
+    "cardholderName": "UP TEST CARD",
+    "track2EquivalentData": "363232323032313030303030303030353d32383132323031",
+    "applicationLabel": "UNIONPAY",
+    "applicationVersionNumber": "0001",
+    "aip": "5800",
+    "afl": "08010100",
+    "issuerCountryCode": "0156",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "cardholderName",
+          "expiryDate",
+          "issuerCountryCode",
+          "cvmList"
+        ]
+      }
+    ],
+    "acBehavior": "offline_approved"
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "100.00",
+      "currency": "CNY",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "将手机贴到 POS 读卡器"
+    },
+    "expected_values": {
+      "amount": "100.00",
+      "currency": "156",
+      "entry_mode": "contactless"
+    },
+    "pos_params": [
+      {
+        "tag": "9F02",
+        "name": "amount",
+        "value": "100.00"
+      },
+      {
+        "tag": "5F2A",
+        "name": "currency",
+        "value": "156"
+      },
+      {
+        "tag": "9F33",
+        "name": "terminal_capabilities",
+        "value": "E0F0C8"
+      }
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发卡片档案并启动模拟",
+      "expect": "安卓上报 emulating"
+    },
+    {
+      "step": 2,
+      "action": "主机向 POS 下发交易参数（tag 列表）",
+      "expect": "POS 应用参数后进入交易"
+    },
+    {
+      "step": 3,
+      "action": "操作员在 POS 上发起 100.00 元交易",
+      "expect": "读写器以 '2PAY.SYS.DDF01' 发第一个 SELECT 命令，交易批准（期望 approved）"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    },
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    }
+  ]
+}

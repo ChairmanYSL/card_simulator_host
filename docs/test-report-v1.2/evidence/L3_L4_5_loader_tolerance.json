@@ -1,0 +1,70 @@
+{
+  "scenario": "L4_5_loader_tolerance",
+  "started_at": "2026-09-14 14:53:34",
+  "finished_at": "2026-09-14 14:53:35",
+  "run_id": null,
+  "runs_root": "E:\\Work\\ZT\\card_simulator_host\\runs",
+  "cases_root": "E:\\Work\\ZT\\card_simulator_host\\cases",
+  "serve_extra": [],
+  "overall_ok": true,
+  "checks": [
+    {
+      "name": "load_library did not raise",
+      "expected": null,
+      "actual": null,
+      "ok": true
+    },
+    {
+      "name": "VISA-CL-001 still listed",
+      "expected": true,
+      "actual": true,
+      "ok": true
+    },
+    {
+      "name": "BROKEN-001 recorded as an error",
+      "expected": "present=True",
+      "actual": "present: 'BROKEN-001' (count=1)",
+      "ok": true
+    },
+    {
+      "name": "duplicate case_id is an error",
+      "expected": "present=True",
+      "actual": "present: '重复' (count=1)",
+      "ok": true
+    },
+    {
+      "name": "standalone copy kept (not the group copy)",
+      "expected": "STANDALONE COPY WINS",
+      "actual": "STANDALONE COPY WINS",
+      "ok": true
+    }
+  ],
+  "failed_checks": [],
+  "notes": [],
+  "extra": {
+    "ids": [
+      "OPBD-001-01",
+      "OPBD-001-02",
+      "OPBD-001-03",
+      "OPBD-001-04",
+      "VISA-CL-001",
+      "VISA-CL-002",
+      "VISA-CL-003",
+      "VISA-CL-004"
+    ],
+    "errors": [
+      "案例文件无法读取（缺失/权限/编码错误）或不是合法 JSON 对象",
+      "case_id 'VISA-CL-001' 重复（visa/contactless 中已存在同号案例：'STANDALONE COPY WINS'），该文件被忽略"
+    ],
+    "error_paths": [
+      "E:\\Work\\ZT\\card_simulator_host\\tmp\\v12test\\cases\\badlib\\visa\\contactless\\cases\\BROKEN-001.json",
+      "E:\\Work\\ZT\\card_simulator_host\\tmp\\v12test\\cases\\badlib\\visa\\contactless\\cases\\OPBD-900\\VISA-CL-001.json"
+    ],
+    "kept_title": "STANDALONE COPY WINS"
+  },
+  "logs": {
+    "host": "",
+    "android": "",
+    "pos": ""
+  }
+}

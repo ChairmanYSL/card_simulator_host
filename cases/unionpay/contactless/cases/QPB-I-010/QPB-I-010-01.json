@@ -1,0 +1,118 @@
+{
+  "case_id": "QPB-I-010-01",
+  "title": "交易不能联机完成（读写器拒绝交易）",
+  "summary": "GPO 响应含 9F10（第5字节第6-5位='10'）；联机主机无响应；读写器应拒绝交易（档案随案例内嵌）",
+  "scheme": "unionpay",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "QPB-I-010-01",
+    "name": "UnionPay 交易不能联机完成（拒绝交易）",
+    "network": "UNIONPAY",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000333010101",
+        "label": "UNIONPAY",
+        "priority": 0
+      }
+    ],
+    "pan": "6222020800000009",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "281231",
+    "cardholderName": "UP TEST CARD",
+    "track2EquivalentData": "363232323032303830303030303030393d32383132323031",
+    "applicationLabel": "UNIONPAY",
+    "applicationVersionNumber": "0001",
+    "aip": "5800",
+    "afl": "08010100",
+    "issuerCountryCode": "0156",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "cardholderName",
+          "expiryDate",
+          "issuerCountryCode",
+          "cvmList"
+        ]
+      }
+    ],
+    "acBehavior": "online_request",
+    "issuerApplicationData": "22109042032400000000000000233310FFFF00000007419400FF"
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "100.00",
+      "currency": "CNY",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "将手机贴到 POS 读卡器；POS 将尝试联机授权，但测试环境后台不响应，读写器应拒绝交易并提示商户/持卡人"
+    },
+    "expected_values": {
+      "amount": "100.00",
+      "currency": "156",
+      "entry_mode": "contactless"
+    },
+    "pos_params": [
+      {
+        "tag": "9F02",
+        "name": "amount",
+        "value": "100.00"
+      },
+      {
+        "tag": "5F2A",
+        "name": "currency",
+        "value": "156"
+      },
+      {
+        "tag": "9F33",
+        "name": "terminal_capabilities",
+        "value": "E0F0C8"
+      }
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台",
+    "POS 具备联机能力，且联机通道不可用（收单/发卡行主机无响应），确保'联机交易不能完成'",
+    "真实交互需真实 POS（mock 客户端不回放'主机无响应'场景）"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发卡片档案（acBehavior=online_request；GPO 响应含 9F10）并启动模拟",
+      "expect": "安卓上报 emulating"
+    },
+    {
+      "step": 2,
+      "action": "主机向 POS 下发交易参数（tag 列表）",
+      "expect": "POS 应用参数后进入交易"
+    },
+    {
+      "step": 3,
+      "action": "操作员在 POS 发起 100.00 元交易；卡片返回 GPO 响应（含 9F10），终端尝试联机但主机无响应",
+      "expect": "读写器拒绝交易并提示商户和持卡人，POS 回传 declined 结果"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "declined"
+    },
+    {
+      "path": "resp_code",
+      "op": "any_of",
+      "expect": [
+        "05",
+        "91",
+        "16",
+        "80"
+      ]
+    }
+  ]
+}

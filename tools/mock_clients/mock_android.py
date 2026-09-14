@@ -1,0 +1,140 @@
+"""Mock Android card simulator (protocol v1.2).
+
+Behavior:
+* handshake carries protocol_version "1.2";
+* card_config -> ack (+ replies status ready with detail {profile_id,
+  default_payment_app, registered_aids, ac_crypto}); the trace switch travels
+  in card_config.trace_enabled (v1.2 R1) — device_config no longer exists;
+* start_emulation -> ack, then (after --tap-delay) status "emulating";
+  with --trace it additionally emits structured APDU trace events (log level
+  "trace") while trace_enabled from card_config;
+* stop_emulation -> ack + status "stopped" (AID registrations/profile kept,
+  kernel reset only - v1.1 H9);
+* session_abort -> ack (v1.2: host tells both sides the run ended abnormally).
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from mock_common import MockClient, common_args, main_async  # noqa: E402 (adds backend to path)
+
+from emv_host.protocol.messages import (  # noqa: E402
+    MSG_CONFIG_PUSH,
+    MSG_LOG,
+    MSG_SESSION_ABORT,
+    MSG_START_EMULATION,
+    MSG_STATUS,
+    MSG_STOP_EMULATION,
+    make_frame,
+)
+
+
+async def _status(client: MockClient, state: str, case_id, attempt_id, detail=None):
+    frame = make_frame(MSG_STATUS, state=state, case_id=case_id,
+                       attempt_id=attempt_id)
+    if detail:
+        frame["detail"] = detail
+    await client.send(frame)
+
+
+async def _trace_apdu(client: MockClient, case_id: str, attempt_id: str,
+                      seq: int) -> None:
+    """Emit one synthetic PPSE/SELECT trace event pair (Phase-A format)."""
+    command = {
+        "event": "apdu", "direction": "COMMAND", "seq": seq,
+        "cla": 0, "ins": 0xA4, "p1": 4, "p2": 0,
+        "data_hex": "325041592E5359532E4444463031", "elapsed_ms": 0,
+    }
+    await client.send(make_frame(
+        MSG_LOG, level="trace", message=command,
+        case_id=case_id, attempt_id=attempt_id))
+    response = {
+        "event": "apdu", "direction": "RESPONSE", "seq": seq,
+        "data_hex": "6F1A840E325041592E5359532E4444463031", "sw": "9000",
+        "elapsed_ms": 12,
+    }
+    await client.send(make_frame(
+        MSG_LOG, level="trace", message=response,
+        case_id=case_id, attempt_id=attempt_id))
+
+
+async def on_message(client: MockClient, frame: dict) -> None:
+    msg_type = frame.get("type")
+    msg_id = frame.get("msg_id", "")
+    case_id = frame.get("case_id")
+    attempt_id = frame.get("attempt_id")
+
+    if msg_type == MSG_CONFIG_PUSH:
+        await client.send_ack(msg_id)
+        config_type = frame.get("config_type")
+        if config_type == "card_config":
+            # v1.2 R1: the trace switch comes from card_config, not from a
+            # separate device_config push (that frame is gone in v1.2)
+            client.trace_enabled = bool(frame.get("trace_enabled"))
+            profile = frame.get("profile") or {}
+            keys = frame.get("keys")
+            has_keys = bool(keys and (keys.get("symmetric_keys") or
+                                      keys.get("rsa_keys") or keys.get("certificates")))
+            client._current_profile = profile.get("id")
+            no_resp = profile.get("noResponseCommands") or []
+            client.log(f"card_config: profile={profile.get('id')} "
+                       f"acBehavior={profile.get('acBehavior')} keys={'yes' if has_keys else 'no'} "
+                       f"trace={client.trace_enabled} "
+                       f"noResponseCommands={no_resp if no_resp else '(none)'}")
+            await _status(client, "ready", case_id, attempt_id, {
+                "profile_id": profile.get("id"),
+                "default_payment_app": client.default_payment_app,
+                "registered_aids": [a.get("aid") for a in profile.get("aids", [])],
+                "ac_crypto": "real" if has_keys else "fake",
+            })
+            client.log("status: ready")
+        elif config_type == "pos_config":
+            client.log("ignored pos_config (card side never receives it)")
+        else:
+            client.log("unknown config_type:", config_type)
+    elif msg_type == MSG_START_EMULATION:
+        await client.send_ack(msg_id)
+        client.log(f"start_emulation case={case_id} attempt={attempt_id}")
+        profile_id = getattr(client, "_current_profile", None)
+        await asyncio.sleep(client.tap_delay)
+        await _status(client, "emulating", case_id, attempt_id,
+                      {"profile_id": profile_id} if profile_id else None)
+        client.log(f"status: emulating (case={case_id})")
+        if client.trace_enabled:
+            await _trace_apdu(client, case_id, attempt_id, 1)
+            await _trace_apdu(client, case_id, attempt_id, 2)
+            client.log("trace: emitted 2 APDU pairs")
+    elif msg_type == MSG_STOP_EMULATION:
+        await client.send_ack(msg_id)
+        await _status(client, "stopped", case_id, attempt_id,
+                      {"profile_id": getattr(client, "_current_profile", None)})
+        client.log(f"status: stopped (case={case_id})")
+    elif msg_type == MSG_SESSION_ABORT:
+        # v1.2: abnormal-stop notice; ack only, the card is already parked
+        await client.send_ack(msg_id)
+        client.log(f"session_abort reason={frame.get('reason')} "
+                   f"case={case_id} -> ack")
+    else:
+        client.log("ignored frame type:", msg_type)
+
+
+def make_client(args) -> MockClient:
+    client = MockClient(
+        "android", args.device_id or "mock-android", on_message,
+        host=args.host, port=args.port, token=args.token,
+        reconnect=not args.no_reconnect)
+    client.tap_delay = args.tap_delay
+    client.trace_enabled = False
+    client.default_payment_app = not args.not_default_payment_app
+    client._current_profile = None
+    return client
+
+
+if __name__ == "__main__":
+    parser = common_args("mock Android card simulator (protocol v1.2)")
+    parser.add_argument("--tap-delay", type=float, default=1.0,
+                        help="seconds between start_emulation and 'emulating'")
+    parser.add_argument("--not-default-payment-app", action="store_true",
+                        help="report default_payment_app=false in ready")
+    main_async(parser, make_client)

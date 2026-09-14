@@ -1,0 +1,116 @@
+{
+  "case_id": "UPI-CL-007",
+  "title": "UnionPay contactless GPO 首次不响应后恢复正常（times=1）",
+  "summary": "noResponseCommands=首次 GPO 无响应，重试后卡片正常应答，交易批准（档案随案例内嵌）",
+  "scheme": "unionpay",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "UPI-CL-007",
+    "name": "UnionPay GPO 首次不响应后恢复正常（times=1）",
+    "network": "UNIONPAY",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000333010101",
+        "label": "UNIONPAY",
+        "priority": 0
+      }
+    ],
+    "pan": "6222020700000000",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "281231",
+    "cardholderName": "UP TEST CARD",
+    "track2EquivalentData": "363232323032303730303030303030303d32383132323031",
+    "applicationLabel": "UNIONPAY",
+    "applicationVersionNumber": "0001",
+    "aip": "5800",
+    "afl": "08010100",
+    "issuerCountryCode": "0156",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "cardholderName",
+          "expiryDate",
+          "issuerCountryCode",
+          "cvmList"
+        ]
+      }
+    ],
+    "acBehavior": "offline_approved",
+    "noResponseCommands": [
+      {
+        "command": "GPO",
+        "times": 1
+      }
+    ]
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "100.00",
+      "currency": "CNY",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "将手机贴到 POS 读卡器；观察 POS 对 GPO 无响应的处理"
+    },
+    "expected_values": {
+      "amount": "100.00",
+      "currency": "156",
+      "entry_mode": "contactless"
+    },
+    "pos_params": [
+      {
+        "tag": "9F02",
+        "name": "amount",
+        "value": "100.00"
+      },
+      {
+        "tag": "5F2A",
+        "name": "currency",
+        "value": "156"
+      },
+      {
+        "tag": "9F33",
+        "name": "terminal_capabilities",
+        "value": "E0F0C8"
+      }
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台",
+    "真实交互需支持 APDU 静默的安卓模拟器 + 真实 POS（mock 不回放静默）"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发含 noResponseCommands 的档案并启动模拟",
+      "expect": "安卓上报 emulating 并记录静默指令"
+    },
+    {
+      "step": 2,
+      "action": "操作员在 POS 发起交易，终端执行到 GPO",
+      "expect": "首次 GPO 无响应；真实 POS 内核不再重发 GPO，交易按终端超时/拒绝收尾"
+    }
+  ],
+  "timeout_seconds": 300,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "resp_code",
+      "op": "any_of",
+      "expect": [
+        "80",
+        "91",
+        "05"
+      ]
+    },
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "declined"
+    }
+  ]
+}

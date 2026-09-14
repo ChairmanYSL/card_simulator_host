@@ -1,0 +1,40 @@
+{
+  "group_id": "QPB-I-010",
+  "title": "QPB.I.010.00 交易不能联机完成",
+  "summary": "联机交易不能完成（如主机没有响应）时，读写器应拒绝交易并提示商户和持卡人交易被拒绝",
+  "purpose": "在交易不能联机完成时，确保读写器拒绝交易并提示商户和持卡人交易被拒绝",
+  "test_conditions": "读写器支持拒绝交易；读写器具有联机能力；联机交易不能完成（例如：主机没有响应）",
+  "scheme": "unionpay",
+  "entry_mode": "contactless",
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "交易预处理和探测卡片成功完成",
+      "expect": "进入 PPSE 选择流程"
+    },
+    {
+      "step": 2,
+      "action": "使用 PPSE 方式选择应用",
+      "expect": "应用选择成功"
+    },
+    {
+      "step": 3,
+      "action": "执行初始化应用处理：卡片从读写器接收到 GPO 命令",
+      "expect": "卡片返回 GPO 响应"
+    },
+    {
+      "step": 4,
+      "action": "卡片返回 GPO 响应，含发卡行认证数据（标签 9F10，第5字节第6-5位为 '10'）",
+      "expect": "读写器按卡片返回的数据继续交易"
+    },
+    {
+      "step": 5,
+      "action": "联机交易不能完成（发卡行/主机没有返回响应）",
+      "expect": "读写器拒绝交易并提示商户和持卡人交易被拒绝"
+    }
+  ],
+  "pass_criteria": [
+    "读写器应拒绝交易，读写器应提示商户和持卡人交易被拒绝。",
+    "本 host 断言映射（用户约定）：POS transaction_result 的 outcome=declined，resp_code ∈ {05, 91, 16, 80}。"
+  ]
+}

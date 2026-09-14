@@ -1,0 +1,184 @@
+{
+  "l3_l4_scenarios": [
+    {
+      "scenario": "A_single_pass",
+      "overall_ok": true,
+      "checks": 27,
+      "failed": [],
+      "run_id": "20260914T105224_04a5c8fa"
+    },
+    {
+      "scenario": "B_declined_offline_pass",
+      "overall_ok": true,
+      "checks": 4,
+      "failed": [],
+      "run_id": "20260914T105749_476648ea"
+    },
+    {
+      "scenario": "C_approved_online_pass",
+      "overall_ok": true,
+      "checks": 2,
+      "failed": [],
+      "run_id": "20260914T105311_b843c0a4"
+    },
+    {
+      "scenario": "D_assertion_failed_stops_run",
+      "overall_ok": true,
+      "checks": 8,
+      "failed": [],
+      "run_id": "20260914T105754_8d7623a8"
+    },
+    {
+      "scenario": "E1_android_not_connected",
+      "overall_ok": true,
+      "checks": 4,
+      "failed": [],
+      "run_id": "20260914T105340_f7afedde"
+    },
+    {
+      "scenario": "E2_card_config_ack_timeout",
+      "overall_ok": true,
+      "checks": 5,
+      "failed": [],
+      "run_id": "20260914T105344_cb95e733"
+    },
+    {
+      "scenario": "F_pos_not_connected",
+      "overall_ok": true,
+      "checks": 6,
+      "failed": [],
+      "run_id": "20260914T105859_31e3b2c6"
+    },
+    {
+      "scenario": "G_result_timeout",
+      "overall_ok": true,
+      "checks": 8,
+      "failed": [],
+      "run_id": "20260914T105355_832d2bd2"
+    },
+    {
+      "scenario": "H_fail_then_skipped",
+      "overall_ok": true,
+      "checks": 12,
+      "failed": [],
+      "run_id": "20260914T105419_bfb04e14"
+    },
+    {
+      "scenario": "I_kind_group",
+      "overall_ok": true,
+      "checks": 5,
+      "failed": [],
+      "run_id": "20260914T105441_3fc77923"
+    },
+    {
+      "scenario": "J_manual_abort",
+      "overall_ok": true,
+      "checks": 9,
+      "failed": [],
+      "run_id": "20260914T105821_594975d6"
+    },
+    {
+      "scenario": "M_pos_ack_deadlock",
+      "overall_ok": true,
+      "checks": 6,
+      "failed": [],
+      "run_id": "20260914T105230_e05d2e51"
+    },
+    {
+      "scenario": "handshake_hard_switch",
+      "overall_ok": true,
+      "checks": 11,
+      "failed": [],
+      "run_id": null
+    },
+    {
+      "scenario": "TD0_reverse_no_kernel_params",
+      "overall_ok": true,
+      "checks": 5,
+      "failed": [],
+      "run_id": "20260914T105553_a2a630f2"
+    },
+    {
+      "scenario": "TD0_fail_plan_example_term",
+      "overall_ok": true,
+      "checks": 6,
+      "failed": [],
+      "run_id": "20260914T105559_4fd0b7f3"
+    },
+    {
+      "scenario": "TD0_fail_odd_length_term",
+      "overall_ok": true,
+      "checks": 4,
+      "failed": [],
+      "run_id": "20260914T105605_af375410"
+    },
+    {
+      "scenario": "TD0_fail_reject_kernel",
+      "overall_ok": true,
+      "checks": 7,
+      "failed": [],
+      "run_id": "20260914T105611_84dfff85"
+    }
+  ],
+  "l4_scenarios": [
+    {
+      "scenario": "L4_1_bad_frames",
+      "overall_ok": true,
+      "checks": 16,
+      "failed": []
+    },
+    {
+      "scenario": "L4_2_duplicate_result",
+      "overall_ok": true,
+      "checks": 6,
+      "failed": []
+    },
+    {
+      "scenario": "L4_2b_late_resend_is_quarantined",
+      "overall_ok": true,
+      "checks": 5,
+      "failed": []
+    },
+    {
+      "scenario": "L4_3a_persist_failed_then_timeout",
+      "overall_ok": true,
+      "checks": 7,
+      "failed": []
+    },
+    {
+      "scenario": "L4_3b_persist_failed_then_retransmit_passes",
+      "overall_ok": true,
+      "checks": 7,
+      "failed": []
+    },
+    {
+      "scenario": "L4_4a_android_disconnect",
+      "overall_ok": true,
+      "checks": 5,
+      "failed": []
+    },
+    {
+      "scenario": "L4_4b_pos_disconnect",
+      "overall_ok": true,
+      "checks": 5,
+      "failed": []
+    },
+    {
+      "scenario": "L4_5_loader_tolerance",
+      "overall_ok": true,
+      "checks": 5,
+      "failed": []
+    },
+    {
+      "scenario": "L4_6_atomic_no_tmp",
+      "overall_ok": true,
+      "checks": 2,
+      "failed": []
+    }
+  ],
+  "l3_check_count": 129,
+  "l4_check_count": 58,
+  "total_check_count": 187,
+  "failed_scenarios": [],
+  "all_passed": true
+}

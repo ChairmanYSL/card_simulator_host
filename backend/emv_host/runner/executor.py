@@ -1,0 +1,1047 @@
+"""Run executor: single active run, full orchestration, abort/skip/retry/resume.
+
+Command semantics (three verbs):
+
+* ``stop``   — let the current case finish, then stop (remaining cases untouched);
+* ``abort``  — interrupt the current case immediately (status ABORTED);
+* ``skip``   — mark the current WAIT_RESULT case SKIPPED and move on.
+
+v1.2 failure semantics (D4/D5/Q7/Q9):
+
+* every host->device command requires an ack; a missing/rejected ack (or a
+  disconnected peer) fails the CURRENT case with a structured ``failure_reason``;
+* a FAIL stops the whole run immediately and every case still queued is
+  persisted as SKIPPED (``note=run_stopped_after_failure:<case>``);
+* device loss during a run fails the case — for EITHER side (POS loss used to
+  be warn-only);
+* the POS ack for ``transaction_result`` means "verdict persisted" (D2): the
+  result is judged and written to disk inside ``_on_transaction_result`` before
+  the ack is sent, so a retransmission can only ever be a duplicate;
+* an android-side error keeps case status ERROR with its structured
+  ``error{code,message}``;
+* both sides receive ``session_abort`` (best effort, warn-only acks) whenever a
+  run ends abnormally.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from typing import Any, Awaitable, Callable
+
+from ..cases import CaseLibrary, TestCase
+from ..cases.models import KernelParams
+from ..judge.asserter import assert_result
+from ..protocol.messages import (
+    CLIENT_ANDROID,
+    CLIENT_POS,
+    CONFIG_TYPE_CARD,
+    CONFIG_TYPE_POS,
+    CONFIG_TYPE_POS_KERNEL,
+    MSG_ACK,
+    MSG_CASE_STARTED,
+    MSG_CONFIG_PUSH,
+    MSG_LOG,
+    MSG_SESSION_ABORT,
+    MSG_START_EMULATION,
+    MSG_STATUS,
+    MSG_STOP_EMULATION,
+    MSG_TRANSACTION_RESULT,
+    make_frame,
+    new_msg_id,
+)
+from ..protocol.server import ProtocolServer
+from ..store.run_store import RunStore
+from .session import RunSession
+
+logger = logging.getLogger("emv_host.runner")
+
+# async callback: publish(event: str, data: dict) -> None
+Sink = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+# v1.2: both sides default to these; the executor's per-instance values come
+# from AppConfig (--card-ack-timeout / --pos-ack-timeout).
+CONFIG_ACK_TIMEOUT = 15.0
+EMULATION_READY_TIMEOUT = 15.0
+STOP_ACK_TIMEOUT = 3.0
+ABORT_ACK_TIMEOUT = 3.0
+
+PASSING = {"PASS", "WARN"}
+FINAL_CASE_STATUS = {"PASS", "WARN", "FAIL", "SKIPPED", "ABORTED", "INCONCLUSIVE", "ERROR"}
+# terminal run-level statuses: once persisted, the run loop has fully finished
+TERMINAL_RUN_STATUS = {"FINISHED", "STOPPED", "ABORTED", "INTERRUPTED"}
+
+
+class RunExecutor:
+    def __init__(self, library: CaseLibrary, protocol: ProtocolServer,
+                 store: RunStore, sink: Sink, trace_enabled: bool = False,
+                 logger_host: logging.Logger | None = None,
+                 card_ack_timeout: float = CONFIG_ACK_TIMEOUT,
+                 pos_ack_timeout: float = CONFIG_ACK_TIMEOUT,
+                 stop_ack_timeout: float = STOP_ACK_TIMEOUT,
+                 abort_ack_timeout: float = ABORT_ACK_TIMEOUT):
+        self.library = library
+        self.protocol = protocol
+        self.store = store
+        self.sink = sink
+        self.trace_enabled = trace_enabled
+        self.card_ack_timeout = card_ack_timeout
+        self.pos_ack_timeout = pos_ack_timeout
+        self.stop_ack_timeout = stop_ack_timeout
+        self.abort_ack_timeout = abort_ack_timeout
+        self._session: RunSession | None = None
+        self._task: asyncio.Task | None = None
+        self._session_abort_sent: set[str] = set()
+        self._devices: dict[str, dict[str, Any]] = {
+            CLIENT_ANDROID: {"connected": False, "device_id": None, "app_version": None,
+                             "connected_at": None, "warn": False, "session_id": None},
+            CLIENT_POS: {"connected": False, "device_id": None, "app_version": None,
+                         "connected_at": None, "warn": False, "session_id": None},
+        }
+
+    # -- status ---------------------------------------------------------------
+    @property
+    def busy(self) -> bool:
+        return self._session is not None and self._task is not None and not self._task.done()
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "devices": self._devices,
+            "session": self._session.snapshot() if self._session else None,
+        }
+
+    async def publish(self, event: str, data: dict[str, Any]) -> None:
+        try:
+            await self.sink(event, data)
+        except Exception:  # noqa: BLE001
+            logger.exception("event sink failed for %s", event)
+
+    async def log(self, level: str, message: str) -> None:
+        logger.log(getattr(logging, level.upper(), logging.INFO), "%s", message)
+        await self.publish("log", {"level": level, "message": message, "ts": time.time()})
+
+    # -- diagnostics -----------------------------------------------------------
+    #: 全场统一的贴卡操作提示（联调 run #14 复盘：HCE 会话窗口 <350ms 会让
+    #: 内核在下一条命令上拿到 SW=0000 → -103/-1102/-1133；窗口 ≥800ms 时同用例
+    #: 全 PASS）。追加到每个用例的操作员备注末尾，避免逐用例改文案。
+    _TAP_HOLD_NOTE = ("贴卡后请保持手机贴在读卡器上 ≥1 秒（直到 POS 出结果），"
+                      "避免 HCE 会话在 APDU 序列中途被拆链")
+
+    def _operator_instructions(self, case: TestCase) -> dict[str, Any]:
+        instructions = case.transaction.operator_instructions.model_dump()
+        note = (instructions.get("notes") or "").strip()
+        if self._TAP_HOLD_NOTE not in note:
+            instructions["notes"] = (f"{note}；{self._TAP_HOLD_NOTE}" if note
+                                     else self._TAP_HOLD_NOTE)
+        return instructions
+
+    def _state_diagnostic(self) -> str:
+        """One-line state summary used when a control command is rejected, so a
+        409 in the UI is fully explainable from the log (and the API detail)."""
+        session = self._session
+        if session is None:
+            return "session=none (no run has been started since startup)"
+        run = session.run
+        parts = [f"run_id={run.get('run_id')!r}", f"status={run.get('status')!r}"]
+        if session.current_case_id:
+            parts.append(f"current_case={session.current_case_id!r}")
+            parts.append(f"state={session.current_state!r}")
+        if self._task is None:
+            parts.append("task=none")
+        elif self._task.done():
+            if self._task.cancelled():
+                parts.append("task=cancelled")
+            else:
+                exc = self._task.exception()
+                parts.append("task=done" if exc is None
+                             else f"task=raised {type(exc).__name__}: {exc}")
+        else:
+            parts.append("task=running")
+        return ", ".join(parts)
+
+    def _reject_command(self, verb: str) -> tuple[bool, str]:
+        """Log and build the message for a rejected stop/abort/skip command."""
+        detail = self._state_diagnostic()
+        logger.warning("command '%s' rejected: no run in progress (%s)",
+                       verb, detail)
+        return False, f"no run in progress ({detail})"
+
+    def _fail(self, session: RunSession, reason: str) -> None:
+        """Mark the current case FAIL and stop the whole run (v1.2 D4/Q9).
+
+        Every abnormal path funnels through here so the case record, the
+        run-level abort_reason and the session_abort notice always agree.
+        """
+        if session.failure_reason is None:
+            session.failure_reason = reason
+            session.run.setdefault("results", {}).setdefault(
+                session.current_case_id or "", {})["failure_reason"] = reason
+        if session.fatal_reason is None:
+            case_part = f":{session.current_case_id}" if session.current_case_id else ""
+            session.fatal_reason = f"case_failed{case_part}:{reason}"
+        session.request_abort()
+
+    # -- commands ---------------------------------------------------------------
+    async def start(self, scheme: str, mode: str, case_ids: list[str],
+                    kind: str, resume_from: str | None = None,
+                    overrides: dict[str, Any] | None = None) -> tuple[bool, str]:
+        if self.busy:
+            detail = self._state_diagnostic()
+            logger.warning("start rejected: a run is already in progress (%s)",
+                           detail)
+            return False, f"a run is already in progress ({detail})"
+        if scheme not in self.library.schemes:
+            return False, f"unknown scheme {scheme!r}"
+        if mode not in self.library.entry_modes_for(scheme):
+            return False, f"unknown entry mode {mode!r} for scheme {scheme!r}"
+        available = self.library.all_case_ids(scheme, mode)
+        unknown = [c for c in case_ids if c not in available]
+        if unknown:
+            return False, f"unknown case ids: {unknown}"
+        if not case_ids:
+            return False, "no cases to run"
+
+        run = self.store.new_run(scheme, mode, case_ids, kind)
+        if resume_from:
+            run["resumed_from"] = resume_from
+            self.store.update_run(run)
+        session = RunSession(run, scheme, mode, case_ids)
+        session.policy_override = {k: v for k, v in (overrides or {}).items()
+                                   if v is not None}
+        self._session = session
+        self._task = asyncio.create_task(self._run_loop(session))
+        await self.log("info", f"run {run['run_id']} queued: {scheme}/{mode} "
+                               f"({len(case_ids)} cases, kind={kind})")
+        return True, run["run_id"]
+
+    async def stop(self) -> tuple[bool, str]:
+        if not self.busy:
+            return self._reject_command("stop")
+        self._session.request_stop()
+        await self.log("info", "stop requested: finishing current case, then stopping")
+        return True, "stop requested"
+
+    async def abort(self) -> tuple[bool, str]:
+        if not self.busy:
+            return self._reject_command("abort")
+        self._session.request_abort()
+        await self.log("warn", "abort requested: interrupting current case")
+        return True, "abort requested"
+
+    async def skip(self) -> tuple[bool, str]:
+        if not self.busy:
+            return self._reject_command("skip")
+        if self._session.current_state != "WAIT_RESULT":
+            logger.warning("command 'skip' rejected: current state is %s "
+                           "(run_id=%s)", self._session.current_state,
+                           self._session.run.get("run_id"))
+            return False, "skip only applies while waiting for a POS result"
+        self._session.request_skip()
+        await self.log("warn", "skip requested for current case")
+        return True, "skip requested"
+
+    async def shutdown(self) -> None:
+        """Best-effort shutdown of an in-flight run: abort it so its final
+        status is persisted (ABORTED / server_shutdown) before the host exits.
+
+        Called before the protocol server stops, so the abort flow can still
+        send ``stop_emulation`` to the Android client."""
+        session = self._session
+        if self.busy and session is not None:
+            session.fatal_reason = "server_shutdown"
+            session.request_abort()
+            try:
+                await asyncio.wait_for(asyncio.shield(self._task), timeout=2.0)
+            except asyncio.TimeoutError:
+                self._task.cancel()
+                logger.warning("run %s did not finalize in time; it will be "
+                               "recovered on next start", session.run["run_id"])
+        elif self._task is not None and not self._task.done():
+            self._task.cancel()
+
+    # -- device events (called by the app's protocol handler) -------------------
+    async def on_device_event(self, event: str, conn: Any, frame: dict[str, Any] | None) -> None:
+        if event == "connected":
+            self._devices[conn.client_type] = {
+                "connected": True, "device_id": conn.device_id,
+                "app_version": conn.app_version, "connected_at": conn.connected_at,
+                "warn": False, "session_id": conn.session_id,
+            }
+            await self.publish("device_status", {"devices": self._devices})
+            await self.log("info", f"device connected: {conn.label}")
+            # v1.2: nothing is pushed on connect any more — device_config is
+            # gone (both sides use hardcoded heartbeat/ack defaults) and
+            # card_config/pos_kernel_config are per-case.
+            return
+
+        if event == "disconnected":
+            known = self._devices.get(conn.client_type)
+            # a replaced session (same-device reconnect) must not flip the
+            # registry back to disconnected nor abort a running case
+            if known and known.get("session_id") != conn.session_id:
+                await self.log("info", f"stale session dropped (replaced): {conn.label}")
+                return
+            if known:
+                known["connected"] = False
+                known["warn"] = False
+                known["session_id"] = None
+            await self.publish("device_status", {"devices": self._devices})
+            await self.log("warn", f"device disconnected: {conn.label}")
+            session = self._session
+            if session and self.busy:
+                # v1.2 D4/Q7: losing EITHER device during a run fails the case
+                # and stops the run.  POS loss used to be warn-only, but the
+                # run cannot continue meaningfully without its result channel.
+                if conn.client_type == CLIENT_ANDROID:
+                    self._fail(session, "android_disconnected")
+                elif conn.client_type == CLIENT_POS:
+                    self._fail(session, "pos_disconnected")
+            return
+
+        if event == "heartbeat_warn":
+            if conn.client_type in self._devices:
+                self._devices[conn.client_type]["warn"] = True
+            await self.publish("device_status", {"devices": self._devices})
+            return
+
+        if event != "message" or frame is None:
+            return
+        msg_type = frame.get("type")
+        msg_id = frame.get("msg_id")
+
+        if msg_type == MSG_STATUS:
+            await self._ack(conn, msg_id)
+            await self._on_android_status(conn, frame)
+            return
+
+        if msg_type == MSG_LOG:
+            level = frame.get("level", "info")
+            if level == "trace":
+                await self._on_trace(conn, frame)
+            else:
+                await self.log(level, f"[{conn.client_type}] {frame.get('message', '')}")
+            return
+
+        if msg_type == MSG_TRANSACTION_RESULT:
+            # v1.2 D2 (option A): judge + persist HERE, then ack.  The ack means
+            # "the result is on disk", so a retransmission cannot slip through
+            # the window between delivery and judgment.
+            await self._on_transaction_result(conn, frame)
+            return
+
+    async def _ack(self, conn: Any, ack_msg_id: str, ok: bool = True,
+                  detail: str = "") -> None:
+        if not ack_msg_id:
+            return
+        try:
+            await conn.send(make_frame(MSG_ACK, ack_msg_id=ack_msg_id,
+                                       ok=ok, detail=detail))
+        except Exception as exc:  # noqa: BLE001 - best effort
+            await self.log("warn", f"ack to {conn.label} failed: {exc}")
+
+    async def _on_android_status(self, conn: Any, frame: dict[str, Any]) -> None:
+        state = frame.get("state", "")
+        detail = frame.get("detail") or {}
+        attempt_id = frame.get("attempt_id")
+        session = self._session
+
+        if state == "error":
+            code = (detail or {}).get("code", "internal")
+            message = (detail or {}).get("message", "")
+            await self.log("error", f"[android] status error code={code} "
+                                    f"message={message} case={frame.get('case_id')}")
+            if session and session.current_attempt_id == attempt_id:
+                # v1.1 N7 / v1.2 D5: in-case error -> case status ERROR with the
+                # structured error kept, and the run stops
+                session.run.setdefault("results", {}).setdefault(
+                    session.current_case_id or "", {})["android_error"] = \
+                    {"code": code, "message": message}
+                self._fail(session, "android_error")
+            return
+
+        if state in ("ready", "emulating"):
+            if state == "ready":
+                if detail.get("default_payment_app") is False:
+                    await self.log("warn", "[android] 未设为默认支付应用，"
+                                           "请操作员在系统设置中启用后再上电")
+                ac_crypto = detail.get("ac_crypto", "")
+                if ac_crypto:
+                    await self.log("info", f"[android] ready ac_crypto={ac_crypto} "
+                                           f"profile={detail.get('profile_id')}")
+            in_case = (session and session.current_attempt_id
+                       and attempt_id == session.current_attempt_id)
+            if in_case and session.deliver_emulation_status(state):
+                await self.log("info", f"android status: {state} "
+                                       f"(case={frame.get('case_id')})")
+            return
+
+        await self.log("info", f"android status: {state} "
+                               f"(case={frame.get('case_id')})")
+
+    async def _on_trace(self, conn: Any, frame: dict[str, Any]) -> None:
+        """Phase-A APDU trace channel: log{level:'trace', message:{...}}.
+
+        Stored per attempt under runs/<run_id>/trace/<case_id>.jsonl and only
+        when the device was configured with trace_enabled; never judged."""
+        message = frame.get("message")
+        case_id = frame.get("case_id")
+        attempt_id = frame.get("attempt_id")
+        session = self._session
+        await self.log("trace", f"[android] trace case={case_id} "
+                                f"attempt={attempt_id}: {message}")
+        if not self.trace_enabled or not session:
+            return
+        if not case_id or not attempt_id:
+            return
+        # v1.2: the card side enables the trace channel from
+        # card_config.trace_enabled and answers in_case=True; this gate keeps
+        # unconditional traces out when the host was started with tracing off.
+        if not frame.get("in_case", True):
+            return
+        if attempt_id != session.current_attempt_id:
+            return
+        self.store.write_trace(session.run, case_id, attempt_id, {
+            "at": time.time(), "message": message,
+        })
+
+    async def _on_transaction_result(self, conn: Any, frame: dict[str, Any]) -> None:
+        """Judge + persist one transaction_result, then ack it (v1.2 D2, option A).
+
+        The POS ack now means "the verdict is on disk", so:
+
+        * an already-judged ``msg_id`` is acked ``detail="duplicate"`` and never
+          re-judged (or quarantined);
+        * a result that does not belong to the current attempt is quarantined as
+          before and acked ``detail="quarantined"`` (the POS must not retry it
+          forever);
+        * when persistence itself fails the ack is ``ok=false`` and the waiter is
+          deliberately NOT resolved, so the run keeps waiting for a usable
+          result instead of judging from a frame that was never stored.
+        """
+        msg_id = frame.get("msg_id")
+        attempt_id = frame.get("attempt_id")
+        case_id = frame.get("case_id")
+        session = self._session
+
+        if session is not None and msg_id and msg_id in session.judged_msg_ids:
+            await self._ack(conn, msg_id, ok=True, detail="duplicate")
+            await self.log("warn", f"duplicate transaction_result ignored "
+                                   f"(msg_id={msg_id}, case={case_id})")
+            return
+
+        attributed = (session is not None and attempt_id
+                      and session.current_attempt_id == attempt_id
+                      and session.current_case_id == case_id
+                      and session.is_waiting_result(attempt_id))
+        if not attributed:
+            await self._quarantine(session, frame)
+            await self._ack(conn, msg_id, ok=True, detail="quarantined")
+            return
+
+        case = self.library.get_case(session.scheme, session.mode, case_id)
+        if case is None:
+            await self._quarantine(session, frame)
+            await self._ack(conn, msg_id, ok=True, detail="quarantined")
+            return
+
+        try:
+            outcome, detail = self._judge(session, case, frame)
+        except Exception as exc:  # noqa: BLE001 - persistence must be loud
+            logger.exception("failed to persist transaction_result for %s", case_id)
+            await self.log("error", f"[{case_id}] 结果落盘失败，未 ack 成功：{exc}")
+            await self._ack(conn, msg_id, ok=False, detail="persist_failed")
+            return
+
+        if msg_id:
+            session.judged_msg_ids.add(msg_id)
+        session.deliver_result(outcome)
+        await self.log("info", f"transaction result received for {case_id} "
+                               f"attempt {attempt_id} -> {outcome}")
+        await self._ack(conn, msg_id, ok=True, detail=detail)
+
+    async def _quarantine(self, session: RunSession | None,
+                          frame: dict[str, Any]) -> None:
+        attempt_id = frame.get("attempt_id")
+        reason = "no active run" if session is None else \
+            "stale attempt_id" if attempt_id else "missing attempt_id"
+        if session is not None and session.current_case_id != frame.get("case_id"):
+            reason = "case_id mismatch"
+        entry = {"at": time.time(), "reason": reason, "frame": frame}
+        if session is not None:
+            self.store.write_quarantine(session.run, entry)
+        await self.log("warn", f"quarantined transaction result ({reason}): "
+                               f"case={frame.get('case_id')} attempt={attempt_id}")
+        await self.publish("quarantine", entry)
+
+    # -- run loop ---------------------------------------------------------------
+    async def _run_loop(self, session: RunSession) -> None:
+        """Task entry point.  Guarantees a crashed/cancelled run is never left
+        as a silent zombie (store still RUNNING while busy is False, so every
+        later abort/stop/skip answers 409 "no run in progress")."""
+        try:
+            await self._run_loop_body(session)
+        except asyncio.CancelledError:
+            if session.run.get("status") not in TERMINAL_RUN_STATUS:
+                await self._finalize_crash(session, "run task cancelled")
+            raise
+        except Exception as exc:  # noqa: BLE001 - a crash must be loud + persisted
+            logger.exception("run %s crashed unexpectedly: %s",
+                             session.run.get("run_id"), exc)
+            if session.run.get("status") not in TERMINAL_RUN_STATUS:
+                await self._finalize_crash(
+                    session, f"internal error: {type(exc).__name__}: {exc}")
+
+    async def _finalize_crash(self, session: RunSession, reason: str) -> None:
+        """Persist a terminal ABORTED state for a run that died outside the
+        normal finish path (task exception or cancellation)."""
+        run = session.run
+        current_case = session.current_case_id
+        if current_case and self.store.get_case_result(
+                run["run_id"], current_case) is None:
+            record = {
+                "case_id": current_case,
+                "attempt": session.current_attempt,
+                "attempt_id": session.current_attempt_id,
+                "status": "ERROR",
+                "finished_at": time.time(),
+                "note": f"run task crashed: {reason}",
+            }
+            self.store.write_case_result(run, current_case, record)
+        run["status"] = "ABORTED"
+        run["abort_reason"] = reason
+        run["finished_at"] = time.time()
+        self.store.update_run(run)
+        self.store.write_checkpoint(run, None, "", "done")
+        await self.publish("run_status", session.snapshot())
+        await self.log("error", f"run {run['run_id']} ended: ABORTED ({reason})")
+        # v1.2 T10: even a crashed run tells both sides to stand down
+        await self._broadcast_session_abort(session, "run_crashed")
+
+    async def _run_loop_body(self, session: RunSession) -> None:
+        run = session.run
+        run["status"] = "RUNNING"
+        run["started_at"] = time.time()
+        self.store.update_run(run)
+        await self.publish("run_status", self.snapshot()["session"])
+        await self.log("info", f"run {run['run_id']} started: {run['scheme']}/{run['mode']}")
+
+        stop_reason = ""
+        stopped_by_failure = False
+        for index, case_id in enumerate(session.queue):
+            if session.fatal_reason:
+                break
+            if session.stop_requested:
+                break
+            case = self.library.get_case(session.scheme, session.mode, case_id)
+            if case is None:  # shouldn't happen (validated at start)
+                await self.log("error", f"case vanished from library: {case_id}")
+                continue
+            outcome, stop_after = await self._run_case(session, case)
+            await self.publish("run_status", session.snapshot())
+            if stop_after or session.fatal_reason or outcome in ("fail", "aborted"):
+                # per-case: a manual abort must not inherit the previous case's
+                # failure_reason as the session_abort notice
+                stopped_by_failure = outcome in ("fail", "error")
+                stop_reason = session.failure_reason or ""
+                # Q9: a FAIL stops the run immediately — every case still queued
+                # is persisted as SKIPPED so the report shows what never ran.
+                await self._mark_remaining_skipped(session, index, case_id)
+                break
+
+        if session.fatal_reason:
+            run["status"] = "ERROR" if stop_reason == "android_error" else "ABORTED"
+            run["abort_reason"] = session.fatal_reason
+        elif stopped_by_failure:
+            run["status"] = "ABORTED"
+            run["abort_reason"] = f"case_failed:{stop_reason}"
+        elif session.abort_event.is_set() and not session.stop_requested:
+            run["status"] = "ABORTED"
+            run["abort_reason"] = "manual abort"
+        elif session.stop_requested:
+            run["status"] = "STOPPED"
+            run["abort_reason"] = "manual stop"
+        else:
+            run["status"] = "FINISHED"
+        run["finished_at"] = time.time()
+        self.store.update_run(run)
+        self.store.write_checkpoint(run, None, "", "done")
+        await self.publish("run_status", session.snapshot())
+        await self.log("info", f"run {run['run_id']} ended: {run['status']} "
+                               f"({run.get('abort_reason') or 'completed'})")
+
+        # v1.2 T10: notify BOTH sides whenever the run did not finish normally
+        if run["status"] in ("ABORTED", "STOPPED", "INTERRUPTED", "ERROR"):
+            await self._broadcast_session_abort(session, self._abort_notice_reason(
+                run, stop_reason))
+
+    @staticmethod
+    def _abort_notice_reason(run: dict[str, Any], stop_reason: str) -> str:
+        """Map the run-level abort cause onto a session_abort reason string."""
+        if stop_reason:
+            return stop_reason
+        abort_reason = run.get("abort_reason") or ""
+        if abort_reason == "manual abort":
+            return "manual_abort"
+        if abort_reason == "manual stop":
+            return "manual_stop"
+        if abort_reason == "server_shutdown":
+            return "server_shutdown"
+        if abort_reason.startswith("case_failed"):
+            return abort_reason.rsplit(":", 1)[-1] or "case_failed"
+        return abort_reason or "case_failed"
+
+    async def _mark_remaining_skipped(self, session: RunSession, index: int,
+                                      failed_case_id: str) -> None:
+        """Persist every not-yet-run queued case as SKIPPED (v1.2 Q9)."""
+        run = session.run
+        for pending in session.queue[index + 1:]:
+            if self.store.get_case_result(run["run_id"], pending) is not None:
+                continue
+            record = {
+                "case_id": pending,
+                "status": "SKIPPED",
+                "finished_at": time.time(),
+                "note": f"run_stopped_after_failure:{failed_case_id}",
+            }
+            self.store.write_case_result(run, pending, record)
+            await self.publish("case_status", {"case_id": pending,
+                                               "status": "SKIPPED"})
+        session.queue = session.queue[:index + 1]
+
+    async def _run_case(self, session: RunSession, case: TestCase) -> tuple[str, bool]:
+        """Execute one case (with retries).  Returns (final_outcome, stop_after).
+
+        v1.2 D4/Q9: a FAIL is terminal for the whole run, so a failed case is
+        never retried into a second attempt that would paper over it.
+        """
+        scheme_def = self.library.schemes[session.scheme]
+        policy = scheme_def.suite_policy
+        override = session.policy_override
+        max_attempts = override.get("retry_count")
+        if max_attempts is None:
+            max_attempts = policy.retry_count
+        max_attempts = max(max_attempts, case.retry_on_fail)
+
+        outcome = "error"
+        for attempt in range(max_attempts + 1):
+            attempt_id = new_msg_id()
+            session.begin_attempt(case.case_id, attempt_id, attempt)
+            self.store.write_checkpoint(session.run, case.case_id, attempt_id, "upcoming")
+            await self.publish("case_status", {
+                "case_id": case.case_id, "status": "RUNNING",
+                "attempt": attempt, "attempt_id": attempt_id,
+                "state": "CONFIGURING",
+            })
+            await self.log("info", f"[{case.case_id}] attempt {attempt} starting")
+            outcome = await self._attempt(session, case, attempt, attempt_id)
+            await self.log("info", f"[{case.case_id}] attempt {attempt} -> {outcome}")
+
+            finalize = outcome in ("pass", "warn", "skipped", "aborted", "fail",
+                                   "inconclusive", "error")
+            if finalize:
+                await self._finalize_case(session, case, outcome, attempt)
+                break
+            # fail with retries left -> loop
+        else:  # pragma: no cover - loop always breaks or finalizes
+            await self._finalize_case(session, case, outcome, max_attempts)
+
+        if session.fatal_reason or session.abort_event.is_set() or outcome == "aborted":
+            return outcome, True
+        return outcome, False
+
+    def _kernel_params_for(self, session: RunSession, case: TestCase) -> KernelParams | None:
+        """Case-level kernel params override the scheme default entirely (R2)."""
+        if case.kernel_params is not None:
+            return case.kernel_params
+        scheme_def = self.library.schemes.get(session.scheme)
+        return scheme_def.kernel_params if scheme_def is not None else None
+
+    async def _attempt(self, session: RunSession, case: TestCase,
+                       attempt: int, attempt_id: str) -> str:
+        # 1. push card config (v1.2: trace_enabled travels here; device_config
+        #    is gone, so the card side reads the trace switch from this frame)
+        android = self.protocol.get_client(CLIENT_ANDROID)
+        if android is None:
+            await self.log("error", f"[{case.case_id}] android not connected, cannot run")
+            self._fail(session, "android_not_connected")
+            return "fail"
+
+        profile = case.profile  # embedded & bound to the case (v2)
+        keys = case.keys  # optional embedded keys bundle
+        if not profile.id:
+            profile.id = case.case_id  # defensive; loader already normalizes
+
+        config_frame = make_frame(
+            MSG_CONFIG_PUSH,
+            config_type=CONFIG_TYPE_CARD,
+            case_id=case.case_id,
+            attempt_id=attempt_id,
+            profile=profile.model_dump(mode="json"),  # canonical camelCase schema
+            keys=None if keys is None else keys.model_dump(mode="json"),  # v1.1 N2
+            timeout_seconds=case.timeout_seconds,
+            trace_enabled=self.trace_enabled,  # v1.2 R1
+        )
+        try:
+            ack = await android.send_and_wait_ack(config_frame,
+                                                  timeout=self.card_ack_timeout)
+        except Exception as exc:  # ConnectionClosed / ack timeout
+            await self.log("error", f"[{case.case_id}] card config push failed: {exc}")
+            self._fail(session, "card_config_ack_timeout")
+            return "fail"
+        if ack is not None and ack.get("ok") is False:
+            await self.log("error", f"[{case.case_id}] card rejected card_config: "
+                                    f"{ack.get('detail', '')}")
+            self._fail(session, "card_config_rejected")
+            return "fail"
+
+        # 2. start emulation + wait for android readiness
+        session.current_state = "WAITING_EMULATION"
+        session._emulation_waiter = asyncio.get_running_loop().create_future()
+        start_frame = make_frame(MSG_START_EMULATION, case_id=case.case_id,
+                                 attempt_id=attempt_id)
+        try:
+            start_ack = await android.send_and_wait_ack(
+                start_frame, timeout=self.card_ack_timeout)
+        except Exception as exc:
+            session._emulation_waiter = None
+            await self.log("error", f"[{case.case_id}] start_emulation failed: {exc}")
+            self._fail(session, "card_emulation_ack_timeout")
+            return "fail"
+        if start_ack is not None and start_ack.get("ok") is False:
+            session._emulation_waiter = None
+            await self.log("error", f"[{case.case_id}] card rejected start_emulation: "
+                                    f"{start_ack.get('detail', '')}")
+            self._fail(session, "card_emulation_rejected")
+            return "fail"
+        try:
+            await self._wait_emulation(session)
+        except asyncio.TimeoutError:
+            session._emulation_waiter = None
+            await self.log("error", f"[{case.case_id}] android did not reach "
+                                    f"emulating state in "
+                                    f"{EMULATION_READY_TIMEOUT:.0f}s")
+            self._fail(session, "card_ready_timeout")
+            return "fail"
+        finally:
+            session._emulation_waiter = None
+        if session.abort_event.is_set():
+            # abort during CONFIGURING/WAITING_EMULATION, or android reported
+            # status:error while we waited (that path sets failure_reason)
+            return "fail" if session.failure_reason else "aborted"
+
+        # 2.5 push POS kernel parameters (AID/CAPK/TERM) BEFORE pos_config.
+        #     Whole set is per case (scheme default or case override); an empty
+        #     set means "do not touch the POS kernel tables".
+        kernel = self._kernel_params_for(session, case)
+        if kernel is not None and not kernel.empty:
+            payload = kernel.payload()
+            kernel_frame = make_frame(
+                MSG_CONFIG_PUSH,
+                config_type=CONFIG_TYPE_POS_KERNEL,
+                case_id=case.case_id,
+                attempt_id=attempt_id,
+                kernel_params=payload,
+            )
+            try:
+                ack = await self.protocol.send_to_and_ack(
+                    CLIENT_POS, kernel_frame, timeout=self.pos_ack_timeout)
+            except Exception as exc:
+                await self.log("error", f"[{case.case_id}] pos_kernel_config push "
+                                        f"failed: {exc}")
+                self._fail(session, "pos_kernel_config_ack_timeout")
+                return "fail"
+            if ack is None:
+                await self.log("error", f"[{case.case_id}] POS not connected; "
+                                        f"pos_kernel_config 无法下发")
+                self._fail(session, "pos_not_connected")
+                return "fail"
+            if ack.get("ok") is False:
+                await self.log("error", f"[{case.case_id}] POS rejected "
+                                        f"pos_kernel_config: {ack.get('detail', '')}")
+                self._fail(session, "pos_kernel_config_apply_failed")
+                return "fail"
+            await self.log("info", f"[{case.case_id}] pos_kernel_config applied "
+                                   f"(AID {len(payload['aid'])} 条 / CAPK "
+                                   f"{len(payload['capk'])} 条)")
+
+        # 3. push POS-side transaction parameters (per-case tag list) — the
+        #    config goes to the POS app only; the Android side never sees it.
+        #    v1.2 D4: an offline POS or a missing ack is a case FAIL, not a
+        #    warning (Q8: nothing can be asserted without the result channel).
+        pos_params = [p.model_dump() for p in case.transaction.pos_params]
+        if pos_params:
+            pos_frame = make_frame(
+                MSG_CONFIG_PUSH,
+                config_type=CONFIG_TYPE_POS,
+                case_id=case.case_id,
+                attempt_id=attempt_id,
+                pos_params=pos_params,
+            )
+            try:
+                ack = await self.protocol.send_to_and_ack(
+                    CLIENT_POS, pos_frame, timeout=self.pos_ack_timeout)
+            except Exception as exc:  # ConnectionClosed / ack timeout
+                await self.log("error", f"[{case.case_id}] pos_config push failed: {exc}")
+                self._fail(session, "pos_config_ack_timeout")
+                return "fail"
+            if ack is None:
+                await self.log("error", f"[{case.case_id}] POS not connected; "
+                                        f"pos_params ({len(pos_params)} 项) 未下发")
+                self._fail(session, "pos_not_connected")
+                return "fail"
+            if ack.get("ok") is False:
+                await self.log("error", f"[{case.case_id}] POS rejected pos_config: "
+                                        f"{ack.get('detail', '')}")
+                self._fail(session, "pos_config_rejected")
+                return "fail"
+            await self.log("info", f"[{case.case_id}] pos_config applied "
+                                   f"({len(pos_params)} 项 tag 参数)")
+
+        # 4. wait for the result FIRST, then tell the POS to start: the waiter
+        #    must exist before the operator can possibly produce a result (v1.2:
+        #    the ack for case_started is mandatory).
+        session.current_state = "WAIT_RESULT"
+        self.store.write_checkpoint(session.run, case.case_id, attempt_id,
+                                    "waiting_result")
+        session._result_waiter = asyncio.get_running_loop().create_future()
+        instructions = self._operator_instructions(case)
+        await self.publish("case_status", {
+            "case_id": case.case_id, "status": "RUNNING",
+            "attempt": attempt, "attempt_id": attempt_id,
+            "state": "WAIT_RESULT",
+            "operator_instructions": instructions,
+        })
+        case_started = make_frame(
+            MSG_CASE_STARTED,
+            case_id=case.case_id,
+            attempt_id=attempt_id,
+            scheme=case.scheme,
+            entry_mode=case.entry_mode.value,
+            operator_instructions=instructions,
+        )
+        try:
+            ack = await self.protocol.send_to_and_ack(
+                CLIENT_POS, case_started, timeout=self.pos_ack_timeout)
+        except Exception as exc:
+            await self.log("error", f"[{case.case_id}] case_started ack failed: {exc}")
+            self._fail(session, "pos_case_started_ack_timeout")
+            return "fail"
+        if ack is None:
+            await self.log("error", f"[{case.case_id}] POS not connected; "
+                                    f"case_started 未确认")
+            self._fail(session, "pos_not_connected")
+            return "fail"
+        if ack.get("ok") is False:
+            await self.log("error", f"[{case.case_id}] POS rejected case_started: "
+                                    f"{ack.get('detail', '')}")
+            self._fail(session, "pos_case_started_rejected")
+            return "fail"
+
+        # 5. wait for the (already judged, D2) result / abort / skip / timeout
+        abort_wait = asyncio.create_task(session.abort_event.wait())
+        skip_wait = asyncio.create_task(session.skip_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {session._result_waiter, abort_wait, skip_wait},
+                timeout=case.timeout_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in done:
+                task.cancel()
+            if session._result_waiter in done and session._result_waiter.done() \
+                    and not session._result_waiter.cancelled():
+                # outcome was decided (and persisted) by _on_transaction_result
+                outcome = session._result_waiter.result()
+                if outcome == "fail" and session.failure_reason is None:
+                    session.failure_reason = "assertion_failed"
+                return outcome
+            if session.abort_event.is_set():
+                # abort wins over skip: the run was stopped for a reason (a
+                # failure, a device loss or an explicit abort)
+                if session.failure_reason:
+                    return "fail"
+                return "aborted"
+            if session.skip_event.is_set():
+                return "skipped"
+            await self.log("error", f"[{case.case_id}] no transaction result within "
+                                    f"{case.timeout_seconds}s")
+            session.failure_reason = session.failure_reason or "result_timeout"
+            self._fail(session, "result_timeout")
+            return "fail"
+        finally:
+            session._result_waiter = None
+            abort_wait.cancel()
+            skip_wait.cancel()
+            session.skip_event.clear()
+            # always park the card (v1.1: the app acks, resets kernel state
+            # and keeps AID registrations + the profile for the next attempt)
+            await self._send_stop(CLIENT_ANDROID, case.case_id, attempt_id)
+
+    async def _wait_emulation(self, session: RunSession) -> None:
+        """Wait for the android "emulating" status, abortable (v1.2).
+
+        The abort event is part of the wait so an operator abort (or a device
+        loss) does not have to sit out the full readiness timeout.
+        """
+        if session._emulation_waiter is None:
+            return
+        abort_wait = asyncio.create_task(session.abort_event.wait())
+        try:
+            await asyncio.wait_for(
+                asyncio.wait({session._emulation_waiter, abort_wait},
+                             return_when=asyncio.FIRST_COMPLETED),
+                EMULATION_READY_TIMEOUT)
+        finally:
+            abort_wait.cancel()
+
+    async def _send_stop(self, client_type: str, case_id: str,
+                         attempt_id: str) -> None:
+        frame = make_frame(MSG_STOP_EMULATION, case_id=case_id, attempt_id=attempt_id)
+        try:
+            await self.protocol.send_to_and_ack(client_type, frame,
+                                                timeout=self.stop_ack_timeout)
+        except Exception as exc:  # noqa: BLE001 - best effort on abort paths
+            await self.log("debug", f"stop_emulation ack not received: {exc}")
+
+    async def _broadcast_session_abort(self, session: RunSession, reason: str,
+                                       action: str = "stop") -> None:
+        """Best-effort wrapper: notifying the peers must never break the run
+        loop (this is also called from the crash finaliser)."""
+        try:
+            await self._send_session_abort(session, reason, action)
+        except Exception:  # noqa: BLE001 - notification only
+            logger.exception("session_abort broadcast failed (reason=%s)", reason)
+
+    async def _send_session_abort(self, session: RunSession, reason: str,
+                                  action: str = "stop") -> None:
+        """Tell BOTH sides the session is over (v1.2 T10 / §1.6).
+
+        Each side is acked with a short budget and a missing ack is only
+        logged, so a dead peer can never stall run finalisation.  Sent once per
+        attempt (the run loop and the crash finaliser may both call it).
+        """
+        key = f"{session.run.get('run_id')}:{session.current_attempt_id}:{reason}"
+        # setdefault keeps half-constructed executors (tests, crash recovery)
+        # from tripping over the de-duplication set
+        sent: set[str] = self.__dict__.setdefault("_session_abort_sent", set())
+        if key in sent:
+            return
+        sent.add(key)
+        frame = make_frame(
+            MSG_SESSION_ABORT,
+            run_id=session.run.get("run_id"),
+            scheme=session.scheme,
+            mode=session.mode,
+            case_id=session.current_case_id,
+            attempt_id=session.current_attempt_id,
+            reason=reason,
+            action=action,
+        )
+        for client_type in (CLIENT_ANDROID, CLIENT_POS):
+            try:
+                ack = await self.protocol.send_to_and_ack(
+                    client_type, frame, timeout=self.abort_ack_timeout)
+            except Exception as exc:  # noqa: BLE001 - notification only
+                await self.log("warn", f"session_abort to {client_type} not acked: {exc}")
+                continue
+            if ack is None:
+                await self.log("debug", f"session_abort: {client_type} not connected")
+        await self.log("warn", f"session_abort broadcast (reason={reason}, "
+                               f"case={session.current_case_id})")
+
+    def _judge(self, session: RunSession, case: TestCase,
+               frame: dict[str, Any]) -> tuple[str, str]:
+        """Judge one attributed result and PERSIST it (v1.2 D2).
+
+        Returns ``(outcome, ack_detail)``.  Persistence happens here, before the
+        POS ack, so an ack failure can be reported as ``ok=false`` instead of
+        silently losing the verdict.
+        """
+        result = frame.get("result")
+        if not isinstance(result, dict):
+            self.store.write_quarantine(session.run, {
+                "at": time.time(), "reason": "result missing result object",
+                "frame": frame})
+            return "fail", "result_invalid"
+        record = {
+            "case_id": case.case_id,
+            "attempt": session.current_attempt,
+            "attempt_id": session.current_attempt_id,
+            "received_at": time.time(),
+            "raw_result": result,
+            "pos_meta": {k: frame.get(k) for k in
+                         ("device_id", "app_version", "ts", "msg_id")},
+        }
+        verdict = assert_result(result, case.expected_results)
+        record["verdict"] = verdict.public()
+        record["status"] = verdict.status
+        record["finished_at"] = time.time()
+        if verdict.status == "FAIL":
+            # record why the case failed, for the run-level abort_reason and the
+            # web UI (v1.2 D4)
+            record["failure_reason"] = "assertion_failed"
+        self.store.write_case_result(session.run, case.case_id, record)
+        session.run.setdefault("results", {})[case.case_id] = {
+            "status": verdict.status, "attempts": session.current_attempt + 1,
+            "verdict": verdict.status, "finished_at": record["finished_at"],
+        }
+        self.store.update_run(session.run)
+        if verdict.status == "FAIL":
+            session.failure_reason = session.failure_reason or "assertion_failed"
+        return {"PASS": "pass", "WARN": "warn", "FAIL": "fail"}[verdict.status], \
+            "persisted"
+
+    async def _finalize_case(self, session: RunSession, case: TestCase,
+                             outcome: str, attempt: int) -> None:
+        if outcome == "fail" and session.failure_reason == "android_error":
+            # v1.2 D5: an android-side error keeps status ERROR and the
+            # structured error{code,message} recorded by _on_android_status
+            outcome = "error"
+        status = {
+            "pass": "PASS", "warn": "WARN", "fail": "FAIL",
+            "skipped": "SKIPPED", "aborted": "ABORTED",
+            "inconclusive": "INCONCLUSIVE", "error": "ERROR",
+        }[outcome]
+        session.run.setdefault("results", {}).setdefault(case.case_id, {}).update({
+            "status": status, "attempts": attempt + 1,
+            "finished_at": time.time(),
+        })
+        if self.store.get_case_result(session.run["run_id"], case.case_id) is None:
+            # PASS/WARN/FAIL already persisted by _on_transaction_result with
+            # full assertion detail (v1.2 D2); only persist the outcomes that
+            # never reached a result here.
+            record = {
+                "case_id": case.case_id, "status": status,
+                "attempts": attempt + 1, "finished_at": time.time(),
+                "note": {
+                    "inconclusive": "no transaction result within timeout",
+                    "aborted": "run aborted",
+                    "skipped": "operator skipped",
+                    "error": "execution error (see log)",
+                }.get(outcome, ""),
+            }
+            if outcome in ("fail", "error") and session.failure_reason:
+                record["failure_reason"] = session.failure_reason
+            if outcome == "error":
+                android_error = session.run.get("results", {}).get(
+                    case.case_id, {}).get("android_error")
+                if android_error:
+                    record["error"] = android_error
+            self.store.write_case_result(session.run, case.case_id, record)
+        else:
+            # keep the pre-existing record's failure_reason visible in the index
+            existing = self.store.get_case_result(
+                session.run["run_id"], case.case_id) or {}
+            if existing.get("failure_reason"):
+                session.run["results"][case.case_id]["failure_reason"] = \
+                    existing["failure_reason"]
+            self.store.update_run(session.run)
+        session.end_attempt()
+        await self.publish("case_status", {
+            "case_id": case.case_id, "status": status,
+            "failure_reason": session.failure_reason if status in ("FAIL", "ERROR") else None,
+        })
+        await self.log("info" if status in ("PASS", "WARN") else "warn",
+                       f"[{case.case_id}] final: {status}")

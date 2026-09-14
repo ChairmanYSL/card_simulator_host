@@ -1,0 +1,9 @@
+{
+  "files": [
+    "contactless/cases/MC-CL-001.json",
+    "contactless/cases/MC-CL-002.json",
+    "contactless/cases/MC-CL-003.json",
+    "contactless/cases/MC-CL-004.json",
+    "scheme.json"
+  ]
+}

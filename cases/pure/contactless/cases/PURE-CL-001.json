@@ -1,0 +1,146 @@
+{
+  "case_id": "PURE-CL-001",
+  "title": "PURE contactless offline approved (TC) 冒烟用例",
+  "summary": "contactless smoke case with ac_behavior=offline_approved （PURE：使用规范确认的 AID/PAN/track2/kernelId）",
+  "scheme": "pure",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "PURE-CL-001",
+    "name": "PURE offline approved (TC)",
+    "network": "PURE",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "D9999999991010",
+        "label": "PURE",
+        "priority": 0
+      },
+      {
+        "aid": "D9999999992020",
+        "label": "PURE",
+        "priority": 1
+      },
+      {
+        "aid": "D666666666",
+        "label": "PURE",
+        "priority": 2
+      },
+      {
+        "aid": "A0000002282010",
+        "label": "PURE",
+        "priority": 3
+      },
+      {
+        "aid": "A0000002802010",
+        "label": "PURE",
+        "priority": 4
+      },
+      {
+        "aid": "A0000007231010",
+        "label": "PURE",
+        "priority": 5
+      }
+    ],
+    "pan": "6280706258024090",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "281231",
+    "cardholderName": "PURE TEST CARD",
+    "track2EquivalentData": "6280706258024090D280460110889160",
+    "applicationLabel": "PURE",
+    "applicationVersionNumber": "0001",
+    "aip": "5800",
+    "afl": "08010100",
+    "issuerCountryCode": "0156",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "cardholderName",
+          "expiryDate",
+          "issuerCountryCode",
+          "cvmList"
+        ]
+      }
+    ],
+    "acBehavior": "offline_approved",
+    "kernelId": "2D"
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "100.00",
+      "currency": "CNY",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "tap the phone on the POS reader when it shows the amount"
+    },
+    "expected_values": {
+      "amount": "100.00",
+      "currency": "156",
+      "entry_mode": "contactless"
+    },
+    "pos_params": [
+      {
+        "tag": "9F02",
+        "name": "amount",
+        "value": "100.00"
+      },
+      {
+        "tag": "5F2A",
+        "name": "currency",
+        "value": "156"
+      },
+      {
+        "tag": "9C",
+        "name": "transaction_type",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS in sale mode, amount entered manually by operator"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes card profile and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "operator enters 100.00 on the POS and completes the transaction with the simulated card",
+      "expect": "POS app reports transaction_result"
+    },
+    {
+      "step": 3,
+      "action": "host asserts expected_results",
+      "expect": "case judged PASS/FAIL/WARN"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    },
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "offline"
+    },
+    {
+      "path": "tags.gen_ac.9F26",
+      "op": "present"
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "case_id": "QPB-B-002-01",
+  "title": "状态检查请求（9F66 请求联机密文）",
+  "summary": "金额 0.01（一个货币单位，低于各限额）；FCI 带 9F38 PDOL 请求 9F66；终端 TTQ 9F66=36804000（字节2位8='1'）请求联机密文并联机批准（档案随案例内嵌）",
+  "scheme": "unionpay",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "QPB-B-002-01",
+    "name": "UnionPay 状态检查请求（9F66 请求联机密文）",
+    "network": "UNIONPAY",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000333010101",
+        "label": "UNIONPAY",
+        "priority": 0
+      }
+    ],
+    "pan": "6222020900000008",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "281231",
+    "cardholderName": "UP TEST CARD",
+    "track2EquivalentData": "363232323032303930303030303030383d32383132323031",
+    "applicationLabel": "UNIONPAY",
+    "applicationVersionNumber": "0001",
+    "aip": "5800",
+    "afl": "08010100",
+    "issuerCountryCode": "0156",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "cardholderName",
+          "expiryDate",
+          "issuerCountryCode",
+          "cvmList"
+        ]
+      }
+    ],
+    "acBehavior": "online_request",
+    "pdol": "9F37049F02065F2A029F6604"
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "0.01",
+      "currency": "CNY",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "将手机贴到 POS 读卡器；金额 0.01（一个货币单位）触发状态检查，POS 应在 TTQ(9F66) 请求联机密文（36804000）并完成联机授权"
+    },
+    "expected_values": {
+      "amount": "0.01",
+      "currency": "156",
+      "entry_mode": "contactless"
+    },
+    "pos_params": [
+      {
+        "tag": "9F02",
+        "name": "amount",
+        "value": "0.01"
+      },
+      {
+        "tag": "5F2A",
+        "name": "currency",
+        "value": "156"
+      },
+      {
+        "tag": "9F33",
+        "name": "terminal_capabilities",
+        "value": "E0F0C8"
+      },
+      {
+        "tag": "9F66",
+        "name": "ttq",
+        "value": "36804000"
+      },
+      {
+        "tag": "DF8101",
+        "name": "test_host_online_approval",
+        "value": "01"
+      }
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台",
+    "POS 支持状态检查；金额 0.01 需低于 POS 非接交易最低限额/相关最低限额（读写器非接触脱机限额，若前者不存在则用终端最低限额）",
+    "模拟卡 SELECT AID 响应含 9F38 PDOL（请求 9F37/9F02/5F2A/9F66），需支持该字段的安卓模拟实现 + 真实 POS",
+    "联机批准需测试收单主机/卡 BIN 白名单（同 UPI-CL-003 环境假设；真实生产主机将拒绝假密文 ARQC）"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发卡片档案（acBehavior=online_request；FCI 含 9F38 PDOL 请求 9F66）并启动模拟",
+      "expect": "安卓上报 emulating"
+    },
+    {
+      "step": 2,
+      "action": "主机向 POS 下发交易参数（金额 0.01 等）",
+      "expect": "POS 应用参数后进入交易"
+    },
+    {
+      "step": 3,
+      "action": "操作员在 POS 发起 0.01 元交易（一个货币单位，低于各限额）",
+      "expect": "POS 按 PDOL 组 GPO 命令（含 TTQ 9F66），9F66 字节2位8='1'（期望 36804000）请求联机密文"
+    },
+    {
+      "step": 4,
+      "action": "交易联机批准（测试收单主机）",
+      "expect": "POS 回传 approved/online 结果及 tags.gpo.9F66"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    },
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "online"
+    },
+    {
+      "path": "tags.gpo.9F66",
+      "op": "eq",
+      "expect": "36804000"
+    }
+  ]
+}

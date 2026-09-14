@@ -1,0 +1,27 @@
+{
+  "group_id": "OPBD-001",
+  "title": "OPB.D 001.00 使用PPSE目录选择方式",
+  "summary": "PPSE 目录选择方式：SELECT PPSE 响应正确性分组",
+  "purpose": "确保读写器使用目录选择方式来选择PPSE",
+  "test_conditions": "卡片对 SELECT PPSE 命令的响应为 FCI 和 '9000'",
+  "scheme": "visa",
+  "entry_mode": "contactless",
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "交易预处理和探测卡片处理成功完成",
+      "expect": "进入 PPSE 选择流程"
+    },
+    {
+      "step": 2,
+      "action": "卡片对 SELECT PPSE 命令返回 PPSE FCI 和 '9000'",
+      "expect": "读写器按 FCI 内容继续目录选择"
+    }
+  ],
+  "pass_criteria": [
+    "案例01：读写器应通过使用文件名称为 '2PAY.SYS.DDF01' 的选择命令，发送 PPSE 目录选择方式的第一个 SELECT 命令，交易批准。",
+    "案例02：终端终止交易并关闭非接界面，尝试用另一界面完成交易。",
+    "案例03：终端中止交易。",
+    "案例04：终端终止交易并关闭非接界面，尝试用另一界面完成交易。"
+  ]
+}

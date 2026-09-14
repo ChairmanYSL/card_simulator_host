@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# card_simulator_host - one-key launcher for the EMV auto-test host (POSIX shell).
+# Usage: see card_simulator_host.bat or `card_simulator_host --help`.
+set -e
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+export PYTHONPATH="$ROOT/backend"
+exec python -m emv_host "$@"

@@ -1,0 +1,31 @@
+usage: card_simulator_host serve [-h] [--version] [--host HOST] [--port PORT]
+                                 [--device-host DEVICE_HOST]
+                                 [--device-port DEVICE_PORT] [--cases CASES]
+                                 [--runs RUNS] [--tokens TOKENS]
+                                 [--static STATIC]
+                                 [--log-level {debug,info,warning,error}]
+                                 [--log-dir LOG_DIR] [--trace-enabled]
+                                 [--card-ack-timeout CARD_ACK_TIMEOUT]
+                                 [--pos-ack-timeout POS_ACK_TIMEOUT]
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  --host HOST           web bind host
+  --port PORT           web port (default 8000)
+  --device-host DEVICE_HOST
+                        device TCP bind host (android/POS dial this)
+  --device-port DEVICE_PORT
+                        device TCP port (default 9100)
+  --cases CASES         case library root (default: <repo>/cases)
+  --runs RUNS           run artifacts root (default: <repo>/runs)
+  --tokens TOKENS       client tokens JSON (default: <repo>/tokens.json)
+  --static STATIC       built frontend directory (default:
+                        <repo>/frontend/dist)
+  --log-level {debug,info,warning,error}
+  --log-dir LOG_DIR     log directory (default: <repo>/logs)
+  --trace-enabled       enable the Android APDU trace channel (Phase A)
+  --card-ack-timeout CARD_ACK_TIMEOUT
+                        seconds to wait for a card-side ack (default 15)
+  --pos-ack-timeout POS_ACK_TIMEOUT
+                        seconds to wait for a POS-side ack (default 15)

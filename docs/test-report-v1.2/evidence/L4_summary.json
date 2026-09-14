@@ -1,0 +1,50 @@
+{
+  "summary": [
+    {
+      "scenario": "L4_1_bad_frames",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_2_duplicate_result",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_2b_late_resend_is_quarantined",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_3a_persist_failed_then_timeout",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_3b_persist_failed_then_retransmit_passes",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_4a_android_disconnect",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_4b_pos_disconnect",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_5_loader_tolerance",
+      "overall_ok": true,
+      "failed": []
+    },
+    {
+      "scenario": "L4_6_atomic_no_tmp",
+      "overall_ok": true,
+      "failed": []
+    }
+  ],
+  "failed": []
+}

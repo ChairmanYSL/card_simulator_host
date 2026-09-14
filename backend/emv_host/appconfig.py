@@ -51,6 +51,10 @@ class AppConfig:
     log_level: str = "info"
     log_dir: str | None = None
     trace_enabled: bool = False
+    #: C3: out-of-repo directory holding one ``<scheme>.json`` POS kernel
+    #: parameter set per scheme.  It lives outside the repository because those
+    #: files carry CAPK moduli (key material).  None = load none.
+    kernel_params_dir: str | None = None
     heartbeat_interval: float = 10.0
     heartbeat_warn: float = 30.0
     disconnect_timeout: float = 60.0
@@ -66,6 +70,10 @@ class AppConfig:
     def __post_init__(self) -> None:
         for attr, default in _DEFAULT_DIRS.items():
             setattr(self, attr, resolve_path(getattr(self, attr), default))
+        # explicit external directory: relative values resolve against the CWD;
+        # nothing is ever defaulted into the repository
+        if self.kernel_params_dir:
+            self.kernel_params_dir = resolve_path(self.kernel_params_dir, "")
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "AppConfig":
@@ -81,6 +89,7 @@ class AppConfig:
             log_level=args.log_level,
             log_dir=args.log_dir,
             trace_enabled=getattr(args, "trace_enabled", False),
+            kernel_params_dir=getattr(args, "kernel_params_dir", None),
             card_ack_timeout=getattr(args, "card_ack_timeout", 15.0),
             pos_ack_timeout=getattr(args, "pos_ack_timeout", 15.0),
         )

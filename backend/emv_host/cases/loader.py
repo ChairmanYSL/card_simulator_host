@@ -40,10 +40,15 @@ from .validation import (
 
 logger = logging.getLogger("emv_host.cases")
 
-#: Local (gitignored) per-scheme POS kernel parameter file.  Generated from the
-#: POS assets by tools/export_kernel_params.py; the CAPK moduli it contains are
-#: key material and must not be committed.
+#: Commit-safe name for the optional per-scheme kernel parameter file that may
+#: sit next to ``scheme.json``.  Kept only for backward compatibility: since C3
+#: the file holds CAPK moduli (key material), so production deployments must
+#: keep it OUTSIDE the repository and load it via ``kernel_params_dir``.
 KERNEL_PARAMS_FILE = "kernel_params.json"
+
+#: File name used inside the external (out-of-repo) kernel params directory:
+#: ``<kernel_params_dir>/<scheme>.json``.
+EXTERNAL_KERNEL_PARAMS_SUFFIX = ".json"
 
 
 class CaseLibraryError(Exception):
@@ -65,6 +70,22 @@ class CaseLibrary:
     # (scheme, mode) -> {group_id: GroupDef}; sub-cases carry group_id
     groups: dict[tuple[str, str], dict[str, GroupDef]] = field(default_factory=dict)
     issues: list[LoadIssue] = field(default_factory=list)
+    #: External, out-of-repo directory holding ``<scheme>.json`` kernel parameter
+    #: sets (C3).  Takes precedence over the in-repo legacy file.
+    kernel_params_dir: Path | None = None
+    #: When True, also accept the legacy in-repo ``<scheme>/kernel_params.json``
+    #: (compatibility only; it carries CAPK moduli so it is off by default).
+    use_legacy_kernel_params: bool = False
+
+    # -- kernel params -------------------------------------------------------
+    def kernel_params_for(self, scheme: str) -> KernelParams | None:
+        """The POS kernel parameter set that applies to ``scheme``.
+
+        Scheme-level only; per-case overrides are applied by the runner.  One
+        lookup point so the loader, the API and the executor cannot disagree.
+        """
+        scheme_def = self.schemes.get(scheme)
+        return scheme_def.kernel_params if scheme_def is not None else None
 
     # -- lookups ------------------------------------------------------------
     def scheme_cases(self, scheme: str, mode: str) -> dict[str, TestCase]:
@@ -190,16 +211,32 @@ class CaseLibrary:
         """Re-scan the cases directory in place so new files added at runtime
         become visible without restarting the host.  Existing references to
         this instance (e.g. in the runner) keep working."""
-        fresh = load_library(self.root)
+        fresh = load_library(self.root,
+                             kernel_params_dir=self.kernel_params_dir,
+                             use_legacy_kernel_params=self.use_legacy_kernel_params)
         self.schemes = fresh.schemes
         self.cases = fresh.cases
         self.groups = fresh.groups
         self.issues = fresh.issues
+        self.kernel_params_dir = fresh.kernel_params_dir
+        self.use_legacy_kernel_params = fresh.use_legacy_kernel_params
 
 
-def load_library(root: str | Path) -> CaseLibrary:
+def load_library(root: str | Path,
+                 kernel_params_dir: str | Path | None = None,
+                 use_legacy_kernel_params: bool = False) -> CaseLibrary:
+    """Scan ``root`` for schemes/cases.
+
+    ``kernel_params_dir`` (C3) is an out-of-repo directory holding one
+    ``<scheme>.json`` per scheme — the supported location, because those files
+    carry CAPK moduli.  ``use_legacy_kernel_params`` additionally accepts the
+    old in-repo ``<scheme>/kernel_params.json``; it defaults to False so key
+    material is never picked up from inside the repository unless asked for.
+    """
     root = Path(root)
-    library = CaseLibrary(root=root)
+    external = Path(kernel_params_dir) if kernel_params_dir else None
+    library = CaseLibrary(root=root, kernel_params_dir=external,
+                          use_legacy_kernel_params=use_legacy_kernel_params)
     if not root.is_dir():
         raise CaseLibraryError(f"cases root does not exist: {root}")
 
@@ -231,11 +268,13 @@ def load_library(root: str | Path) -> CaseLibrary:
             continue
         library.schemes[scheme] = scheme_def
 
-        # v1.2: scheme-level kernel parameters come from the gitignored local
-        # file next to scheme.json (kernel_params.json), never from the
-        # committed JSON (it carries CAPK moduli).
-        scheme_def.kernel_params = _load_scheme_kernel_params(
+        # C3: scheme-level kernel parameters.  The external directory (out of
+        # repo) wins; the legacy in-repo file is a compatibility fallback.  The
+        # data is never in the committed scheme.json because it carries CAPK
+        # moduli (key material).
+        params, params_path = _load_scheme_kernel_params(
             scheme_dir, scheme, library)
+        scheme_def.kernel_params = params
 
         # scheme-level defaults are advisory (clone templates), not shared
         # runnable profiles; validate them but never block the scheme itself.
@@ -251,7 +290,7 @@ def load_library(root: str | Path) -> CaseLibrary:
             for issue in validate_kernel_params(
                     scheme_def.kernel_params, f"{scheme}:kernel_params").issues:
                 library.issues.append(LoadIssue(
-                    str(scheme_dir / KERNEL_PARAMS_FILE), issue.severity,
+                    str(params_path), issue.severity,
                     f"[{scheme}] {issue.message}"))
 
         # cases under each entry-mode dir: flat *.json (standalone) plus
@@ -464,30 +503,56 @@ def _check_group_case_id_collisions(scheme: str, mode: str,
 
 
 def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
-                               library: CaseLibrary) -> KernelParams | None:
-    """Load the gitignored local ``kernel_params.json`` for one scheme.
+                               library: CaseLibrary
+                               ) -> tuple[KernelParams | None, Path | None]:
+    """Load one scheme's POS kernel parameter set (C3).
 
-    Missing file -> None (the scheme pushes nothing; the POS keeps its built-in
-    tables).  Unreadable/invalid file -> an error issue and None, never a crash.
+    Precedence:
+
+    1. ``<kernel_params_dir>/<scheme>.json`` — the external, out-of-repo
+       location (the supported production form; it holds CAPK moduli);
+    2. ``<scheme_dir>/kernel_params.json`` — legacy in-repo fallback.
+
+    Returns ``(params, path)``.  A missing file yields ``(None, None)``: the
+    scheme then pushes nothing and the POS keeps its built-in tables.  An
+    unreadable/invalid file yields an error issue and ``(None, path)`` — never a
+    crash.
+
+    The two locations are NOT merged, and the legacy in-repo file is read only
+    when explicitly opted into (``use_legacy_kernel_params``).  Default-off is
+    deliberate (C3): the file carries CAPK moduli, so a misconfigured path must
+    surface as an error rather than silently falling back to key material that
+    is supposed to have left the workspace.
     """
-    path = scheme_dir / KERNEL_PARAMS_FILE
-    if not path.is_file():
-        return None
+    external = library.kernel_params_dir
+    if external is not None:
+        path = external / f"{scheme}{EXTERNAL_KERNEL_PARAMS_SUFFIX}"
+        if not path.is_file():
+            library.issues.append(LoadIssue(
+                str(path), "error",
+                f"kernel params dir 已配置但缺少 {path.name}（该 scheme 将不下发内核参数）"))
+            return None, None
+    elif library.use_legacy_kernel_params:
+        path = scheme_dir / KERNEL_PARAMS_FILE
+        if not path.is_file():
+            return None, None
+    else:
+        return None, None
     raw = _safe_read_json(path)
     if raw is None:
         library.issues.append(LoadIssue(
-            str(path), "error", "kernel_params.json 无法读取或不是合法 JSON 对象"))
-        return None
+            str(path), "error", f"{path.name} 无法读取或不是合法 JSON 对象"))
+        return None, path
     try:
         params = KernelParams.model_validate(raw)
     except ValidationError as exc:
         library.issues.append(LoadIssue(
-            str(path), "error", f"invalid kernel_params.json: {exc}"))
-        return None
-    logger.info("scheme %s: loaded local kernel params (AID=%d CAPK=%d term=%s)",
-                scheme, len(params.aids), len(params.caps),
+            str(path), "error", f"invalid {path.name}: {exc}"))
+        return None, path
+    logger.info("scheme %s: loaded kernel params from %s (AID=%d CAPK=%d term=%s)",
+                scheme, path, len(params.aids), len(params.caps),
                 "yes" if params.term else "no")
-    return params
+    return params, path
 
 
 def _safe_read_json(path: Path) -> dict[str, Any] | None:

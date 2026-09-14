@@ -562,12 +562,23 @@ KERNEL_PARAMS = {
 }
 
 
-def test_local_kernel_params_are_loaded(tmp_path):
+def test_local_kernel_params_are_loaded_only_when_opted_in(tmp_path):
+    """C3: the legacy in-repo kernel_params.json is read only on explicit opt-in.
+
+    Default-off is deliberate — the file carries CAPK moduli (key material), so
+    leaving the workspace must be the only way it is normally consumed.
+    """
     root = make_library(tmp_path)
     _write(root / "visa" / "kernel_params.json", KERNEL_PARAMS)
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", CASE)
 
-    library = load_library(root)
+    # default: not read at all
+    default_library = load_library(root)
+    assert default_library.schemes["visa"].kernel_params is None
+    assert not _errors(default_library)
+
+    # explicit opt-in: read and validated
+    library = load_library(root, use_legacy_kernel_params=True)
     params = library.schemes["visa"].kernel_params
     assert params is not None
     assert len(params.aids) == 1 and len(params.caps) == 1
@@ -588,7 +599,7 @@ def test_broken_kernel_params_reported_and_scheme_still_loads(tmp_path):
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", CASE)
     (root / "visa" / "kernel_params.json").write_text("{broken",
                                                       encoding="utf-8")
-    library = load_library(root)
+    library = load_library(root, use_legacy_kernel_params=True)
     assert library.schemes["visa"].kernel_params is None
     assert any("kernel_params.json" in i.path and i.severity == "error"
                for i in library.issues)
@@ -600,7 +611,7 @@ def test_invalid_capk_checksum_in_local_file_is_an_error(tmp_path):
     bad = json.loads(json.dumps(KERNEL_PARAMS))
     bad["caps"][0]["checksum"] = "00" * 20
     _write(root / "visa" / "kernel_params.json", bad)
-    library = load_library(root)
+    library = load_library(root, use_legacy_kernel_params=True)
     assert any("DF03" in i.message and i.severity == "error"
                for i in library.issues)
 

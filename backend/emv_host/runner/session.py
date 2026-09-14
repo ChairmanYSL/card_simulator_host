@@ -36,6 +36,10 @@ class RunSession:
         # a retransmission is acked as a duplicate instead of being re-judged
         # (or quarantined).
         self.judged_msg_ids: set[str] = set()
+        # TS-5/H2: true once the android reported "emulating" for the current
+        # attempt.  From that moment every exit path must send stop_emulation,
+        # otherwise the HCE session can leak into the next case.
+        self.card_emulating: bool = False
 
         # in-flight waits, keyed by attempt_id
         self._result_waiter: asyncio.Future | None = None
@@ -59,12 +63,14 @@ class RunSession:
         self.current_state = "CONFIGURING"
         self.failure_reason = None
         self.judged_msg_ids = set()
+        self.card_emulating = False
         self._result_waiter = None
         self._emulation_waiter = None
 
     def end_attempt(self) -> None:
         self.current_state = "IDLE"
         self.current_attempt_id = None
+        self.card_emulating = False
         self._result_waiter = None
         self._emulation_waiter = None
 

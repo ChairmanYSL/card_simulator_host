@@ -69,6 +69,10 @@ class FakeLibrary:
     def get_case(self, scheme, mode, case_id):  # noqa: ARG002
         return self.case if case_id == self.case.case_id else None
 
+    def kernel_params_for(self, scheme):  # noqa: ARG002
+        """Mirror CaseLibrary.kernel_params_for (the executor's lookup point)."""
+        return None
+
 
 class FailingStore(RunStore):
     """RunStore whose case-result write always fails (disk full / permissions)."""

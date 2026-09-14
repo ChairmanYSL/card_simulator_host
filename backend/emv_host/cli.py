@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="seconds to wait for a card-side ack (default 15)")
     serve.add_argument("--pos-ack-timeout", type=float, default=15.0,
                        help="seconds to wait for a POS-side ack (default 15)")
+    serve.add_argument("--kernel-params-dir", default=None,
+                       help="out-of-repo directory holding per-scheme POS kernel "
+                            "parameter sets (<scheme>.json); it carries CAPK "
+                            "moduli, so it must never live inside the repository")
 
     for name, help_text in (
         ("status", "show server health and current run"),
@@ -179,7 +183,8 @@ async def serve(args: argparse.Namespace) -> None:
         tokens = load_tokens(config.tokens_path)
 
         try:
-            library = load_library(config.cases_dir)
+            library = load_library(config.cases_dir,
+                                   kernel_params_dir=config.kernel_params_dir)
         except CaseLibraryError as exc:
             logger.error("启动失败：%s", exc)
             raise SystemExit(1) from exc

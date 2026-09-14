@@ -52,12 +52,17 @@ class StubLibrary:
     def __init__(self, cases: dict[str, TestCase],
                  kernel: KernelParams | None = None):
         self.cases = cases
+        self._kernel = kernel
         self.schemes = {"visa": type("S", (), {
             "suite_policy": SuitePolicy(retry_count=0),
             "kernel_params": kernel})()}
 
     def get_case(self, scheme, mode, case_id):  # noqa: ARG002
         return self.cases.get(case_id)
+
+    def kernel_params_for(self, scheme):  # noqa: ARG002
+        """Mirror CaseLibrary.kernel_params_for (the executor's lookup point)."""
+        return self._kernel
 
 
 class AckingConn:

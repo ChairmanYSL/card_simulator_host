@@ -41,7 +41,9 @@ export function RunPage({
   const waiting = current.state === "WAIT_RESULT";
   const instr = current.case_id ? instructions[current.case_id] : null;
   const started = session.run_status !== "PENDING";
-  const finished = ["FINISHED", "STOPPED", "ABORTED", "INTERRUPTED"].includes(session.run_status);
+  // H1: ERROR is terminal too — an android-side error ends the run, so the live
+  // view must stop and the controls must disable like every other终态.
+  const finished = ["FINISHED", "STOPPED", "ABORTED", "INTERRUPTED", "ERROR"].includes(session.run_status);
 
   return (
     <div>

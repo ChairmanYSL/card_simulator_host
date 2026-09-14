@@ -70,8 +70,11 @@ ABORT_ACK_TIMEOUT = 3.0
 
 PASSING = {"PASS", "WARN"}
 FINAL_CASE_STATUS = {"PASS", "WARN", "FAIL", "SKIPPED", "ABORTED", "INCONCLUSIVE", "ERROR"}
-# terminal run-level statuses: once persisted, the run loop has fully finished
-TERMINAL_RUN_STATUS = {"FINISHED", "STOPPED", "ABORTED", "INTERRUPTED"}
+# terminal run-level statuses: once persisted, the run loop has fully finished.
+# ERROR belongs here (H1): an android-side error ends the run with status ERROR,
+# and without it a later crash/cancel in _run_loop would overwrite ERROR with
+# ABORTED via _finalize_crash.
+TERMINAL_RUN_STATUS = {"FINISHED", "STOPPED", "ABORTED", "INTERRUPTED", "ERROR"}
 
 
 class RunExecutor:
@@ -173,11 +176,16 @@ class RunExecutor:
 
         Every abnormal path funnels through here so the case record, the
         run-level abort_reason and the session_abort notice always agree.
+
+        The FIRST reason wins (``reason`` only applies when none was recorded):
+        a failure signalled while waiting must not overwrite the assertion
+        verdict that _judge already persisted and acked.
         """
-        if session.failure_reason is None:
-            session.failure_reason = reason
-            session.run.setdefault("results", {}).setdefault(
-                session.current_case_id or "", {})["failure_reason"] = reason
+        if session.failure_reason is not None:
+            return
+        session.failure_reason = reason
+        session.run.setdefault("results", {}).setdefault(
+            session.current_case_id or "", {})["failure_reason"] = reason
         if session.fatal_reason is None:
             case_part = f":{session.current_case_id}" if session.current_case_id else ""
             session.fatal_reason = f"case_failed{case_part}:{reason}"
@@ -370,6 +378,14 @@ class RunExecutor:
                 if ac_crypto:
                     await self.log("info", f"[android] ready ac_crypto={ac_crypto} "
                                            f"profile={detail.get('profile_id')}")
+                # ruling 3.1(c): ready.registered_aids is a PLAN list and is not
+                # a判据; the authoritative registration result arrives with
+                # emulating and is logged below.
+            else:  # emulating
+                registered = detail.get("registered_aids")
+                if registered is not None:
+                    await self.log("info", f"[android] emulating "
+                                           f"registered_aids={registered}")
             in_case = (session and session.current_attempt_id
                        and attempt_id == session.current_attempt_id)
             if in_case and session.deliver_emulation_status(state):
@@ -495,14 +511,26 @@ class RunExecutor:
 
     async def _finalize_crash(self, session: RunSession, reason: str) -> None:
         """Persist a terminal ABORTED state for a run that died outside the
-        normal finish path (task exception or cancellation)."""
+        normal finish path (task exception or cancellation).
+
+        H1: a run that already reached a terminal status (notably ERROR from an
+        android-side error) keeps it.  ``_run_loop`` checks this before calling,
+        but the guard is repeated here so no other caller can downgrade a
+        finished run.
+        """
+        if session.run.get("status") in TERMINAL_RUN_STATUS:
+            logger.debug("run %s already terminal (%s); crash finalizer skipped",
+                         session.run.get("run_id"), session.run.get("status"))
+            return
         run = session.run
         current_case = session.current_case_id
         if current_case and self.store.get_case_result(
                 run["run_id"], current_case) is None:
             record = {
                 "case_id": current_case,
+                # F3: keep the same attempt/attempts pair as the other writers
                 "attempt": session.current_attempt,
+                "attempts": session.current_attempt + 1,
                 "attempt_id": session.current_attempt_id,
                 "status": "ERROR",
                 "finished_at": time.time(),
@@ -528,6 +556,7 @@ class RunExecutor:
         await self.log("info", f"run {run['run_id']} started: {run['scheme']}/{run['mode']}")
 
         stop_reason = ""
+        failing_case_id = ""
         stopped_by_failure = False
         for index, case_id in enumerate(session.queue):
             if session.fatal_reason:
@@ -545,6 +574,7 @@ class RunExecutor:
                 # failure_reason as the session_abort notice
                 stopped_by_failure = outcome in ("fail", "error")
                 stop_reason = session.failure_reason or ""
+                failing_case_id = case_id
                 # Q9: a FAIL stops the run immediately — every case still queued
                 # is persisted as SKIPPED so the report shows what never ran.
                 await self._mark_remaining_skipped(session, index, case_id)
@@ -554,8 +584,13 @@ class RunExecutor:
             run["status"] = "ERROR" if stop_reason == "android_error" else "ABORTED"
             run["abort_reason"] = session.fatal_reason
         elif stopped_by_failure:
+            # F2: always carry the case id, whichever path failed.  An assertion
+            # FAIL comes from _judge (never through _fail), so relying on
+            # session.fatal_reason left this branch writing a case-less reason.
             run["status"] = "ABORTED"
-            run["abort_reason"] = f"case_failed:{stop_reason}"
+            run["abort_reason"] = (f"case_failed:{failing_case_id}:{stop_reason}"
+                                   if stop_reason
+                                   else f"case_failed:{failing_case_id}")
         elif session.abort_event.is_set() and not session.stop_requested:
             run["status"] = "ABORTED"
             run["abort_reason"] = "manual abort"
@@ -635,7 +670,15 @@ class RunExecutor:
                 "state": "CONFIGURING",
             })
             await self.log("info", f"[{case.case_id}] attempt {attempt} starting")
-            outcome = await self._attempt(session, case, attempt, attempt_id)
+            try:
+                outcome = await self._attempt(session, case, attempt, attempt_id)
+            finally:
+                # TS-5/H2: once the card reports emulating, EVERY exit path must
+                # park it.  The stop used to live only in _attempt's final wait,
+                # so a failure in the pos_kernel_config/pos_config/case_started
+                # steps left the card emulating until the next case (the L6
+                # cross-case contamination risk).
+                await self._stop_card_if_started(session, case.case_id, attempt_id)
             await self.log("info", f"[{case.case_id}] attempt {attempt} -> {outcome}")
 
             finalize = outcome in ("pass", "warn", "skipped", "aborted", "fail",
@@ -655,8 +698,8 @@ class RunExecutor:
         """Case-level kernel params override the scheme default entirely (R2)."""
         if case.kernel_params is not None:
             return case.kernel_params
-        scheme_def = self.library.schemes.get(session.scheme)
-        return scheme_def.kernel_params if scheme_def is not None else None
+        # single lookup point shared with the loader/API (C3 external dir aware)
+        return self.library.kernel_params_for(session.scheme)
 
     async def _attempt(self, session: RunSession, case: TestCase,
                        attempt: int, attempt_id: str) -> str:
@@ -715,9 +758,11 @@ class RunExecutor:
                                     f"{start_ack.get('detail', '')}")
             self._fail(session, "card_emulation_rejected")
             return "fail"
+        timed_out = False
         try:
             await self._wait_emulation(session)
         except asyncio.TimeoutError:
+            timed_out = True
             session._emulation_waiter = None
             await self.log("error", f"[{case.case_id}] android did not reach "
                                     f"emulating state in "
@@ -726,6 +771,11 @@ class RunExecutor:
             return "fail"
         finally:
             session._emulation_waiter = None
+            # H2: the wait only returns when the card reported "emulating" (the
+            # abort event short-circuits it too — see _wait_emulation), so from
+            # here on every exit path must park the card.
+            if not timed_out:
+                session.card_emulating = True
         if session.abort_event.is_set():
             # abort during CONFIGURING/WAITING_EMULATION, or android reported
             # status:error while we waited (that path sets failure_reason)
@@ -854,8 +904,12 @@ class RunExecutor:
                     and not session._result_waiter.cancelled():
                 # outcome was decided (and persisted) by _on_transaction_result
                 outcome = session._result_waiter.result()
-                if outcome == "fail" and session.failure_reason is None:
-                    session.failure_reason = "assertion_failed"
+                if outcome == "fail":
+                    # F2: the assertion FAIL must also set fatal_reason, so the
+                    # run's abort_reason carries the case id and the session_abort
+                    # notice reads assertion_failed (not result_timeout).  _fail
+                    # is a no-op when the reason is already set.
+                    self._fail(session, session.failure_reason or "assertion_failed")
                 return outcome
             if session.abort_event.is_set():
                 # abort wins over skip: the run was stopped for a reason (a
@@ -875,9 +929,25 @@ class RunExecutor:
             abort_wait.cancel()
             skip_wait.cancel()
             session.skip_event.clear()
-            # always park the card (v1.1: the app acks, resets kernel state
-            # and keeps AID registrations + the profile for the next attempt)
-            await self._send_stop(CLIENT_ANDROID, case.case_id, attempt_id)
+            # NOTE: the card is parked by _run_case's finally
+            # (_stop_card_if_started), which also covers the earlier failure
+            # paths (TS-5/H2).  Do not stop here as well, or a case would emit
+            # two stop_emulation frames.
+
+    async def _stop_card_if_started(self, session: RunSession, case_id: str,
+                                    attempt_id: str) -> None:
+        """Park the card once per attempt, but only if it ever started (TS-5).
+
+        ``card_emulating`` is set as soon as the android reports ``emulating``;
+        from that moment any exit path (fail, timeout, abort, exception) must
+        send ``stop_emulation``, otherwise the HCE session can outlive the case
+        and leak into the next one.  Cases that never reached ``emulating``
+        (card not connected, ack timeout, profile rejected) must NOT send it.
+        """
+        if not session.card_emulating:
+            return
+        session.card_emulating = False
+        await self._send_stop(CLIENT_ANDROID, case_id, attempt_id)
 
     async def _wait_emulation(self, session: RunSession) -> None:
         """Wait for the android "emulating" status, abortable (v1.2).
@@ -967,7 +1037,11 @@ class RunExecutor:
             return "fail", "result_invalid"
         record = {
             "case_id": case.case_id,
+            # F3: both write paths emit BOTH keys — attempt is 0-based (which try
+            # it was), attempts is the 1-based count.  Consumers (HistoryPage)
+            # read `attempts`, which used to be missing on this path.
             "attempt": session.current_attempt,
+            "attempts": session.current_attempt + 1,
             "attempt_id": session.current_attempt_id,
             "received_at": time.time(),
             "raw_result": result,
@@ -1014,7 +1088,9 @@ class RunExecutor:
             # never reached a result here.
             record = {
                 "case_id": case.case_id, "status": status,
-                "attempts": attempt + 1, "finished_at": time.time(),
+                # F3: same schema as _judge — attempt (0-based) + attempts (count)
+                "attempt": attempt, "attempts": attempt + 1,
+                "finished_at": time.time(),
                 "note": {
                     "inconclusive": "no transaction result within timeout",
                     "aborted": "run aborted",

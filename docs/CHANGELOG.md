@@ -5,6 +5,76 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-14（v1.2 测试审核修复轮，host 侧 P0–P4）
+
+### 修复：测试审核的 5 个在库缺陷（F1/F2/F3 + H1/H2）
+- **类型**：代码修复（host 运行期 + 测试工具链）
+- **依据**：`docs/test-report-v1.2/DEFECTS.md`、`docs/v1.2-测试审核与修复计划.md` TS-1..TS-5
+- **改动**：
+  - **F1**（P2）`tools/mock_clients/mock_common.py` 收发分离：单 reader task + `asyncio.Queue`，
+    `on_message` 内等待 ack 不再阻塞 ack 投递。修复前 POS mock 必然打印
+    `ack timeout (15.0s) for transaction_result`，掩盖「host 已落盘并 ack」的事实。
+  - **F2**（P2）`run.abort_reason` 统一为 `case_failed:<case_id>:<reason>`：断言 FAIL 路径
+    （不经 `_fail()`）也补 `fatal_reason`；`_fail()` 不再覆盖已记录的 `failure_reason`
+    （修复前会把 `assertion_failed` 改写成 `result_timeout`）。
+  - **F3**（P3）`results/<case>.json` 三条写入路径统一输出 `attempt`(0 基) 与 `attempts`(计数)。
+  - **H1**（P2）`TERMINAL_RUN_STATUS` 与 `RunPage.finished` 增 `ERROR`；`_finalize_crash`
+    对已终态运行不再降级为 ABORTED。
+  - **H2**（P1 条件/P2）`RunSession.card_emulating` + `_run_case` try/finally →
+    `_stop_card_if_started`：`emulating` 之后任何失败路径都补发 `stop_emulation`（原先只有
+    第 5 步 finally 会发，跨案例残留风险）；仍保证每案例只发一次。
+  - **H-LOG**：记录 `emulating.registered_aids`（卡端裁决 3.1c，ready 阶段保持 `[]` 不作判据）。
+- **验证**：`cd backend && python -m pytest` = **173 passed**（新增 `tests/test_v12_fixes.py`、
+  `tests/test_df05_encoding.py`）；L3 实跑确认 POS 侧可见 `detail=persisted` 与 `detail=duplicate`。
+- **不影响**：`pos_config` 字段/编码冻结不变；`config_type=pos_kernel_config` 冻结不变。
+
+### 变更：CAPK 密钥材料移出工作区（C3）
+- **类型**：安全/配置（含 CLI 新参数）
+- **改动**：`cases/visa/kernel_params.json`（含 CAPK 模数）移到仓库外
+  `E:\Work\ZT\_secure\card_simulator_host\kernel_params\`；host 新增
+  `AppConfig.kernel_params_dir` + `serve --kernel-params-dir`，按 `<scheme>.json` 加载。
+  仓库内旧路径仅在 `load_library(use_legacy_kernel_params=True)` 时读取，**默认关闭**。
+  `logs/` 中三份含模数的会话 dump 已归档到 `_secure` 外置目录。
+- **验证**：仓库内（含 logs/、证据、快照）模数残留扫描 = 0；`git status` 不含任何内核参数文件。
+- **回退**：把外部目录去掉即可回到「不下发内核参数」；不会读到仓库内文件。
+
+### 新增：DF05（CAPK 失效期）四种编码（C2）
+- **类型**：协议/数据模型
+- **改动**：`CapkParam` 增 `expiry_encoding`(`ascii8`|`bcd4`|`bcd3`|`raw`) 与 `expiry_raw`；
+  `kernel_tlv.encode_expiry/decode_expiry` 实现四种编码；`validate_kernel_params` 按编码校验
+  （合法公历日期、bcd3/bcd4 的 2000–2099 范围、往返一致、raw 非空偶长 hex 且只报 warning）。
+  `ascii8` 为默认且与旧编码器逐字节一致；DF03 与 DF05 编码无关。
+- **策略**：资产中 `A000000333/08`（`DF05=PHWWIPQI`）默认排除，CAPK = 28 条；
+  确需下发时用 `expiry_encoding=raw` 显式放行。
+- **验证**：`tests/test_df05_encoding.py`（往返/边界/闰日/DF03 不变性/raw 逃生口/校验规则）。
+
+### 修订：`docs/test-plan-v1.2.md` 的 7 处方案偏差（P-D1..P-D7 / TS-7）
+- P-D1 §6.5 失败验证换为真·奇数长度 term，并注明 `pos_kernel_config_apply_failed` 需 reject 型 POS
+  （`9F660436000080` 是 14 字符合法值，不能当坏数据）。
+- P-D2 §6.3 计数改为 AID 19 / CAPK 28 / TERM 1，并说明排除 PHWWIPQI 的原因。
+- P-D3 §4.8 判据分档：`emulating` 之前失败 → 仅 `session_abort`；之后失败 → `stop_emulation` + `session_abort`。
+- P-D4 §5.2 去重窗口限定为当前 attempt；跨案例晚到重传 → `quarantined` 且写 `quarantine.jsonl`。
+- P-D5 §4.3 落盘核对同时读 `attempt` 与 `attempts`。
+- P-D6 §0.3 环境限制改为「仅受限沙箱/无控制台时出现」的条件性免责。
+- P-D7 §4.9 用 `--delay` 远大于 `timeout_seconds` 取代依赖控制台 stdin 的 `--interactive`。
+
+### 基线
+- 仓库此前**无任何 commit**；本轮先建基线 `a3c3791 baseline-before-v1.2-fixes`。
+  顺序偏差：CAPK 文件在基线 commit **之前**就已移出工作区（方案原顺序是先 commit），
+  以免模数永久进入 git 历史。
+
+## 2026-09-14
+
+### 新增文档：dsh 跨会话双工通信插件操作手册
+- **类型**：文档（工具/环境，非协议、非上位机功能）
+- **改动**：新增 `docs/dsh-session-link.md`，记录 dsh 动态 Cordis Host 插件 `seslnk-1`
+  （当前包 `pkg-6`）的操作手册：4 个工具（`session_link_list` / `_send` / `_reply` / `_status`）
+  的用法、A→B→A 双工链路、账本验证、8 个分支用例、失败排查、5 层防风暴参数、两条能力边界。
+- **不影响**：本仓库代码、`protocol.md`、用例库、前端行为，以及 host↔卡端联调基线（无版本变更）。
+- **验证状态**：包激活、工具 schema、`inject` 生效为**直接观测**；
+  实投、回投关联、离线补投、hop 累计为**未验证**（未实投），已在文档第 10 节逐项标注。
+- **注意**：插件是**运行时对象**，不落盘；dsh 重启后需重新 `cordis_run` 到 `pkg-6`。
+
 ## 2026-09-10
 
 ### 🎉 round #15 全量联调：28 / 28 全部 PASS（收敛达成）

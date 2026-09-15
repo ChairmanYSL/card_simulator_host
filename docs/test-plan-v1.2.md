@@ -28,14 +28,17 @@
 * 执行前请**整目录复制一份快照**（例如 `E:\Work\ZT\_snapshot\card_simulator_host_<日期>`），任何「改坏了要还原」的情况靠快照；
 * 不要在测试过程中 `git commit`（会把执行者的身份/时间混进历史），除非统筹明确要求。
 
-### 0.3 环境的两个已知限制（**不是被测代码的缺陷**）
+### 0.3 环境的两个已知限制（**仅限受限沙箱/无控制台，不是被测代码的缺陷**）
 
-1. **DSH 沙箱会挡住 pytest 的临时目录**：在本机 `backend` 下直接 `python -m pytest`，结果是
-   `25 passed, 55 errors`，错误全部是
-   `PermissionError: [WinError 5] ... 'pytest-of-<user>'`，
+> P-D6 修订：这两条**只在受限环境**出现。2026-09-14 的独立执行轮（文件策略为
+> `danger-full-access`、有控制台的终端）实测两者**都没有发生**：`WinError 5` 0 次、
+> 未用 `--basetemp`、`CTRL_BREAK_EVENT` 可用（host 优雅退出、退出码 0、`bye`、锁已解除）。
+> 因此不要把下列现象当缺陷上报，也不要在正常环境里预防性地套用规避手段。
+
+1. **受限沙箱会挡住 pytest 的临时目录**：此时在 `backend` 下直接 `python -m pytest` 会得到
+   大量 `PermissionError: [WinError 5] ... 'pytest-of-<user>'`，
    发生在 pytest `tmp_path` 的创建/清理（`os.scandir` / `os.rmdir`）阶段，**测试逻辑本身没跑**。
-   实测 4 个文件（`test_protocol_server` / `test_loader_store` / `test_run_loop_crash` / `test_shutdown`）受此影响。
-   → 请在**普通 shell**（非受限沙箱）里跑；若仍被挡，用「可写且无需清理」的 basetemp：
+   → 若无权限放宽策略，请在**普通 shell** 里跑；若仍被挡，用「可写且无需清理」的 basetemp：
    `python -m pytest --basetemp=E:\Work\ZT\card_simulator_host\tmp\pt_<随机数>`
    注意：pytest 结束时仍会尝试 delete 该目录，沙箱下会留下空目录——**空目录残留是环境现象，不算失败**。
 2. **Windows 信号测试**依赖控制台：`test_launch.py::test_serve_from_backend_dir_uses_repo_defaults` 与
@@ -175,7 +178,7 @@ python -m pytest -v --basetemp=E:\Work\ZT\card_simulator_host\tmp\pt_$(Get-Rando
 | `test_loader_store.py::test_duplicate_case_id_rejected_and_first_kept` | 同号案例记 error；保留**独立文件**（`cases/<ID>.json`）那一份 |
 | `test_loader_store.py::test_case_id_colliding_with_group_id_is_an_error` | `case_id` 与 `group_id` 互斥，报「互斥」 |
 | `test_loader_store.py::test_atomic_write_leaves_no_tmp_and_reads_back` | 无 `*.tmp` 残留；覆盖后内容完整 |
-| `test_loader_store.py::test_local_kernel_params_are_loaded` | `cases/<scheme>/kernel_params.json` 被加载且 0 error |
+| `test_loader_store.py::test_local_kernel_params_are_loaded_only_when_opted_in` | 默认**不读**仓库内 `kernel_params.json`；显式开关下才加载且 0 error（C3） |
 | `test_api_cases.py::test_write_path_guard_refuses_escape` | `../` 路径 → HTTP 400 +「用例库之外」 |
 | `test_api_cases.py::test_group_payload_cannot_carry_kernel_params` | 总案例带 `kernel_params` → 校验失败 |
 | `test_api_cases.py::test_websocket_since_garbage_is_tolerated` | `/ws?since=abc` → 仍先收到 `kind=snapshot`，`seq=0` |
@@ -272,12 +275,16 @@ cd E:\Work\ZT\card_simulator_host
 $run = (Get-ChildItem runs -Recurse -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 Write-Output $run
 Get-Content "$run\run.json" | ConvertFrom-Json | Select-Object run_id,status,abort_reason
-Get-Content "$run\results\VISA-CL-001.json" | ConvertFrom-Json | Select-Object case_id,status,attempts
+Get-Content "$run\results\VISA-CL-001.json" | ConvertFrom-Json | Select-Object case_id,status,attempt,attempts
 Get-ChildItem "$run\trace" -ErrorAction SilentlyContinue
 ```
 
 预期：`status=FINISHED`、`abort_reason` 为空、案例 `status=PASS`、`trace/VISA-CL-001.jsonl` 存在且含 2 对 APDU（约 4 行）。
 **并且**：该目录下**不应**出现 `session_abort` 相关产物（正常结束不发 abort）。
+
+> P-D5 修订：`attempt` 与 `attempts` **两字段并存**（F3 修复后）：`attempt` 为 0 基的「第几次尝试」，
+> `attempts` 为 1 基的「尝试次数」。修复前真实结果记录只有 `attempt`，所以只读 `attempts` 会得到空值。
+> 上一条命令已改为两者都读；`attempts` 是 `HistoryPage.tsx` 的读取字段，`attempt` 便于与日志对齐。
 
 ### 4.4 用例 B：离线拒付（`--outcome declined_offline`）
 
@@ -353,15 +360,28 @@ python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
 ```
 
 预期：案例 `FAIL` + `failure_reason == "pos_not_connected"`；run `ABORTED` +
-`case_failed:VISA-CL-001:pos_not_connected`；卡端收到 `stop_emulation`。
+`case_failed:VISA-CL-001:pos_not_connected`；卡端收到 `session_abort`（reason=`pos_not_connected`）。
 > 这是与 v1.1 行为差异最大的一条：旧版这里只是 warn。
+
+> P-D3 修订（以及 H2/TS-5 修复后的口径）：卡端**收不到** `stop_emulation` 的情况只应出现在
+> 「失败发生在 `emulating` 之前」。本用例的 `pos_not_connected` 发生在步骤 3/2.5，此时**卡端已经
+> emulating**，因此在 TS-5 修复后**必须**收到 `stop_emulation`（`status: stopped`）**并**收到
+> `session_abort`。判据分档如下：
+>
+> | 失败发生在 | 卡端应收到 |
+> |---|---|
+> | `emulating` 之前（卡端未连接 / `card_config` 被拒 / ack 超时 / 就绪超时） | **仅** `session_abort` |
+> | `emulating` 之后（`pos_kernel_config`/`pos_config`/`case_started` 失败、POS 离线、结果超时、断言 FAIL、手动 abort） | `stop_emulation`（一次）**且** `session_abort` |
+>
+> 修复前（H2 未修）第二档只发 `session_abort`——这正是 L6 跨案例残留的风险点。
 
 ### 4.9 用例 G：结果超时（POS 不回结果）
 
-POS mock 以 `--interactive` 启动但**不按回车**：
+把 POS mock 的 `--delay` 设成**远大于案例 `timeout_seconds`** 的值（P-D7 修订：不要用
+`--interactive`，它依赖控制台 stdin，在子进程/无 stdin 环境下 `input()` 会立刻 EOF 使 mock 异常退出）：
 
 ```powershell
-python tools\mock_clients\mock_pos.py --interactive
+python tools\mock_clients\mock_pos.py --delay 9999
 python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
 ```
 
@@ -460,6 +480,12 @@ for i in range(4):
 * 第二次：ack `detail=duplicate`，host 日志 `duplicate transaction_result ignored`；
 * `results/VISA-CL-001.json` 只写一次，**`quarantine.jsonl` 不存在**。
 
+> P-D4 修订：去重窗口 = **当前 attempt**（`begin_attempt` 会重置 `judged_msg_ids`）。因此上表的
+> 「`quarantine.jsonl` 不存在」**只对同一 attempt 内的重传成立**。若重传在**下一个案例已开始后**
+> 才到达，`attributed=False` → 走 `_quarantine()`，此时预期是
+> ack `detail=quarantined` **且** `quarantine.jsonl` 被写出（reason=`case_id mismatch`）。
+> 这两条都是正确行为，判定时按「同一 attempt / 跨案例晚到」分别对照。
+
 ### 5.3 落盘失败（`persist_failed`）
 
 让结果文件不可写：把 `runs\<日期>\<run_id>\results\` 目录设为只读，或用占用文件锁的方式。
@@ -520,7 +546,10 @@ Get-ChildItem runs -Recurse -Filter *.tmp
 
 ## 6. T-D0：POS 内核参数数据准备与校验
 
-本轮 host 从 **gitignored** 的 `cases/<scheme>/kernel_params.json` 读取内核参数。P2 的导出脚本尚未实现，因此这一步需要执行者手工生成数据，或者由统筹提供 JSON。
+本轮 host 从**仓库外受控目录**读取内核参数（`--kernel-params-dir`，每 scheme 一个 `<scheme>.json`）。
+C3 之后**不再**从仓库内 `cases/<scheme>/kernel_params.json` 读取（该路径仅在显式开启兼容开关时才生效），
+因为文件含 CAPK 模数。数据可用 `tools/export_kernel_params.py` 从 POS 资产导出一份副本到该目录；
+未提供时该 scheme 不下发内核参数，POS 用自带表。
 
 ### 6.1 数据来源
 
@@ -532,9 +561,22 @@ E:\Work\ZT\KS8226\L2-SELFTEST-APP\app\src\main\assets\emv\params
 
 格式：行式文本，`AID=` / `CAPK=` / `TERM=` 三个段落，每行是拼接 BER-TLV 的大写 hex。已核实：**AID 19 条、CAPK 29 条、TERM 1 条**；`DF03 = SHA1(9F06‖9F22‖DF02‖DF04)` 29/29 全部吻合。
 
-### 6.2 生成 `kernel_params.json`
+### 6.2 生成 kernel params 文件
 
-对每个要测的 scheme 写一份 `cases/<scheme>/kernel_params.json`，结构：
+> **C3 修订（必读）**：该文件含 CAPK 模数（密钥材料），**不得放在仓库内**。正确位置是
+> **仓库外受控目录**，通过 `--kernel-params-dir` 加载，文件名按 scheme 命名为 `<scheme>.json`：
+
+```powershell
+# 受控目录（仓库外；路径由统筹指定，示例为当前使用值）
+$KP = "E:\Work\ZT\_secure\card_simulator_host\kernel_params"
+New-Item -ItemType Directory -Force -Path $KP | Out-Null
+# 之后把 <scheme>.json 写到这里，例如 $KP\visa.json
+```
+
+**不要**写进 `cases/<scheme>/kernel_params.json`：仓库内路径只在显式开启兼容开关时才会被读取
+（`load_library(use_legacy_kernel_params=True)`，默认关闭），生产环境一律用仓库外目录。
+
+`<scheme>.json` 结构：
 
 ```json
 {
@@ -543,7 +585,8 @@ E:\Work\ZT\KS8226\L2-SELFTEST-APP\app\src\main\assets\emv\params
      "fields": [{"tag": "DF01", "value": "01"}, {"tag": "9F08", "value": "0002"}]}
   ],
   "caps": [
-    {"rid": "A000000003", "key_index": "01", "expiry": "20441231",
+    {"rid": "A000000003", "key_index": "01",
+     "expiry": "20441231", "expiry_encoding": "ascii8",
      "hash_alg": 1, "key_alg": 1,
      "modulus": "<DF02 裸模数 hex>", "exponent": "03",
      "checksum": "<DF03 20 字节 hex>"}
@@ -555,12 +598,23 @@ E:\Work\ZT\KS8226\L2-SELFTEST-APP\app\src\main\assets\emv\params
 要点（易错项）：
 
 * `aid` **不含** `9F06` 标签，只有值；`fields` 里**不得**再出现 `9F06`（会被拒绝）；
-* `expiry` 是 **8 位数字 ASCII**（`"20441231"`），不是 hex；
+* `expiry` 是**规范日期** `YYYYMMDD`（`"20441231"`）字符串，**不是 hex**；
+* `expiry_encoding` 四选一（默认 `ascii8`）：
+  | 取值 | 线上 DF05 字节 | 示例 20441231 |
+  |---|---|---|
+  | `ascii8`（默认，现资产口径） | 8B ASCII | `3230343431323331` |
+  | `bcd4` | 4B BCD（年2+月1+日1） | `20441231` |
+  | `bcd3` | 3B BCD（YY+MM+DD） | `441231` |
+  | `raw` | 原样透传 `expiry_raw` | 任意偶数长度 hex（仅 warning） |
+  `bcd3`/`bcd4` 只能表达 2000–2099，否则加载期报 error；
 * `checksum` 是 hex；留空则由 host 自动算（但**建议显式写**，便于人工核对）；
+  DF03 与 DF05 编码**无关**（只覆盖 RID|索引|模数|指数）；
 * `modulus` 是裸模数 hex，长度必须是 128/144/176/248 字节之一；
-* 资产里 `RID=A000000333 / 9F22=08` 的 `DF05` 是 `PHWWIPQI`（异常样例）——**不要抄进 JSON**，模型层会直接拒绝。
+* 资产里 `RID=A000000333 / 9F22=08` 的 `DF05` 是 `PHWWIPQI`（异常样例）：**默认排除**，
+  即生成后 **CAPK = 28 条**（资产 29 减去这 1 条）。只有在厂商确认必须原样下发时才使用
+  `"expiry_encoding": "raw", "expiry_raw": "5048575749505149"`，且该校验只报 warning、绝不静默通过。
 
-### 6.3 校验生成的 JSON
+### 6.3 校验生成的文件
 
 ```powershell
 cd E:\Work\ZT\card_simulator_host\backend
@@ -568,7 +622,7 @@ python -c "
 import json
 from emv_host.cases.models import KernelParams
 from emv_host.cases.validation import validate_kernel_params
-raw = json.load(open(r'E:\Work\ZT\card_simulator_host\cases\visa\kernel_params.json', encoding='utf-8'))
+raw = json.load(open(r'E:\Work\ZT\_secure\card_simulator_host\kernel_params\visa.json', encoding='utf-8'))
 kp = KernelParams.model_validate(raw)
 rep = validate_kernel_params(kp, 'visa')
 print('errors:', [i.message for i in rep.errors])
@@ -577,33 +631,60 @@ print('AID', len(kp.aids), 'CAPK', len(kp.caps), 'term', bool(kp.term))
 "
 ```
 
-预期：`errors: []`；AID/CAPK 数量与资产一致。
+预期（P-D2 修订后的口径）：`errors: []`；**AID 19 / CAPK 28 / TERM 1**。
+> 资产本身是 29 条 CAPK，按 §6.2 的默认策略排除 `A000000333/08`（`DF05=PHWWIPQI`）后为 **28**，
+> 这不是数据丢失，而是「不是日期的 DF05 默认不下发」。若改用 `raw` 放行则该条回归、计数回到 29，
+> 并伴随一条 warning。
 
-### 6.4 确认文件**不会**被提交
+### 6.4 确认文件**不在**仓库内
 
 ```powershell
 cd E:\Work\ZT\card_simulator_host
-git status --porcelain | Select-String kernel_params
-git check-ignore -v cases\visa\kernel_params.json
+# 仓库内不应存在任何内核参数文件（含被 gitignore 的）
+Get-ChildItem cases -Recurse -Filter kernel_params.json -ErrorAction SilentlyContinue
+Test-Path "E:\Work\ZT\_secure\card_simulator_host\kernel_params\visa.json"   # 期望 True
+# 模数不得出现在仓库任何位置（含 logs/、证据、快照）
+git status --porcelain --untracked-files=all | Select-String -Pattern "kernel_params|_secure"   # 期望空
 ```
+
+预期：第一条**无输出**（仓库内没有该文件）；第二条 `True`；第三条空。
+> 修复轮已把原先在 `cases/visa/kernel_params.json` 的文件移出，并把 `logs/` 中三份含模数的
+> 会话 dump 归档到仓库外；仓库内已核验 0 处模数残留。
+
 
 预期：`git check-ignore` 输出命中 `cases/*/kernel_params.json` 规则；`git status` **不显示**该文件。
 > 该文件含 CAPK 模数（密钥材料），**绝对不得**提交或外发。
 
 ### 6.5 下发路径的端到端验证（走 L3）
 
-放好 `cases/visa/kernel_params.json` 后，按 §4.3 跑一例，观测：
+放好**仓库外**的 `<scheme>.json` 后（见 §6.2），带 `--kernel-params-dir` 启动 host，按 §4.3 跑一例：
 
-* POS mock 日志出现 `pos_kernel_config: aid=19 capk=29 term=yes`（数量以实际文件为准）；
-* host 日志出现 `pos_kernel_config applied (AID ... / CAPK ...)`；
+```powershell
+python -m emv_host serve --trace-enabled --log-level info `
+  --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params"
+```
+
+观测：
+
+* POS mock 日志出现 `pos_kernel_config: aid=19 capk=28 term=yes`（数量以实际文件为准）；
+* host 日志出现 `pos_kernel_config applied (...)`；
 * **顺序**：POS 端 `pos_kernel_config` 的 ack **早于** `pos_config` 的 ack；
 * host 落盘里不应出现 `pos_kernel_config_*` 类失败原因。
 
-再做一个**反向**验证：把 `kernel_params.json` 改名为 `.bak`，重跑 → POS 端**不应**出现
+**反向**验证：不带 `--kernel-params-dir` 重启（或把外部文件临时改名），重跑 → POS 端**不应**出现
 `pos_kernel_config`，案例仍应 PASS（= 不下发时 POS 用自带表）。
 
-再做一个**失败**验证：把 `term` 改成奇数长度的 hex（如 `9F660436000080`），重跑 →
-案例应 `FAIL` + `failure_reason == "pos_kernel_config_apply_failed"`（或先被 host 校验拦下、以 error 记入加载 issues，取决于改的是哪种文件；请把实际观测记录清楚）。
+**失败**验证（P-D1 修订）：`pos_kernel_config_apply_failed` 需要**回 `ok=false` 的 POS 端**；
+stock mock 没有内核、对任何参数都回 `ok=true`，因此该失败原因在 stock mock 上**不可达**。
+两种做法：
+
+* 用 reject 型 POS（仓库已有 `docs/test-report-v1.2/scripts/mock_pos_reject_kernel.py`，运行需把
+  `tools/mock_clients` 加进 `PYTHONPATH`），预期案例 `FAIL` +
+  `failure_reason == "pos_kernel_config_apply_failed"`、run `ABORTED`；
+* 只验证 host 侧校验：把 `term` 改成**真·奇数长度** hex（如 `9F6604360000809`，15 字符）或非法 TLV。
+  注意 **`9F660436000080`（14 字符 = 7 字节）是合法值**，别拿它当坏数据——它会被正常解析、
+  案例照样 PASS（这正是 P-D1 记录的原方案错误）。奇数长度会在**加载期**被拦下并记 error issue，
+  但 stock mock 下案例**仍会 PASS**（不下发就没人拒绝），所以这类判定要看 issues，而非案例状态。
 
 ---
 

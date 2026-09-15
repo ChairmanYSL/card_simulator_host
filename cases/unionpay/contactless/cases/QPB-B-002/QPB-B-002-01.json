@@ -71,16 +71,6 @@
         "tag": "9F33",
         "name": "terminal_capabilities",
         "value": "E0F0C8"
-      },
-      {
-        "tag": "9F66",
-        "name": "ttq",
-        "value": "36804000"
-      },
-      {
-        "tag": "DF8101",
-        "name": "test_host_online_approval",
-        "value": "01"
       }
     ]
   },

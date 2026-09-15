@@ -188,3 +188,49 @@ def test_asset_without_aid_section_is_rejected(tmp_path):
     path = tmp_path / "params"
     path.write_text("CAPK=\n" + capk_line() + "\n", encoding="utf-8")
     assert tool.main(["--asset", str(path), "--out-dir", str(tmp_path / "kp")]) == 1
+
+
+# -- gen_cases manifest guard (T7) -------------------------------------------
+
+def load_gen_cases():
+    spec = importlib.util.spec_from_file_location(
+        "gen_cases", REPO / "tools" / "gen_cases.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["gen_cases"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_gen_cases_ignores_manifest_entries_outside_the_scheme_dir(tmp_path):
+    """A corrupted manifest must not let a regeneration delete outside files."""
+    gen = load_gen_cases()
+
+    outside = tmp_path / "outside.json"
+    outside.write_text("keep me", encoding="utf-8")
+    scheme_root = tmp_path / "cases" / "visa"
+    scheme_root.mkdir(parents=True)
+    victim = scheme_root / "generated.json"
+    victim.write_text("{}", encoding="utf-8")
+    (scheme_root / ".gen_cases_manifest.json").write_text(json.dumps({
+        "files": ["generated.json", "../../outside.json"]}), encoding="utf-8")
+
+    gen._clean_previous_generated(scheme_root)
+
+    assert not victim.exists(), "the in-tree generated file is still cleaned"
+    assert outside.exists(), "an escaping entry must be skipped, not deleted"
+
+
+def test_gen_cases_clean_is_bounded_to_the_manifest(tmp_path):
+    gen = load_gen_cases()
+    scheme_root = tmp_path / "cases" / "visa"
+    cases = scheme_root / "contactless" / "cases"
+    cases.mkdir(parents=True)
+    (cases / "OPBD-001-01.json").write_text("{}", encoding="utf-8")  # hand-made
+    (cases / "VISA-CL-001.json").write_text("{}", encoding="utf-8")  # generated
+    (scheme_root / ".gen_cases_manifest.json").write_text(json.dumps({
+        "files": ["contactless/cases/VISA-CL-001.json"]}), encoding="utf-8")
+
+    gen._clean_previous_generated(scheme_root)
+
+    assert not (cases / "VISA-CL-001.json").exists()
+    assert (cases / "OPBD-001-01.json").exists(), "hand-written cases are kept"

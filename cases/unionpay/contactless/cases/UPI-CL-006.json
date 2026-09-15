@@ -74,7 +74,8 @@
         "name": "terminal_capabilities",
         "value": "E0F0C8"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "手机 NFC 已开启，模拟 app 保持前台",
@@ -92,7 +93,7 @@
       "expect": "卡片对 GPO 无响应（每次），终端超时中止交易"
     }
   ],
-  "timeout_seconds": 300,
+  "timeout_seconds": 180,
   "retry_on_fail": 0,
   "expected_results": [
     {
@@ -105,8 +106,7 @@
       "op": "any_of",
       "expect": [
         "05",
-        "91",
-        "80"
+        "91"
       ]
     }
   ]

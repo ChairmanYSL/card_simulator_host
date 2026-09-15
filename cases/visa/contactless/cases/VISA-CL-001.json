@@ -70,13 +70,9 @@
         "tag": "9C",
         "name": "transaction_type",
         "value": "00"
-      },
-      {
-        "tag": "9F1B",
-        "name": "terminal_floor_limit",
-        "value": "FFFFFFFF"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "phone NFC enabled and card simulator app in foreground",

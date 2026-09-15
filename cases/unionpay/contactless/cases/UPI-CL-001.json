@@ -71,7 +71,8 @@
         "name": "terminal_capabilities",
         "value": "E0F0C8"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "phone NFC enabled and card simulator app in foreground",

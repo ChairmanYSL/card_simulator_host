@@ -72,7 +72,8 @@
         "name": "terminal_capabilities",
         "value": "E0F0C8"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "手机 NFC 已开启，模拟 app 保持前台",

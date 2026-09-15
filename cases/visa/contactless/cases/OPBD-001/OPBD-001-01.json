@@ -71,7 +71,8 @@
         "name": "transaction_type",
         "value": "00"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "手机 NFC 已开启，模拟 app 保持前台"

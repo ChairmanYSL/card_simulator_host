@@ -77,7 +77,8 @@
         "name": "terminal_capabilities",
         "value": "E0F0C8"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "手机 NFC 已开启，模拟 app 保持前台",
@@ -92,25 +93,21 @@
     {
       "step": 2,
       "action": "操作员在 POS 发起交易，终端执行到 GPO",
-      "expect": "首次 GPO 无响应；真实 POS 内核不再重发 GPO，交易按终端超时/拒绝收尾"
+      "expect": "首次 GPO 无响应，重试后卡片正常应答，交易批准"
     }
   ],
-  "timeout_seconds": 300,
+  "timeout_seconds": 180,
   "retry_on_fail": 0,
   "expected_results": [
     {
       "path": "resp_code",
-      "op": "any_of",
-      "expect": [
-        "80",
-        "91",
-        "05"
-      ]
+      "op": "eq",
+      "expect": "00"
     },
     {
       "path": "outcome",
       "op": "eq",
-      "expect": "declined"
+      "expect": "approved"
     }
   ]
 }

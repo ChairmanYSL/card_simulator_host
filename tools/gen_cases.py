@@ -54,9 +54,18 @@ def _read_manifest(scheme_root: Path) -> list[str]:
 
 
 def _clean_previous_generated(scheme_root: Path) -> None:
-    """Delete only files this generator created before (per its manifest)."""
+    """Delete only files this generator created before (per its manifest).
+
+    Every entry is resolved and must stay inside ``scheme_root``: a hand-edited
+    or corrupted manifest containing ``../`` would otherwise let a regeneration
+    delete files outside the case library.
+    """
+    root = scheme_root.resolve()
     for rel in _read_manifest(scheme_root):
-        target = scheme_root / rel
+        target = (scheme_root / rel).resolve()
+        if target != root and root not in target.parents:
+            print(f"  ! manifest entry outside the scheme dir, skipped: {rel}")
+            continue
         try:
             if target.is_file():
                 target.unlink()
@@ -64,7 +73,9 @@ def _clean_previous_generated(scheme_root: Path) -> None:
             pass
     # prune now-empty sub-directories (best effort, bottom-up)
     for rel in reversed(sorted(_read_manifest(scheme_root))):
-        parent = scheme_root / Path(rel).parent
+        parent = (scheme_root / Path(rel).parent).resolve()
+        if parent != root and root not in parent.parents:
+            continue
         try:
             parent.rmdir()  # only removes when empty
         except OSError:
@@ -341,6 +352,7 @@ def gen_case(scheme_key: str, scheme: dict, mode: str, spec: dict,
                 "entry_mode": mode,
             },
             "pos_params": [dict(p) for p in pos_params],
+            "kernel_params": None,
         },
         "preconditions": [
             "phone NFC enabled and card simulator app in foreground",
@@ -458,6 +470,7 @@ def _gen_smoke_case(scheme_root: Path, scheme: dict, brand: str,
                 "amount": "100.00", "currency": "156", "entry_mode": mode,
             },
             "pos_params": [dict(p) for p in pos_params],
+            "kernel_params": None,
         },
         "preconditions": [
             "phone NFC enabled and card simulator app in foreground",
@@ -505,6 +518,7 @@ def _gen_no_response_cases(scheme_root: Path, scheme: dict, brand: str,
                 "expected_values": {"amount": "100.00", "currency": "156",
                                     "entry_mode": mode},
                 "pos_params": [dict(p) for p in pos_params],
+                "kernel_params": None,
             },
             "preconditions": [
                 "手机 NFC 已开启，模拟 app 保持前台",
@@ -610,6 +624,7 @@ def _gen_qpb_i_010_group(scheme_root: Path, scheme: dict, brand: str,
             "expected_values": {"amount": "100.00", "currency": "156",
                                 "entry_mode": "contactless"},
             "pos_params": [dict(p) for p in pos_params],
+            "kernel_params": None,
         },
         "preconditions": [
             "手机 NFC 已开启，模拟 app 保持前台",
@@ -855,6 +870,7 @@ def _gen_qpb_d_001_group(scheme_root: Path, scheme: dict, brand: str,
                 "expected_values": {"amount": "100.00", "currency": "156",
                                     "entry_mode": "contactless"},
                 "pos_params": [dict(p) for p in pos_params],
+                "kernel_params": None,
             },
             "preconditions": ["手机 NFC 已开启，模拟 app 保持前台"],
             "test_plan": [
@@ -966,6 +982,7 @@ def _gen_ppse_group(scheme_root: Path, scheme: dict, brand: str,
                 "expected_values": {"amount": "100.00", "currency": "156",
                                     "entry_mode": "contactless"},
                 "pos_params": [dict(p) for p in pos_params],
+                "kernel_params": None,
             },
             "preconditions": ["手机 NFC 已开启，模拟 app 保持前台"],
             "test_plan": [

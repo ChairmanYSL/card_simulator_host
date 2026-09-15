@@ -97,7 +97,8 @@
         "name": "transaction_type",
         "value": "00"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "phone NFC enabled and card simulator app in foreground",

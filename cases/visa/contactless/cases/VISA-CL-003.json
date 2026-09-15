@@ -70,13 +70,9 @@
         "tag": "9C",
         "name": "transaction_type",
         "value": "00"
-      },
-      {
-        "tag": "DF8101",
-        "name": "test_host_online_approval",
-        "value": "01"
       }
-    ]
+    ],
+    "kernel_params": null
   },
   "preconditions": [
     "phone NFC enabled and card simulator app in foreground",

@@ -90,11 +90,18 @@
     **失败原因**列并附 SKIPPED 说明。
   - `README.md`：v1.2 横幅 + 运行语义改写（失败即停、ack 纪律、session_abort、断线即 FAIL）、
     内核参数与 `export_kernel_params.py` 章节；测试数更新为 184。
+  - **T16** HistoryPage 新增「失败原因」列 + SKIPPED 说明；RunPage 队列同列。
+  - **T17** CaseSelectPage「运行本组」改用 `kind=group` + `group_id`（后端自行解析子案例）；
+    移除「失败继续」选项（v1.2 恒定失败即停），仅留重试次数。
+  - **T18** `ws.ts` 保存并清理重连定时器，`open()` 在 `closedByUs` 时直接返回，
+    避免切页/StrictMode 双挂载后旧定时器复活 socket。
+  - `docs/POS机应用开发手册.md` 顶部加 v1.2 差异对照表并指向变更通知（正文仍是 v1.1，
+    待后续逐节升级）。
 - **验证**：`cd backend && python -m pytest` = **184 passed**（新增 gen_cases 清单防护 2 例）；
   `npx tsc --noEmit` 通过、`npm run build` 成功；
   `report.py` 对真实 run 冒烟输出新列。
-- **仍未做**：前端 T16–T18（历史页列/组运行 `kind=group`/WS 重连清理）、
-  `docs/POS机应用开发手册.md` 升版、`protocol.md` §0–§11 逐节改写、可选 TS-10 日志降噪。
+- **仍未做**：`docs/POS机应用开发手册.md` 正文逐节升级、`protocol.md` §0–§11 逐节改写、
+  可选 TS-10 日志降噪。前端 T14–T18 已全部完成。
 
 ### 基线
 - 仓库此前**无任何 commit**；本轮先建基线 `a3c3791 baseline-before-v1.2-fixes`。

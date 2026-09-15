@@ -1,7 +1,23 @@
 # POS 机应用开发手册（Android 7.1.2）
 
+> **⚠️ 本文档描述的是 v1.1 口径，尚未逐节升级到 v1.2。**
+> v1.2 的 POS 端**权威且完整**的口径请看
+> [`docs/protocol-change-notice-v1.2.md`](protocol-change-notice-v1.2.md)（变更通知），
+> 协议权威文档见 `docs/protocol.md` **§12**（v1.2 差异节，优先于旧正文）。
+> 阅读本文档时请按下列 v1.2 差异自行替换：
+>
+> | 本文档（v1.1） | v1.2 实际要求 |
+> |---|---|
+> | 握手 `protocol_version:"1.1"`，缺省宽容 | **必须** `"1.2"`；缺失或 `<1.2` 一律被拒 |
+> | `device_config`（若提及） | **已删除**；心跳 10s / 判死 30s / ack 15s 用缺省 |
+> | 只有 `pos_config` 需要 ack | **新增** `pos_kernel_config`（AID/CAPK/TERM）与 `session_abort`，二者也必 ack |
+> | `case_started` 无需 ack | `case_started` **必 ack**（15s） |
+> | `transaction_result` 发出即算上报 | host **先落盘再 ack**；收到 `persisted`/`duplicate` 后**不要重发**，仅 `ok:false` 才重试 |
+> | 未 ack / POS 离线仅是告警 | 一律**该案例 FAIL**，并**立即停止整轮** |
+> | 无异常停止通知 | 异常收尾双方各收一次 `session_abort`（必 ack） |
+>
 > **读者**：POS 交易应用开发人员（POS 端）。
-> **权威依据**：`docs/protocol.md`（唯一权威协议 v1.1，已吸收 H1–H10 / O1–O7 /
+> **权威依据**：`docs/protocol.md`（唯一权威协议，v1.2 见 §12；已吸收 H1–H10 / O1–O7 /
 > N1–N12）。本手册只讲 POS 端需要实现的部分，若与 protocol.md 冲突，以
 > protocol.md 为准。变更索引见 `docs/CHANGELOG.md`。
 > **目标系统**：Android 7.1.2（API 25）。

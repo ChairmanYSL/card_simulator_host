@@ -68,11 +68,33 @@
   §3 ack 表、§5 心跳、§6.3 host→pos 帧目录、§10 中断语义），未逐节改写。
   §12 已覆盖全部行为差异且为最高优先级，但**逐节正文改写留待后续**；
   POS 侧完整口径见 `docs/protocol-change-notice-v1.2.md`。
-- **未完成项（TS-9 剩余，明确降级）**：`README.md` 与 `docs/POS机应用开发手册.md` 仍为 v1.1；
-  `tools/gen_cases.py` 的 kernel_params 生成、前端 T14–T18、`tools/joint_debug` T20（`--expect-versions`
-  默认值、`failure_reason` 列、`--on-failure` 语义）均**未实施**。这些不阻塞 L1–L4，
-  但 L5 前需补齐或确认降级。
-- **未做（可选）**：TS-10 `server.py` 对端强杀时的日志降噪（仅影响日志可读性）。
+
+### 补齐：T7 / T14–T15 / T20（第二轮）
+- **类型**：工具 + 前端 + 联调脚本
+- **改动**：
+  - **T7** `tools/gen_cases.py`：生成的每个案例显式带 `kernel_params: null`（6 处案例字典，
+    精确锚定保证落在 `transaction` 内与 `pos_params` 同级）；
+    `_clean_previous_generated` 增加**清单路径逃逸防护**（解析后必须落在 scheme 目录内，否则跳过并告警）；
+    重新生成 7 卡组演示库 —— **自建用例 OPBD-001-* 与 OPBD-001 组全部保留**，`load_library` 0 error。
+  - **T14** 前端类型/API：`KernelParams`/`CapkParam`/`AidKernelParam`/`TlvField`、
+    `CaseDetail.kernel_params`、`failure_reason`（CaseRunResult/RunDetail/HistorySummary）、`attempt`；
+    `startRun` 支持 `group_id` 与可选 `case_ids`；`loader.public_case` 暴露案例级 `kernel_params`；
+    `api.history_detail` 透出 `attempt`/`failure_reason`。
+  - **T15** 添加用例页新增**内核参数页签**：JSON 文本域 + 可复制结构示例 + 空模板/清空按钮；
+    校验只做「JSON 合法 + 顶层形状（aids/caps 为数组、term 为字符串、不可全空）」，
+    深度校验（hex 长度、DF03、DF05 编码、去重）仍由服务端负责，避免双份规则漂移。
+    本版本**不做 AID/CAPK 表格 UI**（按方案降险）。
+  - **T20** `tools/joint_debug/`：`run_cases.py` 报告打印/回传 `failure_reason`，
+    preflight 说明 `/api/health` 不返回 `protocol_version`（须看握手日志 `protocol=1.2`），
+    `--on-failure` 默认改 `stop` 并注明 `continue` 在 v1.2 已失效；`report.py` 逐用例表新增
+    **失败原因**列并附 SKIPPED 说明。
+  - `README.md`：v1.2 横幅 + 运行语义改写（失败即停、ack 纪律、session_abort、断线即 FAIL）、
+    内核参数与 `export_kernel_params.py` 章节；测试数更新为 184。
+- **验证**：`cd backend && python -m pytest` = **184 passed**（新增 gen_cases 清单防护 2 例）；
+  `npx tsc --noEmit` 通过、`npm run build` 成功；
+  `report.py` 对真实 run 冒烟输出新列。
+- **仍未做**：前端 T16–T18（历史页列/组运行 `kind=group`/WS 重连清理）、
+  `docs/POS机应用开发手册.md` 升版、`protocol.md` §0–§11 逐节改写、可选 TS-10 日志降噪。
 
 ### 基线
 - 仓库此前**无任何 commit**；本轮先建基线 `a3c3791 baseline-before-v1.2-fixes`。

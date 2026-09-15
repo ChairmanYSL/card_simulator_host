@@ -3,7 +3,6 @@ import { api } from "../api";
 import type { CaseDetail, GroupNode, SchemeCase, SchemeNode } from "../types";
 
 type RunOptions = {
-  on_failure: string;
   retry_count: number;
 };
 
@@ -20,14 +19,16 @@ export function CaseSelectPage({
   schemeNode: SchemeNode;
   defaultMode: string;
   onBack: () => void;
-  onStart: (kind: string, caseIds: string[], options: RunOptions) => void;
+  onStart: (kind: string, caseIds: string[], options: RunOptions,
+            groupId?: string) => void;
 }) {
   const [mode, setMode] = useState(defaultMode);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  // v1.2: on_failure was removed — the host stops the run on the first FAIL, so
+  // offering "失败继续" would be a lie.
   const [options, setOptions] = useState<RunOptions>({
-    on_failure: "stop",
     retry_count: 1,
   });
   const [caseError, setCaseError] = useState<string | null>(null);
@@ -74,7 +75,10 @@ export function CaseSelectPage({
 
   const runGroup = (group: GroupNode) => {
     if (group.children.length === 0) return;
-    onStart("selected", group.children.map((c) => c.case_id), options);
+    // v1.2 T17: let the backend resolve the group's 子案例 (kind=group); the
+    // server then also reports the group as a unit and keeps the queue stable.
+    onStart("group", group.children.map((c) => c.case_id), options,
+            group.group_id);
   };
 
   const renderLeafRow = (c: SchemeCase) => (
@@ -106,12 +110,7 @@ export function CaseSelectPage({
           </button>
         ))}
         <span className="muted" style={{ marginLeft: "auto" }}>
-          策略
-          <select value={options.on_failure}
-            onChange={(e) => setOptions({ ...options, on_failure: e.target.value })}>
-            <option value="stop">失败即停</option>
-            <option value="continue">失败继续</option>
-          </select>
+          策略 失败即停（v1.2 固定）
           重试
           <input type="number" min={0} max={5} value={options.retry_count}
             style={{ width: 52 }}

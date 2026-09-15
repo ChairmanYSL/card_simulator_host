@@ -105,6 +105,7 @@ export function HistoryPage() {
                 <th>case id</th>
                 <th>status</th>
                 <th>attempts</th>
+                <th>failure reason</th>
                 <th>assertion detail</th>
               </tr>
             </thead>
@@ -114,6 +115,12 @@ export function HistoryPage() {
                   <td className="mono">{r.case_id}</td>
                   <td><Tag status={r.status} /></td>
                   <td className="muted">{r.attempts}</td>
+                  <td className="mono" style={{
+                    color: r.failure_reason ? "var(--red)" : undefined,
+                    fontSize: 12,
+                  }}>
+                    {r.failure_reason || "—"}
+                  </td>
                   <td>
                     {r.verdict?.rules.map((rule, i) => (
                       <div key={i} className={`rule-line ${rule.ok ? "ok" : "bad"}`}>
@@ -129,6 +136,11 @@ export function HistoryPage() {
               ))}
             </tbody>
           </table>
+          <div className="muted" style={{ fontSize: 12 }}>
+            v1.2：任一案例 FAIL 后整轮立即停止，其余案例记为 <span className="mono">SKIPPED</span>
+            （note=<span className="mono">run_stopped_after_failure:&lt;case_id&gt;</span>），不是漏跑；
+            <span className="mono"> failure_reason</span> 说明 FAIL 的具体原因。
+          </div>
           {detail.quarantine.length > 0 && (
             <div className="gap">
               <div className="section-title">quarantine · 迟到/无主结果</div>

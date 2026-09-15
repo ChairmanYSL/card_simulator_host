@@ -110,6 +110,7 @@ export function RunPage({
               <th>case id</th>
               <th>status</th>
               <th>attempts</th>
+              <th>failure reason</th>
               <th>finished</th>
             </tr>
           </thead>
@@ -124,12 +125,22 @@ export function RunPage({
                   </td>
                   <td>{r ? <Tag status={r.status} /> : <Tag status={isCurrent ? "RUNNING" : "PENDING"} />}</td>
                   <td className="muted">{r?.attempts ?? 0}</td>
+                  <td className="mono" style={{
+                    color: r?.failure_reason ? "var(--red)" : undefined,
+                    fontSize: 12,
+                  }}>
+                    {r?.failure_reason || "—"}
+                  </td>
                   <td className="muted">{r?.finished_at ? fmtTime(r.finished_at) : "—"}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        <div className="muted" style={{ fontSize: 12 }}>
+          v1.2：首个 FAIL 即停止整轮，其后案例显示 <span className="mono">SKIPPED</span>；
+          <span className="mono"> failure_reason</span> 为本次失败的直接原因。
+        </div>
       </div>
 
       <div className="panel">

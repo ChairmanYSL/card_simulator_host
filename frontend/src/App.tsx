@@ -106,7 +106,15 @@ export default function App() {
     api.tree().then(setTree).catch(() => undefined);
   }, []);
 
-  const onStart = async (kind: string, caseIds: string[], options: { on_failure: string; retry_count: number }) => {
+  // v1.2: `on_failure` is gone from the options — the host always stops the run
+  // on the first FAIL.  A group run now uses kind=group with group_id so the
+  // backend resolves the 子案例 itself (and reports them as one unit).
+  const onStart = async (
+    kind: string,
+    caseIds: string[],
+    options: { retry_count: number },
+    groupId?: string,
+  ) => {
     if (view.name !== "select") return;
     setStartError(null);
     try {
@@ -114,8 +122,8 @@ export default function App() {
         scheme: view.scheme,
         mode: view.mode,
         kind,
-        case_ids: caseIds,
-        on_failure: options.on_failure,
+        case_ids: kind === "group" ? undefined : caseIds,
+        group_id: kind === "group" ? groupId ?? null : null,
         retry_count: options.retry_count,
       });
       setView({ name: "run" });

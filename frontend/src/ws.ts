@@ -13,8 +13,12 @@ export function connectWs(handlers: Handlers): () => void {
   let lastSeq = 0;
   let closedByUs = false;
   let retryDelay = 500;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const open = () => {
+    // T18: a pending retry must never resurrect the socket after cleanup
+    // (React StrictMode double-mounts and page switches both call the disposer)
+    if (closedByUs) return;
     const proto = location.protocol === "https:" ? "wss" : "ws";
     socket = new WebSocket(`${proto}://${location.host}/ws?since=${lastSeq}`);
     socket.onopen = () => {
@@ -34,7 +38,7 @@ export function connectWs(handlers: Handlers): () => void {
     socket.onclose = () => {
       handlers.onStatus(false);
       if (closedByUs) return;
-      setTimeout(open, retryDelay);
+      retryTimer = setTimeout(open, retryDelay);
       retryDelay = Math.min(retryDelay * 2, 10000);
     };
     socket.onerror = () => socket?.close();
@@ -43,6 +47,11 @@ export function connectWs(handlers: Handlers): () => void {
   open();
   return () => {
     closedByUs = true;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     socket?.close();
+    socket = null;
   };
 }

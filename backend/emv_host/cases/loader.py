@@ -205,6 +205,9 @@ class CaseLibrary:
             "operator_instructions": tc.transaction.operator_instructions.model_dump(),
             "pos_params": [p.model_dump() for p in tc.transaction.pos_params],
             "expected_results": [r.model_dump() for r in tc.expected_results],
+            # v1.2: per-case kernel parameter override (None = scheme default)
+            "kernel_params": (None if tc.kernel_params is None
+                              else tc.kernel_params.model_dump(mode="json")),
         }
 
     def reload(self) -> None:

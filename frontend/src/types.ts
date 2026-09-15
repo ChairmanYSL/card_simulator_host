@@ -15,9 +15,13 @@ export type CurrentAttempt = {
 
 export type CaseRunResult = {
   status: string;
+  attempt?: number;
   attempts?: number;
   verdict?: string;
   finished_at?: number;
+  // v1.2: why a case failed (result_timeout / pos_not_connected /
+  // assertion_failed / ...); present on FAIL and ERROR records
+  failure_reason?: string | null;
 };
 
 export type SessionInfo = {
@@ -27,6 +31,7 @@ export type SessionInfo = {
   run_status: string;
   stop_requested: boolean;
   fatal_reason: string | null;
+  failure_reason?: string | null;
   queue: string[];
   current: CurrentAttempt;
   results: Record<string, CaseRunResult>;
@@ -75,6 +80,43 @@ export type PosParam = {
   tag: string;
   name?: string;
   value?: string;
+};
+
+// ---------------------------------------------------------------------------
+// v1.2 kernel parameters (POS AID/CAPK/TERM)
+// ---------------------------------------------------------------------------
+
+export type TlvField = {
+  tag: string;   // 1-2 byte uppercase hex, e.g. "DF01"
+  value: string; // even-length uppercase hex
+};
+
+export type AidKernelParam = {
+  aid: string;             // 9F06 value, 5-8 bytes hex (no 9F06 tag)
+  fields: TlvField[];      // remaining elements, in order; never 9F06
+};
+
+//: DF05 encoding (v1.2 C2).  ascii8 is the default and matches all current
+//: POS assets; bcd4/bcd3 are packed BCD; raw passes expiry_raw verbatim.
+export type ExpiryEncoding = "ascii8" | "bcd4" | "bcd3" | "raw";
+
+export type CapkParam = {
+  rid: string;             // 9F06 value: exactly 5 bytes hex
+  key_index: string;       // 9F22 value: 1 byte hex
+  expiry?: string;         // canonical YYYYMMDD (required unless encoding=raw)
+  expiry_encoding?: ExpiryEncoding;
+  expiry_raw?: string;     // hex verbatim; only with expiry_encoding="raw"
+  hash_alg?: number;       // DF06, default 1
+  key_alg?: number;        // DF07, default 1
+  modulus: string;         // DF02 raw modulus hex (128/144/176/248 bytes)
+  exponent?: string;       // DF04, default "03"
+  checksum?: string;       // DF03 hex; omit to let the host compute SHA1
+};
+
+export type KernelParams = {
+  aids: AidKernelParam[];
+  caps: CapkParam[];
+  term: string;            // single TERM TLV hex
 };
 
 export type ProfileSummary = {
@@ -127,6 +169,8 @@ export type CaseDetail = {
   operator_instructions: OperatorInstructions;
   pos_params: PosParam[];
   expected_results: MatchRule[];
+  // v1.2: per-case POS kernel parameter override (null = use scheme default)
+  kernel_params?: KernelParams | null;
 };
 
 export type HistorySummary = {
@@ -139,6 +183,8 @@ export type HistorySummary = {
   started_at: number | null;
   finished_at: number | null;
   abort_reason: string | null;
+  // v1.2: the run index carries the case-level failure reason too
+  failure_reason?: string | null;
   total: number;
   passed: number;
   failed: number;
@@ -154,7 +200,9 @@ export type RunDetail = {
   results: Record<string, {
     case_id: string;
     status: string;
+    attempt?: number;
     attempts: number;
+    failure_reason?: string | null;
     note?: string;
     verdict?: { status: string; rules: { path: string; op: string; expect: unknown; severity: string; ok: boolean; actual: unknown; message: string }[] };
     raw_result?: Record<string, unknown>;

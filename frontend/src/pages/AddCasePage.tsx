@@ -39,6 +39,10 @@ export type CaseDraft = {
   keysJson: string;
   // POS transaction parameters (scheme template auto-added, tags editable)
   posParams: PosRow[];
+  // v1.2: per-case POS kernel parameters (AID/CAPK/TERM) as a JSON document.
+  // Deep validation is the server's job; this stays a textarea by design (no
+  // AID/CAPK table UI in this iteration).
+  kernelParamsJson: string;
   // operator guidance + machine expectations
   amount: string;
   currency: string;
@@ -70,6 +74,7 @@ const CASE_TABS = [
   { id: "basic", label: "基本信息" },
   { id: "card", label: "卡片档案" },
   { id: "transaction", label: "交易参数" },
+  { id: "kernel", label: "内核参数" },
   { id: "plan", label: "测试计划" },
   { id: "rules", label: "预期结果" },
   { id: "json", label: "JSON 导入" },
@@ -174,6 +179,7 @@ export function emptyDraft(scheme: string): CaseDraft {
     jsonProfileText: "",
     keysJson: "",
     posParams: [],
+    kernelParamsJson: "",
     amount: "100.00",
     currency: "CNY",
     pin_hint: "none",
@@ -299,7 +305,16 @@ export function buildPayload(d: CaseDraft): unknown {
     }),
   };
   if (d.groupId.trim()) payload.group_id = d.groupId.trim();
+  const kernel = buildKernelParams(d);
+  if (kernel !== null) payload.kernel_params = kernel;
   return payload;
+}
+
+/** v1.2: parse the kernel-params textarea.  Empty = no case-level override. */
+function buildKernelParams(d: CaseDraft): unknown | null {
+  const text = d.kernelParamsJson.trim();
+  if (!text) return null;
+  return JSON.parse(text); // validation runs before submit
 }
 
 /** 总案例 payload: NO profile / keys / transaction / expected_results. */
@@ -373,6 +388,34 @@ function validate(d: CaseDraft): Errors {
       if (!parsed || typeof parsed !== "object") throw new Error("not object");
     } catch {
       e.keysJson = "keys JSON 不合法（留空表示无密钥）";
+    }
+  }
+  // v1.2 kernel parameters: shape only.  The server validates hex lengths,
+  // DF03 checksums, DF05 encodings and dedup keys (see validate_kernel_params);
+  // duplicating that here would drift, so we only catch malformed JSON and a
+  // wrong top-level shape and let the server give the authoritative message.
+  if (d.kernelParamsJson.trim()) {
+    try {
+      const parsed = JSON.parse(d.kernelParamsJson);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        throw new Error("not object");
+      const obj = parsed as Record<string, unknown>;
+      for (const key of ["aids", "caps"]) {
+        const v = obj[key];
+        if (v !== undefined && !Array.isArray(v))
+          e.kernelParams = `kernel_params.${key} 须为数组`;
+      }
+      if (obj.term !== undefined && typeof obj.term !== "string")
+        e.kernelParams = "kernel_params.term 须为字符串（hex）";
+      const empty =
+        (!Array.isArray(obj.aids) || obj.aids.length === 0) &&
+        (!Array.isArray(obj.caps) || obj.caps.length === 0) &&
+        !(typeof obj.term === "string" && obj.term.trim());
+      if (empty && !e.kernelParams)
+        e.kernelParams =
+          "kernel_params 为空：aids/caps/term 至少给一项，或清空此页以使用卡组默认";
+    } catch {
+      e.kernelParams = "内核参数 JSON 不合法（留空表示不下发，沿用卡组默认）";
     }
   }
 
@@ -460,6 +503,7 @@ const CASE_TAB_KEYS: Record<CaseTabId, (key: string) => boolean> = {
     .includes(k) || k.startsWith("aid.") || k.startsWith("noResp."),
   transaction: (k) => ["amount", "currency", "exp_amount", "exp_currency"]
     .includes(k) || k.startsWith("pos."),
+  kernel: (k) => k === "kernelParams",
   plan: (k) => k === "plan" || k.startsWith("plan."),
   rules: (k) => k === "rules" || k.startsWith("rules."),
   json: () => false,
@@ -1091,6 +1135,61 @@ export function AddCasePage({
                   <option value="false">否</option>
                 </select>
               </Field>
+            </div>
+          </div>
+        )}
+
+        {kind === "case" && tab === "kernel" && (
+          <div>
+            <div className="section-title">POS 内核参数（AID / CAPK / TERM）</div>
+            <p className="hint" style={{ marginTop: 0 }}>
+              每案例下发到 POS 内核（<span className="mono">pos_kernel_config</span>），在
+              <span className="mono"> pos_config</span> 之前发送。留空表示<b>不下发</b>，POS 使用自带表
+              （或卡组在后台配置的默认集合）。
+            </p>
+            <p className="hint">
+              本版本用 JSON 文本域编辑（不做 AID/CAPK 表格 UI）。服务端会做深度校验：
+              <span className="mono">9F06</span> 5–8 字节、CAPK 元素顺序、
+              <span className="mono"> DF02</span> 模数长度 128/144/176/248、
+              <span className="mono"> DF03 = SHA1(9F06‖9F22‖DF02‖DF04)</span>、
+              <span className="mono"> DF05</span> 编码（ascii8/bcd4/bcd3/raw）与去重。
+            </p>
+            <details style={{ marginBottom: 12 }}>
+              <summary className="hint">结构示例（可点开复制）</summary>
+              <pre className="mono" style={{ fontSize: 12, overflowX: "auto" }}>{`{
+  "aids": [
+    {"aid": "A0000000031010",
+     "fields": [{"tag": "DF01", "value": "01"},
+                {"tag": "9F08", "value": "0002"}]}
+  ],
+  "caps": [
+    {"rid": "A000000003", "key_index": "01",
+     "expiry": "20441231", "expiry_encoding": "ascii8",
+     "hash_alg": 1, "key_alg": 1,
+     "modulus": "<DF02 裸模数 hex>", "exponent": "03",
+     "checksum": "<DF03 20 字节 hex，可留空由 host 计算>"}
+  ],
+  "term": "9F6604360000809F1A0201569F7A0101"
+}`}</pre>
+            </details>
+            <Field label="kernel_params（JSON）" error={errors.kernelParams}
+              hint="留空=不下发；aids/caps 可为空数组；term 可省略（host 会告警）">
+              <textarea rows={14} className="mono" spellCheck={false}
+                placeholder='留空表示不下发内核参数'
+                value={draft.kernelParamsJson}
+                onChange={(e) => input("kernelParamsJson", e.target.value)} />
+            </Field>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button className="btn small" onClick={() =>
+                input("kernelParamsJson", JSON.stringify(
+                  { aids: [], caps: [], term: "" }, null, 2))}>
+                插入空模板
+              </button>
+              <button className="btn small" onClick={() =>
+                input("kernelParamsJson", JSON.stringify(
+                  { aids: [], caps: [] }, null, 2))}>
+                清空为本案例不下发
+              </button>
             </div>
           </div>
         )}

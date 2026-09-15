@@ -58,7 +58,8 @@ export const api = {
     post<{ ok: boolean; group_id: string; path: string }>("/api/groups", payload),
   snapshot: () => request<Snapshot>("/api/run"),
   startRun: (payload: {
-    scheme: string; mode: string; kind: string; case_ids: string[];
+    scheme: string; mode: string; kind: string; case_ids?: string[];
+    group_id?: string | null;
     resume_from_run?: string | null; on_failure?: string | null; retry_count?: number | null;
   }) => post<{ ok: boolean; run_id: string }>("/api/run", payload),
   stop: () => post<{ ok: boolean; message: string }>("/api/run/stop"),

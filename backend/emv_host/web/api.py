@@ -463,8 +463,13 @@ def create_app(ctx: AppContext) -> FastAPI:
                 summary = run.get("results", {}).get(case_id)
                 if summary:
                     record = {"case_id": case_id, "status": summary.get("status"),
+                              "attempt": summary.get("attempt"),
                               "attempts": summary.get("attempts", 0),
                               "note": summary.get("note", "")}
+                    # v1.2: surface why a case failed even for records that were
+                    # written before the results file existed
+                    if summary.get("failure_reason"):
+                        record["failure_reason"] = summary["failure_reason"]
             if record is not None:
                 results[case_id] = record
         quarantine: list[dict[str, Any]] = []

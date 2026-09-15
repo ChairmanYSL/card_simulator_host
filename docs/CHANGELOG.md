@@ -58,6 +58,22 @@
 - P-D6 §0.3 环境限制改为「仅受限沙箱/无控制台时出现」的条件性免责。
 - P-D7 §4.9 用 `--delay` 远大于 `timeout_seconds` 取代依赖控制台 stdin 的 `--interactive`。
 
+### 协议文档升到 v1.2（TS-8，部分）
+- **类型**：文档（协议权威）
+- **改动**：`docs/protocol.md` 标题升为 v1.2，新增 **§12 v1.2 变更**（版本协商硬切换、
+  删除 device_config、`pos_kernel_config`、`card_config.trace_enabled`、`session_abort`、
+  ack 矩阵、`transaction_result` 落盘后 ack 语义、失败即整轮停止、`stop_emulation` 时机、
+  坏帧累计规则、落盘契约、新增 CLI 参数、测试基线），并声明「与 §12 冲突处以 §12 为准」。
+- **降级说明（在 CHANGELOG 备案）**：§0–§11 正文**仍是 v1.1 措辞**（如 §2 握手宽容、
+  §3 ack 表、§5 心跳、§6.3 host→pos 帧目录、§10 中断语义），未逐节改写。
+  §12 已覆盖全部行为差异且为最高优先级，但**逐节正文改写留待后续**；
+  POS 侧完整口径见 `docs/protocol-change-notice-v1.2.md`。
+- **未完成项（TS-9 剩余，明确降级）**：`README.md` 与 `docs/POS机应用开发手册.md` 仍为 v1.1；
+  `tools/gen_cases.py` 的 kernel_params 生成、前端 T14–T18、`tools/joint_debug` T20（`--expect-versions`
+  默认值、`failure_reason` 列、`--on-failure` 语义）均**未实施**。这些不阻塞 L1–L4，
+  但 L5 前需补齐或确认降级。
+- **未做（可选）**：TS-10 `server.py` 对端强杀时的日志降噪（仅影响日志可读性）。
+
 ### 基线
 - 仓库此前**无任何 commit**；本轮先建基线 `a3c3791 baseline-before-v1.2-fixes`。
   顺序偏差：CAPK 文件在基线 commit **之前**就已移出工作区（方案原顺序是先 commit），

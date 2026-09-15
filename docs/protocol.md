@@ -1,14 +1,19 @@
-# EMV Test Host — 统一设备协议 v1.1（唯一权威文档）
+# EMV Test Host — 统一设备协议 v1.2（唯一权威文档）
 
 > 本文档为**唯一权威协议**，由上位机（host）与安卓卡模拟 app 双方协商定稿
-> （协商结论 H1–H10 / O1–O7 / N1–N12 全部吸收）。
+> （协商结论 H1–H10 / O1–O7 / N1–N12 全部吸收，v1.2 见 §12）。
 > 变更索引与审核入口：`docs/CHANGELOG.md`。
 > 安卓侧旧文档（docs/host-protocol.md）已降级为指向本页的说明。
+> POS 侧单列通知：`docs/protocol-change-notice-v1.2.md`。
 >
 > **验证哲学（定案）**：判定以 POS `transaction_result` 为准；安卓 APDU 流
 > 是**诊断 trace**（Phase A），永不参与判定。
 > 协议层字段全量 snake_case；`profile` / `keys` 为负载，使用各自的
 > 规范化 schema（见 §8、§9），原样透传。
+>
+> **⚠️ v1.2 是硬切换**：客户端握手必须上报 `protocol_version:"1.2"`，
+> 缺失或 `<1.2` 一律被拒（§12.1）。下文 §0–§11 描述与 v1.1 相同的部分，
+> **凡与 §12 冲突处以 §12 为准**。
 
 ## 0. 角色与端口
 
@@ -387,5 +392,139 @@ ARQC→`80`）。
 * host：`backend/emv_host/`（protocol/runner/store/web），启动
   `card_simulator_host` 或 `python -m emv_host serve`；
 * mock 客户端（协议参照实现）：`tools/mock_clients/mock_android.py`
-  （v1.1：ready/emulating/stopped、trace 演示、keys 感知）、`mock_pos.py`；
-* 安卓 app 侧按本协议实现；其旧文档已降级为指向页。
+  （v1.2：ready/emulating/stopped、`card_config.trace_enabled`、`session_abort`、
+  trace 演示、keys 感知）、`mock_pos.py`（`pos_kernel_config` + `session_abort`）；
+* POS 侧通知文档：`docs/protocol-change-notice-v1.2.md`（只生成不发送）；
+* 内核参数导出：`tools/export_kernel_params.py`（读 POS 资产，写到**仓库外**目录）。
+
+---
+
+## 12. v1.2 变更（本节优先于上文任何冲突表述）
+
+> 实施状态：host 侧**已实现并已测**（`cd backend && python -m pytest` 全绿）；
+> 卡端 1.0.33 (vc35) 待实施；POS 端待按通知文档实施。
+> 两端与 host 必须**同窗口升级**。
+
+### 12.1 版本协商（硬切换）
+
+* `PROTOCOL_VERSION_STRING = "1.2"`；信封 `v` 仍为 `1`。
+* 握手**必须**带 `protocol_version`：
+  * 缺失 → `error{code:"protocol_mismatch"}` 并断开；
+  * `< 1.2` → 同上；
+  * `>= 1.2` → 接受，`handshake_ack.protocol_version="1.2"`。
+* 不提供任何 1.1 兼容模式。
+
+### 12.2 删除与新增帧
+
+| 变化 | 内容 |
+|---|---|
+| **删除** | `config_push{config_type:"device_config"}` 不再发往任何端。心跳/判死/ack 超时改用硬编码缺省 **10s / 30s / 15s** |
+| **新增** | `config_push{config_type:"pos_kernel_config"}`（host→POS，AID/CAPK/TERM） |
+| **新增** | `session_abort`（host→双方，异常收尾通知） |
+| 不变 | `card_config`（卡端）、`pos_config`（POS 端，字段/编码冻结） |
+
+### 12.3 `card_config` 增 `trace_enabled`
+
+```json
+{"type":"config_push","config_type":"card_config","case_id":"...","attempt_id":"...",
+ "profile":{...},"keys":null,"timeout_seconds":180,"trace_enabled":false}
+```
+
+* 卡端从**此处**读取 trace 开关（v1.1 是从 `device_config` 读）；
+* 缺省 `false`；非布尔按 `false` 处理。
+
+### 12.4 `pos_kernel_config`（详见 POS 通知文档 §4）
+
+```json
+{"type":"config_push","config_type":"pos_kernel_config","case_id":"...","attempt_id":"...",
+ "kernel_params":{"aid":["<拼接BER-TLV hex>"],"capk":["..."],"term":"<单条TLV hex>"}}
+```
+
+* 每案例下发，且**先于** `pos_config`；
+* `pos_params` 整体缺失/为空 → 不下发，POS 用自带表；
+* AID `9F06` 5–8 字节、首元素固定；CAPK 元素顺序固定
+  `9F06‖9F22‖DF05‖DF06‖DF07‖DF02‖DF04‖DF03`；
+  `DF03 = SHA1(9F06‖9F22‖DF02‖DF04)`；
+* DF05 支持 `ascii8`（默认）|`bcd4`|`bcd3`|`raw`；
+* 同一 RID 内容不同时必须**真正覆盖**（DELETE-then-ADD），不得静默跳过；
+* 数据来自**仓库外**目录（`serve --kernel-params-dir`，每 scheme 一个
+  `<scheme>.json`），仓库内不含密钥材料。
+
+### 12.5 `session_abort`
+
+```json
+{"type":"session_abort","run_id":"...","scheme":"visa","mode":"contactless",
+ "case_id":"...","attempt_id":"...","reason":"case_failed|result_timeout|...","action":"stop"}
+```
+
+* host→卡端与 POS 端**各发一次**；双方**必 ack**（host 只等 3s，best-effort，不阻塞收尾）；
+* 卡端须**视同停止**（停 HCE），但**不补** `status{stopped}`（卡端裁决 3.2b）；
+* 触发：案例 FAIL（断言/超时/断线/内核参数被拒等）、manual abort/stop、server_shutdown；
+* **正常跑完不发**。
+
+### 12.6 ack 矩阵（host 侧强制）
+
+| 帧 | 方向 | ack | host 超时 | 超时/失败后果 |
+|---|---|---|---|---|
+| `card_config` | →卡 | 必 | 15s | 案例 FAIL `card_config_ack_timeout` / `card_config_rejected` |
+| `start_emulation` | →卡 | 必 | 15s | 案例 FAIL `card_emulation_ack_timeout` / `..._rejected` |
+| `status` emulating | ←卡 | host 等 | 15s | 案例 FAIL `card_ready_timeout` |
+| `pos_kernel_config` | →POS | 必 | 15s | 案例 FAIL `pos_kernel_config_ack_timeout` / `..._apply_failed` |
+| `pos_config` | →POS | 必 | 15s | 案例 FAIL `pos_config_ack_timeout` / `pos_config_rejected` |
+| `case_started` | →POS | 必 | 15s | 案例 FAIL `pos_case_started_ack_timeout` / `..._rejected` |
+| `transaction_result` | ←POS | host **落盘后** ack | `case.timeout_seconds` | 案例 FAIL `result_timeout` |
+| `stop_emulation` | →卡 | 必 | 3s | 仅日志 |
+| `session_abort` | →双方 | 必 | 3s | 仅日志 |
+| `heartbeat` | ↔ | `heartbeat_ack` | 10s | 30s 警告，60s 断开 |
+
+* 任一端未连接 → 该案例 FAIL（`android_not_connected` / `pos_not_connected`）；
+* ack 预算可用 `serve --card-ack-timeout` / `--pos-ack-timeout` 调整（默认 15s）。
+
+### 12.7 `transaction_result` 的 ack 语义（D2）
+
+* host **先落盘判定结果、再 ack**；因此 ack 表示「判定已落盘」：
+  `persisted` / `duplicate` / `quarantined` / `ok:false{detail:"persist_failed"}`；
+* 收到 `ok:true` 后**不要重发**；只有 `ok:false` 才需换新 `msg_id` 重试；
+* 去重窗口 = **当前 attempt**（`begin_attempt` 重置 `judged_msg_ids`）；
+  跨案例晚到 → `quarantined` 并写入 `quarantine.jsonl`。
+
+### 12.8 失败即整轮停止（Q9）
+
+* 任一案例 FAIL → **立即停止整轮**；剩余队列逐条落 `SKIPPED`
+  （`note=run_stopped_after_failure:<case_id>`）；
+* run 级 `abort_reason` 统一为 `case_failed:<case_id>:<failure_reason>`（F2）；
+* POS 断线由 v1.1 的「仅告警」改为**案例 FAIL**（`pos_disconnected`）；
+* 卡端错误 → 案例 **ERROR**（保留结构化 `error{code,message}`），run 状态 `ERROR`。
+
+### 12.9 `stop_emulation` 的发送时机（H2）
+
+* 一旦卡端上报 `emulating`，其后**任何**退出路径都必须发一次 `stop_emulation`
+  （含 `pos_kernel_config`/`pos_config`/`case_started` 失败、结果超时、断言 FAIL、手动 abort）；
+* 未到 `emulating` 的失败（卡端未连接、`card_config` 被拒、就绪超时）**不发**；
+* 每个 attempt 至多一次。
+
+### 12.10 坏帧规则
+
+* **JSON 非法但长度前缀合法**：计入累计计数、跳过继续读；**累计满 5** 才断连；
+* **长度非法**（声明长度 > 1 MiB）：**立即断开**，不计入累计 5；
+* v1.1 的「成功帧重置计数」已取消（卡端 K6 同步改）。
+
+### 12.11 落盘契约
+
+* `results/<case_id>.json` 同时含 `attempt`（0 基）与 `attempts`（1 基计数）（F3）；
+* 所有 run 产物用「同目录 `.tmp` + `os.replace`」原子写入，不留 `.tmp`（T11）；
+* case 记录含 `failure_reason`；run 索引同步该字段。
+
+### 12.12 运行配置新增
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--card-ack-timeout` | 15 | 卡端 ack 预算（秒） |
+| `--pos-ack-timeout` | 15 | POS 端 ack 预算（秒） |
+| `--kernel-params-dir` | 无 | 仓库外内核参数目录（每 scheme 一个 `<scheme>.json`） |
+
+### 12.13 测试基线
+
+* host 侧 `cd backend && python -m pytest`：**182 passed**；
+* 测试方案与修订：`docs/test-plan-v1.2.md`（含 P-D1..P-D7 修订）；
+* L5/L6 真机联调**阻塞**：需两端升级到 1.2 并各自发 `[READY]`。

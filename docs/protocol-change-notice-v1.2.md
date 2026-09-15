@@ -190,6 +190,7 @@ Expresspay 的 `TerminalConfig/*.xml` 每份还含 CRL（host 侧字段名 `drl`
   ExceptionFile API（具体 API 名以 POS SDK 为准）；
 * DRL 去重键建议 `9F06 + 8F + DF8105`，ExceptionFile 去重键建议 `5A`；
 * `version:"4.2.0"` 只在 host 侧保留，不随帧下发。
+* CONF/PROFILE 的模块拆分只发生在 host 侧；POS 收到的仍是合成后的完整 `kernel_params`。
 
 ---
 

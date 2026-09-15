@@ -214,8 +214,11 @@ card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\
 * DF05 支持 `ascii8`（默认）/`bcd4`/`bcd3`/`raw`；`DF03 = SHA1(9F06‖9F22‖DF02‖DF04)` 与 DF05 编码无关；
 * 未提供目录时该 scheme **不下发**内核参数，POS 用自带表；
 * 仓库内的 `cases/<scheme>/kernel_params.json` 仅在显式开启兼容开关时才读取（默认关闭）。
-* 命名 POS 配置库（v1.2.x）：仓库外 `<kernel-params-dir>/<scheme>/<ref>.json`，case 用 `kernel_params_ref` 引用（loader 仅在内存中解析，模数不写回案例文件）；
-  Amex Expresspay 4.2.0 由 `tools/import_expresspay_xml.py` 生成（AID/CAPK/DRL/ExceptionFile/term，host 侧 `version:"4.2.0"`）。
+* 命名 POS 配置库（v1.2.x）：仓库外 `<kernel-params-dir>/<scheme>/<ref>.json`，分两类模块
+  `CONF_*`（AID/CAPK/DRL/ExceptionFile + TerminalParameter）与 `PROFILE_*`（Profile tags）；
+  case 用 `kernel_params_ref` 选 CONF、`terminal_profile_ref` 选 PROFILE，自由配对，合成
+  `term = CONF + PROFILE`。loader 仅在内存中解析，模数不写回案例文件。
+* Amex Expresspay 4.2.0 由 `tools/import_expresspay_xml.py` 生成（host 侧 `version:"4.2.0"`）。
   参考 XML 目录 `refernce/` 已加入 `.gitignore`（含模数），只在本地保留。
 
 ## 测试与工具

@@ -506,13 +506,19 @@ class TestCase(BaseModel):
     # v1.2: case-level POS kernel parameter override; when None the scheme
     # default applies, when empty the case pushes nothing (POS keeps its tables)
     kernel_params: KernelParams | None = None
-    # v1.2.x: named POS config reference.  When set, the loader resolves it from
-    # the out-of-repo library ``<kernel-params-dir>/<scheme>/<ref>.json`` into
-    # ``kernel_params`` (in memory only -- CAPK moduli never enter the case file).
-    # Mutually exclusive with an inline ``kernel_params``.
+    # v1.2.x: modular named POS configs, freely paired by the case.  Both are
+    # resolved from the out-of-repo library
+    # (``<kernel-params-dir>/<scheme>/<ref>.json``) in memory only -- CAPK
+    # moduli never enter the case file.  Both are mutually exclusive with an
+    # inline ``kernel_params``.
+    #: CONF module (AID/CAPK/DRL/ExceptionFile + TerminalParameter term)
     kernel_params_ref: str | None = Field(
         default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
-        description="named POS config id under <kernel-params-dir>/<scheme>/")
+        description="CONF module id under <kernel-params-dir>/<scheme>/")
+    #: Profile module (Profile tags as term); appended after the CONF term
+    terminal_profile_ref: str | None = Field(
+        default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
+        description="PROFILE module id under <kernel-params-dir>/<scheme>/")
     preconditions: list[str] = Field(default_factory=list, max_length=20)
     test_plan: list[TestPlanStep] = Field(default_factory=list, max_length=50)
     timeout_seconds: int = Field(default=180, ge=10, le=3600)

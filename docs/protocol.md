@@ -446,13 +446,15 @@ ARQC→`80`）。
 * `term` 是**多个 TLV 直接拼接**的 hex（不是单条）；
 * `drl[]`（Amex 文件内名为 CRL）每条 `9F06`+`8F`+`DF8105`，`exception_file[]` 每条 `5A`+`5F34`，均为拼接 BER-TLV；
 * `version` 是 host 侧元数据（Amex 为 `"4.2.0"`），**不上 wire**；
+* 命名库分两类模块、case 自由配对：`kernel_params_ref`=`CONF_*`（AID/CAPK/DRL/ExceptionFile + TerminalParameter），`terminal_profile_ref`=`PROFILE_*`（Profile tags）；合成后 `term = CONF.term + PROFILE.term`；
 * AID `9F06` 5–8 字节、首元素固定；CAPK 元素顺序固定
   `9F06‖9F22‖DF05‖DF06‖DF07‖DF02‖DF04‖DF03`；
   `DF03 = SHA1(9F06‖9F22‖DF02‖DF04)`；
 * DF05 支持 `ascii8`（默认）|`bcd4`|`bcd3`|`raw`；
 * 同一 RID 内容不同时必须**真正覆盖**（DELETE-then-ADD），不得静默跳过；
 * 数据来自**仓库外**目录（`serve --kernel-params-dir`）：`<scheme>.json` 为卡组默认，
-  `<scheme>/<ref>.json` 为命名 POS 配置库（case 通过 `kernel_params_ref` 引用）；
+  `<scheme>/<ref>.json` 为命名 POS 配置库，分 `CONF_*`（AID/CAPK/DRL/ExceptionFile +
+  TerminalParameter）与 `PROFILE_*`（Profile tags）两类模块，case 自由配对；
   `tools/import_expresspay_xml.py` 从 Expresspay XML 生成（Amex `version:"4.2.0"`）。仓库内不含密钥材料。
 
 ### 12.5 `session_abort`

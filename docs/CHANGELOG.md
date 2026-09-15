@@ -5,6 +5,23 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-15（v1.2.x 修正：Amex POS 配置改为模块化自由配对）
+
+### 重构：CONF / Profile 拆成独立模块，case 自由选择
+- **类型**：架构调整（host 侧）+ 工具/前端/文档
+- **背景**：上一版把 `CONF_NN` 与同号 `Profile_NN` 绑定进 term；用户要求 case 与配置分离、
+  自由配对，且 `Profile_25` 的 `9F6E` 录入多了一个尾字符。
+- **改动**：
+  - 命名库分两类模块：`CONF_*`（AID/CAPK/DRL/ExceptionFile + TerminalParameter term）
+    与 `PROFILE_*`（Profile tags term）；工具 `--profile-dir` 下的每个 Profile 都单独成模块。
+  - case 新增 `terminal_profile_ref`（与 `kernel_params_ref` 并列，均可选）；loader/API
+    合成 `term = CONF.term + PROFILE.term`，AID/CAPK/DRL/ExceptionFile 只取 CONF。
+  - `kernel_params` / `kernel_params_ref` / `terminal_profile_ref` 三者互斥（内联不可与 ref 同用）。
+  - 前端 AddCasePage 增 `terminal_profile_ref` 输入。
+  - `Profile_25.xml` 的 `9F6E` 由 `188000003` 修正为 `18800000`（本地参考数据，`refernce/` 不入 git）。
+  - 文档同步 `protocol.md`/变更通知/`README.md`。
+- **验证**：按要求未跑 pytest；工具离线解析 32/32 CONF 通过、54/54 Profile 通过（合成后校验 0 error）。
+
 ## 2026-09-15（v1.2.x：Amex Expresspay 4.2.0 POS 配置）
 
 ### 新增：DRL / ExceptionFile + 命名 POS 配置库（仅 amex）

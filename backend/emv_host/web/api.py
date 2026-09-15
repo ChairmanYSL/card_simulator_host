@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from ..cases import CaseLibrary, EntryMode, GroupDef, TestCase
-from ..cases.loader import CaseLibraryError
+from ..cases.loader import CaseLibraryError, _compose_kernel_params
 from ..cases.validation import (
     validate_kernel_params,
     validate_keys,
@@ -239,20 +239,29 @@ def create_app(ctx: AppContext) -> FastAPI:
                 case.transaction.pos_params, case.case_id).issues:
             if issue.severity == "error":
                 errors.append(f"pos_params: {issue.message}")
-        # v1.2: case-level POS kernel parameters (AID/CAPK/TERM)
-        if case.kernel_params is not None and case.kernel_params_ref:
-            errors.append("kernel_params 与 kernel_params_ref 不能同时设置")
-        elif case.kernel_params_ref:
-            resolved = ctx.library.named_kernel_params_for(
-                case.scheme, case.kernel_params_ref)
-            if resolved is None:
-                errors.append(
-                    f"kernel_params_ref {case.kernel_params_ref!r} 不存在于 "
-                    f"{case.scheme} 的命名 POS 配置库")
-            else:
+        # v1.2: case-level POS kernel parameters (AID/CAPK/TERM) + free pairing
+        refs = [("kernel_params_ref", case.kernel_params_ref),
+                ("terminal_profile_ref", case.terminal_profile_ref)]
+        active_refs = [(name, ref) for name, ref in refs if ref]
+        if case.kernel_params is not None and active_refs:
+            errors.append("kernel_params 与 kernel_params_ref/"
+                          "terminal_profile_ref 不能同时设置")
+        elif active_refs:
+            resolved: dict[str, Any] = {}
+            for field_name, ref in active_refs:
+                params = ctx.library.named_kernel_params_for(case.scheme, ref)
+                if params is None:
+                    errors.append(f"{field_name} {ref!r} 不存在于 "
+                                  f"{case.scheme} 的命名 POS 配置库")
+                else:
+                    resolved[field_name] = params
+            if len(resolved) == len(active_refs):
+                composed = _compose_kernel_params(
+                    resolved.get("kernel_params_ref"),
+                    resolved.get("terminal_profile_ref"))
                 # vendor test vectors are trusted verbatim (DF03 may mismatch)
                 for issue in validate_kernel_params(
-                        resolved, case.case_id, trust_checksum=True).issues:
+                        composed, case.case_id, trust_checksum=True).issues:
                     if issue.severity == "error":
                         errors.append(f"kernel_params_ref: {issue.message}")
         else:

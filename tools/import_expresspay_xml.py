@@ -1,18 +1,14 @@
 """Import the Amex Expresspay 4.2.0 XML set into the host's named POS config
-library (out-of-repo).
+library (out-of-repo) as **two independent module kinds**::
 
-The vendor ships two directories::
+    TerminalConfig/CONF_*.xml      -> <out>/<scheme>/CONF_XX.json
+        AID + CAPK + DRL(CRL) + ExceptionFile + TerminalParameter term
+    TerminalProfile/Profile_*.xml  -> <out>/<scheme>/PROFILE_XX.json
+        Profile tags as term
 
-    TerminalConfig/CONF_*.xml    TerminalParameter + KernelAidCombination + CAPK
-                                 + CRL + ExceptionFile
-    TerminalProfile/Profile_*.xml  terminal profile tags (9F33/9F35/9F40/...)
-
-One output config is written per CONF file as
-``<out-dir>/<scheme>/<CONF-id>.json`` (a ``KernelParams`` document).  Its term
-is the CONF's ``TerminalParameter`` TLVs followed by the same-numbered
-``Profile`` TLVs (if that Profile exists), concatenated BER-TLV hex.  Profiles
-without a CONF are written as term-only ``PROFILE_<num>.json`` so nothing from
-the reference set is lost.  An ``index.json`` manifest records the mapping.
+A case pairs them freely at run time: ``kernel_params_ref`` selects a CONF
+module, ``terminal_profile_ref`` selects a Profile module; the loader composes
+``term = conf.term + profile.term``.  There is no same-number binding.
 
 The output contains CAPK moduli, so -- like export_kernel_params.py -- this tool
 refuses to write inside a repository working tree.
@@ -83,7 +79,9 @@ def ber_length(length: int) -> bytes:
         return bytes([length])
     if length <= 0xFF:
         return bytes([0x81, length])
-    raise ImportError_(f"TLV length {length} needs 82 xx (unsupported here)")
+    if length <= 0xFFFF:
+        return bytes([0x82, (length >> 8) & 0xFF, length & 0xFF])
+    raise ImportError_(f"TLV length {length} too large")
 
 
 def tlv(tag: str, value_hex: str) -> str:
@@ -193,56 +191,35 @@ def read_xml(path: Path) -> ET.Element:
         raise ImportError_(f"{path}: cannot parse XML: {exc}") from exc
 
 
-def leading_number(stem: str, prefix: str) -> str | None:
-    match = re.match(rf"^{re.escape(prefix)}_(\d+)", stem)
-    return match.group(1) if match else None
-
-
 def profile_number(stem: str) -> str | None:
     match = re.match(r"^Profile_(\d+)", stem)
     return match.group(1) if match else None
 
 
-def conf_number(stem: str) -> str | None:
-    return leading_number(stem, "CONF")
+def build_conf(conf_path: Path, version: str) -> dict:
+    """One CONF module: AID/CAPK/DRL/ExceptionFile + TerminalParameter term.
 
-
-def load_profiles(profile_dir: Path) -> dict[str, ET.Element]:
-    out: dict[str, ET.Element] = {}
-    if not profile_dir.is_dir():
-        return out
-    for path in sorted(profile_dir.glob("Profile_*.xml")):
-        num = profile_number(path.stem)
-        if num is None:
-            continue
-        node = read_xml(path).find("Profile")
-        if node is None:
-            raise ImportError_(f"{path}: no <Profile> element")
-        out[num] = node
-    return out
-
-
-def build_conf(conf_path: Path, profiles: dict[str, ET.Element],
-               version: str) -> tuple[dict, str | None]:
+    The Profile part is deliberately NOT merged here: CONF and Profile are two
+    independent modules and the case pairs them freely via
+    ``kernel_params_ref`` + ``terminal_profile_ref``.
+    """
     root = read_xml(conf_path)
-    num = conf_number(conf_path.stem)
-    term_nodes = list(root.findall("TerminalParameter"))
-    profile = profiles.get(num) if num is not None else None
-    if profile is not None:
-        term_nodes.append(profile)
-    config = {
+    return {
         "aids": [build_aid(n) for n in root.findall("KernelAidCombination")],
         "caps": [build_capk(n) for n in root.findall("CAPK")],
         "drl": [build_drl(n) for n in root.findall("CRL")],
         "exception_file": [build_exception_file(n)
                            for n in root.findall("ExceptionFile")],
-        "term": term_from_nodes(term_nodes),
+        "term": term_from_nodes(root.findall("TerminalParameter")),
         "version": version,
     }
-    return config, num
 
 
-def build_profile_only(node: ET.Element, version: str) -> dict:
+def build_profile(profile_path: Path, version: str) -> dict:
+    """One Profile module: the ``Profile`` element's tags as term only."""
+    node = read_xml(profile_path).find("Profile")
+    if node is None:
+        raise ImportError_(f"{profile_path}: no <Profile> element")
     return {"aids": [], "caps": [], "drl": [], "exception_file": [],
             "term": term_from_nodes([node]), "version": version}
 
@@ -281,8 +258,8 @@ def write_json(path: Path, data: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
-        description="Import the Expresspay XML set into the host's named POS "
-                    "config library (out-of-repo; contains CAPK moduli).")
+        description="Import the Expresspay XML set as modular named POS configs "
+                    "(CONF_* + PROFILE_*; out-of-repo; contains CAPK moduli).")
     parser.add_argument("--config-dir", required=True,
                         help="TerminalConfig dir (CONF_*.xml)")
     parser.add_argument("--profile-dir", default="",
@@ -315,46 +292,43 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        profiles = load_profiles(profile_dir) if profile_dir else {}
         conf_paths = sorted(config_dir.glob("CONF_*.xml"))
         if not conf_paths:
             raise ImportError_(f"no CONF_*.xml under {config_dir}")
+        profile_paths = (sorted(profile_dir.glob("Profile_*.xml"))
+                         if profile_dir else [])
         out_dir.mkdir(parents=True, exist_ok=True)
         index_entries: list[dict] = []
         errors: list[str] = []
-        used_profiles: set[str] = set()
         for conf_path in conf_paths:
             try:
-                config, num = build_conf(conf_path, profiles, args.version)
+                config = build_conf(conf_path, args.version)
             except ImportError_ as exc:
                 errors.append(f"{conf_path.name}: {exc}")
                 continue
-            if num is not None and num in profiles:
-                used_profiles.add(num)
             ref = conf_path.stem
             write_json(out_dir / f"{ref}.json", config)
             index_entries.append({
-                "id": ref, "file": f"{ref}.json", "conf": conf_path.name,
-                "profile": (f"Profile_{num}.xml" if num in profiles else None),
+                "id": ref, "kind": "conf", "file": f"{ref}.json",
+                "source": conf_path.name,
                 "aids": len(config["aids"]), "capk": len(config["caps"]),
                 "drl": len(config["drl"]),
                 "exception_file": len(config["exception_file"]),
                 "term": bool(config["term"]),
             })
-        for num, node in sorted(profiles.items()):
-            if num in used_profiles:
-                continue
-            ref = f"PROFILE_{num}"
+        for profile_path in profile_paths:
             try:
-                profile_config = build_profile_only(node, args.version)
+                config = build_profile(profile_path, args.version)
             except ImportError_ as exc:
-                errors.append(f"Profile_{num}.xml: {exc}")
+                errors.append(f"{profile_path.name}: {exc}")
                 continue
-            write_json(out_dir / f"{ref}.json", profile_config)
+            num = profile_number(profile_path.stem)
+            ref = f"PROFILE_{num}" if num else profile_path.stem
+            write_json(out_dir / f"{ref}.json", config)
             index_entries.append({
-                "id": ref, "file": f"{ref}.json", "conf": None,
-                "profile": f"Profile_{num}.xml", "aids": 0, "capk": 0,
-                "drl": 0, "exception_file": 0, "term": True,
+                "id": ref, "kind": "profile", "file": f"{ref}.json",
+                "source": profile_path.name, "aids": 0, "capk": 0,
+                "drl": 0, "exception_file": 0, "term": bool(config["term"]),
             })
         write_json(out_dir / "index.json", {
             "scheme": args.scheme, "version": args.version,
@@ -366,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    print(f"wrote {len(index_entries)} configs to {out_dir}")
+    print(f"wrote {len(index_entries)} modules to {out_dir}")
     print(f"reference: {config_dir}")
     if profile_dir:
         print(f"reference: {profile_dir}")

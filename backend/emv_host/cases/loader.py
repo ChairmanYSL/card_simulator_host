@@ -217,6 +217,7 @@ class CaseLibrary:
             "kernel_params": (None if tc.kernel_params is None
                               else tc.kernel_params.model_dump(mode="json")),
             "kernel_params_ref": tc.kernel_params_ref,
+            "terminal_profile_ref": tc.terminal_profile_ref,
         }
 
     def reload(self) -> None:
@@ -409,23 +410,33 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
                                         f"!= directory {mode!r}"))
         return
 
-    # v1.2.x: resolve a named POS config reference (CAPK moduli stay out of the
-    # case file; the resolved object is in-memory only).
-    if case.kernel_params is not None and case.kernel_params_ref:
+    # v1.2.x: resolve modular named POS configs (CAPK moduli stay out of the
+    # case file; the composed object is in-memory only).  CONF and Profile are
+    # paired freely by the case.
+    refs = [("kernel_params_ref", case.kernel_params_ref),
+            ("terminal_profile_ref", case.terminal_profile_ref)]
+    active_refs = [(name, ref) for name, ref in refs if ref]
+    if case.kernel_params is not None and active_refs:
         library.issues.append(LoadIssue(
             str(case_file), "error",
-            f"[{case.case_id}] kernel_params 与 kernel_params_ref 不能同时设置"))
-    elif case.kernel_params_ref:
-        resolved = library.named_kernel_params_for(scheme,
-                                                   case.kernel_params_ref)
-        if resolved is None:
-            library.issues.append(LoadIssue(
-                str(case_file), "error",
-                f"[{case.case_id}] kernel_params_ref "
-                f"{case.kernel_params_ref!r} 不存在于 {scheme} 的命名 POS 配置库 "
-                f"(<kernel-params-dir>/{scheme}/{case.kernel_params_ref}.json)"))
-        else:
-            case.kernel_params = resolved
+            f"[{case.case_id}] kernel_params 与 kernel_params_ref/"
+            f"terminal_profile_ref 不能同时设置"))
+    elif active_refs:
+        resolved: dict[str, KernelParams] = {}
+        for field_name, ref in active_refs:
+            params = library.named_kernel_params_for(scheme, ref)
+            if params is None:
+                library.issues.append(LoadIssue(
+                    str(case_file), "error",
+                    f"[{case.case_id}] {field_name} {ref!r} 不存在于 {scheme} "
+                    f"的命名 POS 配置库 "
+                    f"(<kernel-params-dir>/{scheme}/{ref}.json)"))
+            else:
+                resolved[field_name] = params
+        if len(resolved) == len(active_refs):
+            case.kernel_params = _compose_kernel_params(
+                resolved.get("kernel_params_ref"),
+                resolved.get("terminal_profile_ref"))
 
     # profile ↔ case binding: missing id -> case_id; mismatch -> warning only
     if not case.profile.id:
@@ -448,7 +459,8 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
         library.issues.append(LoadIssue(str(case_file), issue.severity,
                                         f"[{case.case_id}] {issue.message}"))
     # v1.2: a case-level set overrides the scheme default entirely (R2)
-    if case.kernel_params is not None and not case.kernel_params_ref:
+    if (case.kernel_params is not None and not case.kernel_params_ref
+            and not case.terminal_profile_ref):
         for issue in validate_kernel_params(case.kernel_params, case.case_id).issues:
             library.issues.append(LoadIssue(str(case_file), issue.severity,
                                             f"[{case.case_id}] {issue.message}"))
@@ -589,6 +601,31 @@ def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
                 scheme, path, len(params.aids), len(params.caps),
                 "yes" if params.term else "no")
     return params, path
+
+
+def _compose_kernel_params(conf: KernelParams | None,
+                           profile: KernelParams | None) -> KernelParams | None:
+    """Freely pair a CONF module with a Profile module (v1.2.x).
+
+    ``term`` = CONF TerminalParameter TLVs followed by the Profile tags;
+    AID/CAPK/DRL/ExceptionFile come from the CONF module only.
+    """
+    if conf is None and profile is None:
+        return None
+    if conf is None:
+        return profile
+    if profile is None:
+        return conf
+    term = (conf.term + profile.term) if (conf.term and profile.term) \
+        else (conf.term or profile.term)
+    return KernelParams(
+        aids=conf.aids,
+        caps=conf.caps,
+        drl=conf.drl,
+        exception_file=conf.exception_file,
+        term=term,
+        version=conf.version or profile.version,
+    )
 
 
 def _load_named_kernel_params(scheme: str, library: CaseLibrary) -> None:

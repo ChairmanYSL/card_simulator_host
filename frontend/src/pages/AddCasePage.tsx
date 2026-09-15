@@ -43,8 +43,9 @@ export type CaseDraft = {
   // Deep validation is the server's job; this stays a textarea by design (no
   // AID/CAPK table UI in this iteration).
   kernelParamsJson: string;
-  // v1.2.x: named POS config id resolved from <kernel-params-dir>/<scheme>/.
-  kernelParamsRef: string;
+  // v1.2.x: modular named POS configs resolved from <kernel-params-dir>/<scheme>/.
+  kernelParamsRef: string;   // CONF module
+  terminalProfileRef: string; // PROFILE module (term appended after CONF)
   // operator guidance + machine expectations
   amount: string;
   currency: string;
@@ -183,6 +184,7 @@ export function emptyDraft(scheme: string): CaseDraft {
     posParams: [],
     kernelParamsJson: "",
     kernelParamsRef: "",
+    terminalProfileRef: "",
     amount: "100.00",
     currency: "CNY",
     pin_hint: "none",
@@ -310,6 +312,8 @@ export function buildPayload(d: CaseDraft): unknown {
   if (d.groupId.trim()) payload.group_id = d.groupId.trim();
   if (d.kernelParamsRef.trim())
     payload.kernel_params_ref = d.kernelParamsRef.trim();
+  if (d.terminalProfileRef.trim())
+    payload.terminal_profile_ref = d.terminalProfileRef.trim();
   const kernel = buildKernelParams(d);
   if (kernel !== null) payload.kernel_params = kernel;
   return payload;
@@ -399,8 +403,10 @@ function validate(d: CaseDraft): Errors {
   // DF03 checksums, DF05 encodings and dedup keys (see validate_kernel_params);
   // duplicating that here would drift, so we only catch malformed JSON and a
   // wrong top-level shape and let the server give the authoritative message.
-  if (d.kernelParamsJson.trim() && d.kernelParamsRef.trim()) {
-    e.kernelParams = "kernel_params 与 kernel_params_ref 不能同时填写";
+  if (d.kernelParamsJson.trim()
+      && (d.kernelParamsRef.trim() || d.terminalProfileRef.trim())) {
+    e.kernelParams =
+      "kernel_params 与 kernel_params_ref/terminal_profile_ref 不能同时填写";
   }
   if (d.kernelParamsJson.trim()) {
     try {
@@ -515,7 +521,7 @@ const CASE_TAB_KEYS: Record<CaseTabId, (key: string) => boolean> = {
     .includes(k) || k.startsWith("aid.") || k.startsWith("noResp."),
   transaction: (k) => ["amount", "currency", "exp_amount", "exp_currency"]
     .includes(k) || k.startsWith("pos."),
-  kernel: (k) => k === "kernelParams" || k === "kernelParamsRef",
+  kernel: (k) => ["kernelParams", "kernelParamsRef", "terminalProfileRef"].includes(k),
   plan: (k) => k === "plan" || k.startsWith("plan."),
   rules: (k) => k === "rules" || k.startsWith("rules."),
   json: () => false,
@@ -1197,6 +1203,13 @@ export function AddCasePage({
               <input type="text" value={draft.kernelParamsRef}
                 placeholder="如 CONF_01"
                 onChange={(e) => input("kernelParamsRef", e.target.value)} />
+            </Field>
+            <Field label="terminal_profile_ref（终端 Profile 模块）"
+              error={errors.kernelParams}
+              hint="外部 <kernel-params-dir>/<scheme>/PROFILE_XX.json 的 id；与 CONF 模块自由配对，term 追加在 CONF 之后。留空=不加 Profile">
+              <input type="text" value={draft.terminalProfileRef}
+                placeholder="如 PROFILE_01"
+                onChange={(e) => input("terminalProfileRef", e.target.value)} />
             </Field>
             <Field label="kernel_params（JSON）" error={errors.kernelParams}
               hint="留空=不下发；aids/caps 可为空数组；term 可省略（host 会告警）">

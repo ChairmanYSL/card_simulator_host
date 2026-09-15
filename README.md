@@ -1,6 +1,16 @@
 # EMV Test Host (card_simulator_host)
 
 > 变更索引与审核入口：`docs/CHANGELOG.md`（协议层详见 `docs/protocol.md`）。
+> **当前协议版本：v1.2（硬切换）**——两端必须同窗口升级；POS 侧口径见
+> [docs/protocol-change-notice-v1.2.md](docs/protocol-change-notice-v1.2.md)。
+>
+> v1.2 要点速览（详见 `docs/protocol.md` §12）：
+> * 握手必须上报 `protocol_version:"1.2"`，缺失或 `<1.2` 一律拒绝；
+> * 删除 `device_config`（两端用缺省 心跳 10s / 判死 30s / ack 15s）；
+> * 新增 `pos_kernel_config`（AID/CAPK/TERM 下发 POS）与 `session_abort`（异常收尾，双方必 ack）；
+> * **任一案例 FAIL → 整轮立即停止**，剩余案例记为 `SKIPPED`；
+> * POS 离线/断线、任一端 ack 超时 → 该案例 FAIL（v1.1 时代多为 warning）；
+> * `transaction_result` 的 ack 表示「判定已落盘」（`persisted`/`duplicate`/`quarantined`）。
 
 EMV 自动测试上位机：作为 TCP 服务端连接两个客户端——**安卓 NFC 卡片模拟应用**（安卓手机模拟真实银行卡）与**POS 交易应用**（真实 POS 机），编排测试、接收交易结果、自动判定用例、在浏览器中展示与控制。
 
@@ -14,7 +24,7 @@ EMV 自动测试上位机：作为 TCP 服务端连接两个客户端——**安
 └──────────────┘  result 回传    └─────────────────────┘
 ```
 
-* **编排模型**：后端只指挥安卓（下发卡片档案、启动/停止 NFC 模拟）；POS 由操作员手动操作，后端在每个用例开始前把 **POS 交易参数（tag 列表）下发 POS**（`config_push{pos_config}`，POS ack），POS 交易应用在交易结束后自动回传 `transaction_result`，后端按 `attempt_id` 归属并判定。
+* **编排模型**：后端只指挥安卓（下发卡片档案、启动/停止 NFC 模拟）；POS 由操作员手动操作，后端在每个用例开始前把 **内核参数（`config_push{pos_kernel_config}`）与 POS 交易参数（`config_push{pos_config}`）** 下发 POS（均需 ack），POS 交易应用在交易结束后自动回传 `transaction_result`，后端按 `attempt_id` 归属并判定。
 * 协议细节见 [docs/protocol.md](docs/protocol.md)；**POS 端开发手册**（安卓 7.1.2）见 [docs/POS机应用开发手册.md](docs/POS机应用开发手册.md)。
 
 ## 快速开始
@@ -157,10 +167,24 @@ cases/
 
 * 同一时刻只允许一个运行会话（物理设备唯一）。
 * 三个动词：`stop`=当前用例完成后停；`abort`=立即中止当前用例（ABORTED）；`resume`=从最近一次同卡组/方式的运行续跑未 PASS/WARN 的用例。
-* 失败策略：`suite_policy.on_failure=stop|continue`，重试次数取 max(scheme 策略, case 的 retry_on_fail)，每次重试新 `attempt_id`。
+* **失败策略（v1.2 起）**：**任一案例 FAIL/ERROR → 整轮立即停止**，剩余队列逐条落盘为 `SKIPPED`
+  （`note=run_stopped_after_failure:<case_id>`）。`suite_policy.on_failure=continue` 与请求里的
+  `on_failure` **已不再生效**（字段保留仅为兼容）。
+* 重试次数取 max(scheme 策略, case 的 retry_on_fail)，每次重试新 `attempt_id`；但 FAIL 不再重试
+  （FAIL 即停轮）。
+* run 级 `abort_reason` 统一为 `case_failed:<case_id>:<failure_reason>`；案例级失败原因写在
+  `results/<case>.json` 的 `failure_reason`（同时进 run 索引）。
 * 写前检查点：每用例启动前落盘 `checkpoint.json`；服务重启时 RUNNING 运行标 INTERRUPTED、当前用例标 INCONCLUSIVE，可断点续跑。
-* 设备断线：安卓断开 → 当前用例 ABORTED + 整轮停止；POS 断开 → 只告警，等结果直到超时（INCONCLUSIVE）。
-* 迟到/无主结果 → quarantine（不判定），历史详情可见。
+* **设备断线（v1.2 起）**：**任一端**断开 → 当前用例 FAIL（`android_disconnected` /
+  `pos_disconnected`）并停整轮（v1.1 时代 POS 断开只是告警）。
+* **ack 纪律（v1.2 起）**：所有 host→端命令必 ack；超时或明确拒绝 → 该案例 FAIL 并给出具名原因
+  （如 `pos_config_ack_timeout`、`card_ready_timeout`）。预算可用 `--card-ack-timeout` /
+  `--pos-ack-timeout` 调整（默认 15s）。
+* **异常收尾通知（v1.2 起）**：run 以 ABORTED/STOPPED/ERROR 结束时向卡端与 POS 各发一次
+  `session_abort`（双方必 ack，3s best-effort）；正常跑完不发。
+* 迟到/无主结果 → quarantine（不判定），历史详情可见；**同一 attempt 内**的重传按去重处理
+  （ack `duplicate`，不写 quarantine）；跨案例晚到才进 quarantine。
+* 卡端一旦上报 `emulating`，其后任何失败路径都会补发一次 `stop_emulation`（避免 HCE 会话跨案例残留）。
 
 ## 开发模式
 
@@ -171,16 +195,42 @@ cd backend && python -m emv_host serve
 cd frontend && npm run dev     # http://localhost:5173, 自动代理 /api 与 /ws
 ```
 
+### 内核参数（POS AID/CAPK/TERM）
+
+内核参数含 **CAPK 模数（密钥材料）**，因此**不放仓库**：
+
+```bash
+# 1) 从 POS 资产导出到仓库外的受控目录（只读 POS 仓库）
+python tools/export_kernel_params.py \
+  --asset "E:\Work\ZT\KS8226\L2-SELFTEST-APP\app\src\main\assets\emv\params" \
+  --out-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params" --scheme visa
+# 2) 启动时指向该目录（每 scheme 一个 <scheme>.json）
+card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params"
+```
+
+* 该工具**拒绝**写入仓库内路径，也拒绝在无 `--force` 时覆盖；
+* 默认排除资产里 `DF05=PHWWIPQI` 的那条（不是日期），导出 **AID 19 / CAPK 28 / TERM 1**；
+  确需下发用 `--include-raw-expiry`（host 只报 warning）；
+* DF05 支持 `ascii8`（默认）/`bcd4`/`bcd3`/`raw`；`DF03 = SHA1(9F06‖9F22‖DF02‖DF04)` 与 DF05 编码无关；
+* 未提供目录时该 scheme **不下发**内核参数，POS 用自带表；
+* 仓库内的 `cases/<scheme>/kernel_params.json` 仅在显式开启兼容开关时才读取（默认关闭）。
+
 ## 测试与工具
 
 ```bash
-cd backend && python -m pytest          # 后端单测（80 个）
-python tools/gen_cases.py cases         # 重新生成演示用例库（清单式覆盖，不删自建用例）
+cd backend && python -m pytest          # 后端单测（184 个）
+python tools/gen_cases.py cases         # 重新生成演示用例库（清单式覆盖，不删自建用例；
+                                        #   清单项若逃逸 scheme 目录会被跳过）
+python tools/export_kernel_params.py --help   # 内核参数导出（写入仓库外目录）
 python tools/mock_clients/mock_android.py  # 协议级 mock：安卓卡模拟（card_config 打印
                                           #   noResponseCommands 静默指令）
 python tools/mock_clients/mock_pos.py     # 协议级 mock：POS（--outcome approved_offline
-                                          #   | declined_offline | approved_online，--interactive）
+                                          #   | declined_offline | approved_online，--delay/--interactive）
 ```
+
+> mock 的 `transaction_result` 会**等待 host 的落盘 ack** 并打印
+> `ack ... detail=persisted|duplicate`；这一行为依赖 mock 的收发分离（reader task + 队列），
+> 否则 on_message 内等待 ack 会自锁（v1.2 修复项 F1）。
 
 ### 联调驱动与报告（`tools/joint_debug/`）
 

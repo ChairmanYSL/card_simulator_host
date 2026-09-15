@@ -304,6 +304,11 @@ def load_case_result(run_dir: Optional[Path], case_id: str) -> Dict[str, Any]:
         "path": str(path),
         "status": obj.get("status"),
         "note": obj.get("note"),
+        # v1.2: the case-level failure reason (result_timeout / pos_not_connected
+        # / assertion_failed / ...) — the actionable field for FAIL/ERROR
+        "failure_reason": obj.get("failure_reason"),
+        "attempt": obj.get("attempt"),
+        "attempts": obj.get("attempts"),
         "resp_code": raw.get("resp_code"),
         "outcome": raw.get("outcome"),
         "online": raw.get("online"),
@@ -448,6 +453,10 @@ def build_entries(inputs: Sequence[Path], runs_root: Path, cases_root: Path) -> 
                         "run_id": run_id,
                         "status": status,
                         "note": case.get("note") or result.get("note") or "",
+                        # v1.2: prefer the record's own reason, fall back to the
+                        # run summary JSON produced by run_cases.py
+                        "failure_reason": (result.get("failure_reason")
+                                           or case.get("failure_reason") or ""),
                         "failed_checks": [str(c) for c in (case.get("failed_checks") or [])],
                         "result": result,
                         "trace": trace,
@@ -629,8 +638,8 @@ def render_report(
     # ---------- 3. 逐用例表 -------------------------------------------------- #
     add("## 3. 逐用例")
     add("")
-    add("| case_id | 卡组 | 本轮 | 基线(run#8) | resp/outcome/online | 诊断(retcode/stage/在场ms) | 失败断言 | 归因类别 |")
-    add("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    add("| case_id | 卡组 | 本轮 | 失败原因 | 基线(run#8) | resp/outcome/online | 诊断(retcode/stage/在场ms) | 失败断言 | 归因类别 |")
+    add("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for entry in entries:
         result = entry["result"]
         if result.get("found") and result.get("resp_code") is not None:
@@ -644,10 +653,17 @@ def render_report(
                              result.get("card_present_ms")) if v not in (None, "")) or "-"
         add(
             f"| `{_cell(entry['case_id'])}` | {_cell(entry['scheme'])} | {_cell(entry['status'])} | "
+            f"{_cell(entry.get('failure_reason') or '-', 40)} | "
             f"{_cell(baseline_map.get(entry['case_id'], '—'))} | {_cell(roo)} | "
             f"{_cell(diagnostic, 80)} | {_cell(failed, 200)} | "
             f"{_cell('+'.join(entry['categories']))} |"
         )
+    add("")
+    add("> **失败原因**列取自 `results/<case>.json` 的 `failure_reason`（v1.2）："
+        "`assertion_failed` / `result_timeout` / `pos_not_connected` / "
+        "`pos_config_ack_timeout` / `card_ready_timeout` / `android_error` …；")
+    add("> v1.2 下**任一 FAIL 即停整轮**，其余案例为 `SKIPPED`（"
+        "`note=run_stopped_after_failure:<case_id>`），不是漏跑。")
     add("")
     add("> 归因类别固定取值：`案例设置` / `协议通信` / `代码逻辑(卡端)` / `代码逻辑(POS端)` / "
         "`代码逻辑(host)` / `环境阻塞` / `设计负例`；PASS 记 `-`。")

@@ -170,6 +170,9 @@ def report(base: str, run_id: str) -> dict:
         record = detail.get("results", {}).get(case_id, {})
         status = record.get("status", "?")
         note = record.get("note", "")
+        # v1.2 T20: the case-level failure reason is the actionable field for a
+        # FAIL/ERROR (result_timeout / pos_not_connected / assertion_failed / ...)
+        reason = record.get("failure_reason") or ""
         verdict = record.get("verdict")
         detail_lines = []
         if isinstance(verdict, dict):
@@ -179,10 +182,11 @@ def report(base: str, run_id: str) -> dict:
                 detail_lines.append(
                     f"{check.get('path')} {check.get('op')} "
                     f"expect={check.get('expect')!r} actual={check.get('actual')!r}")
-        print(f"  {case_id:<20} {status:<14} {note}")
+        print(f"  {case_id:<20} {status:<14} {reason:<28} {note}")
         for line in detail_lines:
             print(f"      - {line}")
-        rows.append({"case_id": case_id, "status": status, "note": note,
+        rows.append({"case_id": case_id, "status": status,
+                     "failure_reason": reason, "note": note,
                      "failed_checks": detail_lines})
     return {"run": run, "cases": rows}
 
@@ -229,6 +233,16 @@ def preflight(base: str, expect: dict[str, str]) -> bool:
     if health.get("busy"):
         print("preflight: host 已有 run 在跑（busy=true）→ 拒绝开跑")
         ok = False
+    # v1.2: /api/health does NOT expose protocol_version — it is negotiated in
+    # the handshake.  Confirm 1.2 from the host log line
+    # `handshake ok: ... protocol=1.2` (or the device's own log) before a run;
+    # a wrong version is rejected at handshake, so a device that shows
+    # connected=true has already passed the gate.
+    for role in ("android", "pos"):
+        info = devices.get(role) or {}
+        if info.get("connected"):
+            print(f"preflight: {role:7s} handshake 版本请以 host 日志 "
+                  f"'protocol=1.2' 为准（/api/health 不返回该字段）")
     if not ok:
         print("preflight: 未通过 → 不开跑（等两端 READY 后重试）")
     return ok
@@ -242,8 +256,11 @@ def main() -> int:
     parser.add_argument("--case", action="append", default=[])
     parser.add_argument("--all", action="store_true",
                         help="run every scheme/mode full")
-    parser.add_argument("--on-failure", default="continue",
-                        choices=["stop", "continue"])
+    parser.add_argument("--on-failure", default="stop",
+                        choices=["stop", "continue"],
+                        help="v1.2: the host always stops the run on the first "
+                             "FAIL, so 'continue' is ignored (kept for "
+                             "compatibility with v1.1 invocations)")
     parser.add_argument("--retry", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--settle", type=float, default=15.0,

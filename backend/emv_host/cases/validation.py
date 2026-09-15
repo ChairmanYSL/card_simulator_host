@@ -26,8 +26,11 @@ from dataclasses import dataclass, field
 from .models import CardProfile, KeysBundle, KernelParams, PosParam
 from ..protocol.kernel_tlv import (
     MODULUS_LENGTHS,
+    ascii_date_ok,
     compute_capk_checksum,
+    decode_expiry,
     decode_tlv_map,
+    encode_expiry,
 )
 
 __all__ = [
@@ -377,10 +380,39 @@ def validate_kernel_params(params: KernelParams | None, owner: str) -> Report:
             report.add(owner, "error",
                        f"{where} CAPK 的 RID+索引重复：{cap.rid}/{cap.key_index}")
         seen_caps.add(key)
-        if not (len(cap.expiry) == 8 and cap.expiry.isdigit()):
+        # C2 §3.4: DF05 validation depends on the declared encoding
+        if cap.expiry_encoding == "raw":
+            if not cap.expiry_raw:
+                report.add(owner, "error",
+                           f"{where} expiry_encoding=raw 但未提供 expiry_raw")
+            elif len(cap.expiry_raw) % 2 or \
+                    not _HEX_RE.fullmatch(cap.expiry_raw):
+                report.add(owner, "error",
+                           f"{where} expiry_raw 不是偶数长度 hex：{cap.expiry_raw!r}")
+            else:
+                report.add(owner, "warning",
+                           f"{where} DF05 为 raw 透传（非日期样例）：{cap.expiry_raw}"
+                           f"；仅在该值经厂商确认时必须下发时使用")
+        elif not ascii_date_ok(cap.expiry, require_20xx=False):
             report.add(owner, "error",
-                       f"{where} DF05 须为 8 位数字 YYYYMMDD：{cap.expiry!r}"
-                       f"（银联 A000000333/08 资产里的 PHWWIPQI 是异常样例，禁止照抄）")
+                       f"{where} DF05 须为 8 位数字且为合法日期 YYYYMMDD："
+                       f"{cap.expiry!r}"
+                       f"（银联 A000000333/08 资产里的 PHWWIPQI 是异常样例，"
+                       f"禁止照抄；确需下发请用 expiry_encoding=raw）")
+        else:
+            # encode_expiry enforces the 2000-2099 range bcd3/bcd4 can express
+            # and the BCD round-trip, so one call covers the remaining rules.
+            try:
+                wire = encode_expiry(cap.expiry, cap.expiry_encoding)
+            except ValueError as exc:
+                report.add(owner, "error", f"{where} {exc}")
+            else:
+                back_encoding, back = decode_expiry(wire)
+                if back != cap.expiry:
+                    report.add(owner, "error",
+                               f"{where} DF05 {cap.expiry_encoding} 往返不一致："
+                               f"{cap.expiry!r} -> {wire} -> {back!r} "
+                               f"(判为 {back_encoding})")
         if len(cap.modulus) % 2 or not _HEX_RE.fullmatch(cap.modulus or "0"):
             report.add(owner, "error",
                        f"{where} DF02 模数不是偶数长度 hex")

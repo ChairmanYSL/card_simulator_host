@@ -117,12 +117,18 @@ class AidKernelParam(BaseModel):
 class CapkParam(BaseModel):
     """One CAPK entry, one field per TLV element of the POS asset format:
 
-    9F06 RID(5B) ‖ 9F22 index(1B) ‖ DF05 expiry(8B ASCII) ‖ DF06 hash alg(1B)
+    9F06 RID(5B) ‖ 9F22 index(1B) ‖ DF05 expiry ‖ DF06 hash alg(1B)
     ‖ DF07 key alg(1B) ‖ DF02 modulus ‖ DF04 exponent(1B) ‖ DF03 checksum(20B)
+
+    ``expiry`` is the canonical date (YYYYMMDD) and ``expiry_encoding`` selects
+    how it is written into DF05 (C2): ``ascii8`` (8 ASCII bytes, the format all
+    current assets use), ``bcd4`` (4 bytes, YYYY as packed BCD), ``bcd3``
+    (3 bytes, YY+MM+DD), or ``raw`` (``expiry_raw`` verbatim, for vendor samples
+    that are not calendar dates at all).
 
     ``checksum`` is verified (and may be filled in) by
     ``kernel_tlv.compute_capk_checksum``:
-    DF03 = SHA1(9F06 ‖ 9F22 ‖ DF02 ‖ DF04).
+    DF03 = SHA1(9F06 ‖ 9F22 ‖ DF02 ‖ DF04) — independent of the DF05 encoding.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -130,7 +136,11 @@ class CapkParam(BaseModel):
     rid: str = Field(description="9F06 value: exactly 5 bytes hex")
     key_index: str = Field(description="9F22 value: 1 byte hex (e.g. 08)")
     expiry: str = Field(default="", max_length=8,
-                        description="DF05 value: 8 ASCII digits YYYYMMDD")
+                        description="canonical DF05 date: 8 digits YYYYMMDD")
+    expiry_encoding: Literal["ascii8", "bcd4", "bcd3", "raw"] = Field(
+        default="ascii8", description="how DF05 is encoded on the wire (C2)")
+    expiry_raw: str = Field(default="",
+                            description="DF05 hex verbatim; only with encoding=raw")
     hash_alg: int = Field(default=1, ge=1, le=255, description="DF06 value")
     key_alg: int = Field(default=1, ge=1, le=255, description="DF07 value")
     modulus: str = Field(description="DF02 value: raw modulus, even-length hex")
@@ -138,7 +148,8 @@ class CapkParam(BaseModel):
     checksum: str = Field(default="",
                           description="DF03 value: 20-byte SHA1 hex; empty = compute")
 
-    @field_validator("rid", "key_index", "modulus", "exponent", "checksum")
+    @field_validator("rid", "key_index", "modulus", "exponent", "checksum",
+                     "expiry_raw")
     @classmethod
     def _normalize_hex(cls, value: str) -> str:
         return value.strip().upper().replace(" ", "")
@@ -150,6 +161,19 @@ class CapkParam(BaseModel):
         if expiry and not (len(expiry) == 8 and expiry.isdigit()):
             raise ValueError(f"DF05 须为 8 位数字 YYYYMMDD：{value!r}")
         return expiry
+
+    @model_validator(mode="after")
+    def _check_expiry_encoding(self) -> "CapkParam":
+        """C2: DF05 travels in four shapes; keep the combination coherent here
+        so a mis-declared entry fails at parse time, not on the wire."""
+        if self.expiry_encoding == "raw":
+            raw = self.expiry_raw
+            if len(raw) % 2 or (raw and not re.fullmatch(r"[0-9A-F]+", raw)):
+                raise ValueError(f"expiry_encoding=raw 时 expiry_raw 须为偶数长度 hex："
+                                 f"{self.expiry_raw!r}")
+        elif self.expiry_raw:
+            raise ValueError("expiry_raw 只能在 expiry_encoding=raw 时提供")
+        return self
 
 
 class KernelParams(BaseModel):

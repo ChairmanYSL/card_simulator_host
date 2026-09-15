@@ -41,6 +41,92 @@ TAG_CHECKSUM = "DF03"
 #: Modulus byte lengths allowed by the POS kernel assets (1024/1152/1408/1984 bit)
 MODULUS_LENGTHS = (128, 144, 176, 248)
 
+#: Accepted DF05 (CAPK expiry) encodings (C2).  Every current POS asset uses
+#: ascii8; bcd4/bcd3 exist because the field was historically 3 or 4 bytes on
+#: some kernels, and raw carries a vendor value that is not a calendar date.
+EXPIRY_ENCODINGS = ("ascii8", "bcd4", "bcd3", "raw")
+
+_DAYS_IN_MONTH = (0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+
+def encode_expiry(expiry: str, encoding: str = "ascii8", raw: str = "") -> str:
+    """Encode a DF05 expiry value to hex for the given encoding (C2).
+
+    ``ascii8`` -> 8 ASCII bytes (``"20241231"`` -> ``3230323431323331``)
+    ``bcd4``  -> 4 packed-BCD bytes (``20 24 12 31``)
+    ``bcd3``  -> 3 packed-BCD bytes, year modulo 100 (``24 12 31``)
+    ``raw``   -> ``raw`` verbatim (must already be even-length hex)
+
+    Raises ``ValueError`` for an unknown encoding, a non-date expiry, or a year
+    outside 2000-2099 (the range bcd3 can represent).
+    """
+    if encoding == "raw":
+        value = (raw or "").strip().upper().replace(" ", "")
+        if not value or len(value) % 2:
+            raise ValueError(f"raw DF05 must be non-empty even-length hex: {raw!r}")
+        return value
+    date = (expiry or "").strip()
+    if len(date) != 8 or not date.isdigit():
+        raise ValueError(f"DF05 requires an 8-digit YYYYMMDD date: {expiry!r}")
+    if encoding in ("bcd4", "bcd3") and not date.startswith("20"):
+        raise ValueError(f"DF05 {encoding} encodes the year in 2 digits and only "
+                         f"covers 2000-2099: {date!r}")
+    if encoding == "ascii8":
+        return date.encode("ascii").hex().upper()
+    if encoding == "bcd4":
+        return bytes.fromhex(date).hex().upper()  # one BCD nibble per digit
+    if encoding == "bcd3":
+        return bytes.fromhex(date[2:]).hex().upper()
+    raise ValueError(f"unknown DF05 encoding {encoding!r} "
+                     f"(expected one of {list(EXPIRY_ENCODINGS)})")
+
+
+def decode_expiry(df05_hex: str) -> tuple[str, str]:
+    """Infer ``(encoding, value)`` from a DF05 hex string.
+
+    Byte length identifies the encoding (C2): 8 -> ascii8, 4 -> bcd4, 3 -> bcd3;
+    anything else, a non-ASCII 8-byte value, or non-BCD nibbles falls back to
+    ``raw`` (the caller decides whether that is acceptable — that is exactly the
+    银联 ``PHWWIPQI`` sample).
+    """
+    data = (df05_hex or "").strip().upper().replace(" ", "")
+    try:
+        raw = bytes.fromhex(data)
+    except ValueError:
+        return "raw", data
+    if len(raw) == 8:
+        try:
+            text = raw.decode("ascii")
+        except UnicodeDecodeError:
+            return "raw", data
+        return ("ascii8", text) if text.isdigit() else ("raw", data)
+    if len(raw) == 4 and _is_bcd(raw):
+        return "bcd4", raw.hex().upper()
+    if len(raw) == 3 and _is_bcd(raw):
+        return "bcd3", "20" + raw.hex().upper()
+    return "raw", data
+
+
+def _is_bcd(raw: bytes) -> bool:
+    return all((b >> 4) <= 9 and (b & 0x0F) <= 9 for b in raw)
+
+
+def ascii_date_ok(date: str, *, require_20xx: bool = True) -> bool:
+    """True when ``date`` is a real YYYYMMDD calendar date.
+
+    bcd3/bcd4 cannot express an arbitrary century, so the four-digit year is
+    restricted to 2000-2099 by default (C2 §3.4).
+    """
+    if len(date) != 8 or not date.isdigit():
+        return False
+    year, month, day = int(date[:4]), int(date[4:6]), int(date[6:8])
+    if require_20xx and not 2000 <= year <= 2099:
+        return False
+    if not 1 <= month <= 12:
+        return False
+    leap = 1 if month == 2 and year % 4 == 0 else 0
+    return 1 <= day <= _DAYS_IN_MONTH[month] + leap
+
 
 def ber_length(length: int) -> bytes:
     """Encode a BER length: short form up to 0x7F, then ``81 xx``."""
@@ -98,13 +184,14 @@ def compute_capk_checksum(rid: str, key_index: str, modulus: str,
 def encode_capk(cap: "CapkParam") -> str:
     """Encode one ``capk[]`` entry in the mandatory POS element order.
 
-    ``DF05`` is 8 ASCII digits (``"20441231"`` -> ``3230343431323331``).  When
-    ``cap.checksum`` is empty the SHA1 is computed here, so callers may supply
-    only the key material.
+    ``DF05`` is written in the encoding the entry declares (C2; default ascii8).
+    When ``cap.checksum`` is empty the SHA1 is computed here, so callers may
+    supply only the key material.  DF03 covers RID|index|modulus|exponent only,
+    so changing the DF05 encoding never changes the checksum.
     """
     checksum = cap.checksum.strip().upper() or compute_capk_checksum(
         cap.rid, cap.key_index, cap.modulus, cap.exponent)
-    expiry_hex = cap.expiry.encode("ascii").hex().upper()
+    expiry_hex = encode_expiry(cap.expiry, cap.expiry_encoding, cap.expiry_raw)
     return "".join((
         tlv(TAG_RID, cap.rid),
         tlv(TAG_KEY_INDEX, cap.key_index),

@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 
 from .models import CardProfile, KeysBundle, KernelParams, PosParam
 from ..protocol.kernel_tlv import (
-    MODULUS_LENGTHS,
+    MAX_EXPONENT_BYTES,
+    MAX_MODULUS_BYTES,
     ascii_date_ok,
     compute_capk_checksum,
     decode_expiry,
@@ -324,17 +325,22 @@ _HEX_RE = re.compile(r"^[0-9A-F]+$")
 _SHA1_HEX_LEN = 40
 
 
-def validate_kernel_params(params: KernelParams | None, owner: str) -> Report:
+def validate_kernel_params(params: KernelParams | None, owner: str, *,
+                           trust_checksum: bool = False) -> Report:
     """Validate one ``KernelParams`` set before it is pushed to the POS kernel.
 
     Per v1.2 §1.9 the host only rejects what the kernel itself would reject:
 
     * AID: ``9F06`` must be 5–8 bytes, whole-byte hex, unique per entry, and no
       entry may repeat an AID; every trailing field must be even-length hex;
-    * CAPK: RID exactly 5 bytes, key index 1 byte, ``DF05`` 8 ASCII digits,
-      ``DF06``/``DF07`` present, modulus a whole number of bytes with a length
-      in MODULUS_LENGTHS, and ``DF03`` must equal SHA1(RID‖index‖modulus‖exp);
-      RID+index must be unique;
+    * CAPK: RID exactly 5 bytes, key index 1 byte, ``DF05`` a valid date,
+      ``DF06``/``DF07`` present, modulus a whole number of bytes at most
+      ``MAX_MODULUS_BYTES``, and ``DF03`` must equal
+      SHA1(RID+index+modulus+exp); RID+index must be unique.  When
+      ``trust_checksum`` is set (vendor/named POS configs) a DF03 mismatch
+      is reported as a warning instead of an error;
+    * DRL: 9F06 RID(5B) + 8F index(1B) + DF8105 serial (non-empty hex);
+    * exception_file: 5A PAN + 5F34 PAN sequence (non-empty hex);
     * TERM: even-length hex that parses as concatenated BER-TLV.
     """
     report = Report()
@@ -416,25 +422,63 @@ def validate_kernel_params(params: KernelParams | None, owner: str) -> Report:
         if len(cap.modulus) % 2 or not _HEX_RE.fullmatch(cap.modulus or "0"):
             report.add(owner, "error",
                        f"{where} DF02 模数不是偶数长度 hex")
-        elif len(cap.modulus) // 2 not in MODULUS_LENGTHS:
+        elif not cap.modulus:
+            report.add(owner, "error", f"{where} DF02 模数为空")
+        elif len(cap.modulus) // 2 > MAX_MODULUS_BYTES:
             report.add(owner, "error",
-                       f"{where} DF02 模数长度 {len(cap.modulus) // 2} 字节不在 "
-                       f"{list(MODULUS_LENGTHS)}：{cap.rid}/{cap.key_index}")
-        if len(cap.exponent) != 2 or not _HEX_RE.fullmatch(cap.exponent or "0"):
+                       f"{where} DF02 模数长度 {len(cap.modulus) // 2} 字节超过上限 "
+                       f"{MAX_MODULUS_BYTES}：{cap.rid}/{cap.key_index}")
+        if (len(cap.exponent) % 2 or not cap.exponent
+                or not _HEX_RE.fullmatch(cap.exponent)):
             report.add(owner, "error",
-                       f"{where} DF04 指数须为 1 字节 hex：{cap.exponent!r}")
+                       f"{where} DF04 指数须为非空偶数长度 hex：{cap.exponent!r}")
+        elif len(cap.exponent) // 2 > MAX_EXPONENT_BYTES:
+            report.add(owner, "error",
+                       f"{where} DF04 指数长度 {len(cap.exponent) // 2} 字节超过上限 "
+                       f"{MAX_EXPONENT_BYTES}：{cap.exponent!r}")
         if len(cap.modulus) % 2 == 0 and cap.modulus and \
                 len(cap.key_index) == 2 and len(cap.rid) == 10 and \
-                len(cap.exponent) == 2:
+                len(cap.exponent) % 2 == 0 and cap.exponent:
             expected = compute_capk_checksum(cap.rid, cap.key_index,
                                              cap.modulus, cap.exponent)
             if cap.checksum and cap.checksum != expected:
-                report.add(owner, "error",
+                report.add(owner, "warning" if trust_checksum else "error",
                            f"{where} DF03 校验和不符：期望 {expected}，"
-                           f"实际 {cap.checksum}")
+                           f"实际 {cap.checksum}"
+                           + ("（vendor 样例按原样保留，不阻断）"
+                              if trust_checksum else ""))
             elif cap.checksum and len(cap.checksum) != _SHA1_HEX_LEN:
                 report.add(owner, "error",
                            f"{where} DF03 须为 20 字节 (40 hex)：{cap.checksum}")
+
+    seen_drl: set[tuple[str, str, str]] = set()
+    for i, entry in enumerate(params.drl, start=1):
+        where = f"kernel_params.drl[{i}]"
+        if len(entry.rid) != 10 or not _HEX_RE.fullmatch(entry.rid or "0"):
+            report.add(owner, "error",
+                       f"{where} 9F06 (RID) 须为 5 字节 hex：{entry.rid!r}")
+        if len(entry.index) != 2 or not _HEX_RE.fullmatch(entry.index or "0"):
+            report.add(owner, "error",
+                       f"{where} 8F (索引) 须为 1 字节 hex：{entry.index!r}")
+        if (len(entry.serial) % 2 or not entry.serial
+                or not _HEX_RE.fullmatch(entry.serial)):
+            report.add(owner, "error",
+                       f"{where} DF8105 (SN) 须为非空偶数长度 hex：{entry.serial!r}")
+        key = (entry.rid, entry.index, entry.serial)
+        if key in seen_drl:
+            report.add(owner, "warning", f"{where} DRL 条目重复：{key}")
+        seen_drl.add(key)
+
+    for i, entry in enumerate(params.exception_file, start=1):
+        where = f"kernel_params.exception_file[{i}]"
+        if not entry.pan or len(entry.pan) % 2 or not _HEX_RE.fullmatch(entry.pan):
+            report.add(owner, "error",
+                       f"{where} 5A (PAN) 须为非空偶数长度 hex：{entry.pan!r}")
+        if (not entry.pan_sequence or len(entry.pan_sequence) % 2
+                or not _HEX_RE.fullmatch(entry.pan_sequence)):
+            report.add(owner, "error",
+                       f"{where} 5F34 (PSN) 须为非空偶数长度 hex："
+                       f"{entry.pan_sequence!r}")
 
     if params.term:
         if len(params.term) % 2 or not _HEX_RE.fullmatch(params.term):

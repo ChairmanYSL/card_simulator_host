@@ -7,7 +7,7 @@
 > v1.2 要点速览（详见 `docs/protocol.md` §12）：
 > * 握手必须上报 `protocol_version:"1.2"`，缺失或 `<1.2` 一律拒绝；
 > * 删除 `device_config`（两端用缺省 心跳 10s / 判死 30s / ack 15s）；
-> * 新增 `pos_kernel_config`（AID/CAPK/TERM 下发 POS）与 `session_abort`（异常收尾，双方必 ack）；
+> * 新增 `pos_kernel_config`（AID/CAPK/TERM/DRL/ExceptionFile 下发 POS）与 `session_abort`（异常收尾，双方必 ack）；
 > * **任一案例 FAIL → 整轮立即停止**，剩余案例记为 `SKIPPED`；
 > * POS 离线/断线、任一端 ack 超时 → 该案例 FAIL（v1.1 时代多为 warning）；
 > * `transaction_result` 的 ack 表示「判定已落盘」（`persisted`/`duplicate`/`quarantined`）。
@@ -195,7 +195,7 @@ cd backend && python -m emv_host serve
 cd frontend && npm run dev     # http://localhost:5173, 自动代理 /api 与 /ws
 ```
 
-### 内核参数（POS AID/CAPK/TERM）
+### 内核参数（POS AID/CAPK/TERM/DRL/ExceptionFile）
 
 内核参数含 **CAPK 模数（密钥材料）**，因此**不放仓库**：
 
@@ -214,6 +214,9 @@ card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\
 * DF05 支持 `ascii8`（默认）/`bcd4`/`bcd3`/`raw`；`DF03 = SHA1(9F06‖9F22‖DF02‖DF04)` 与 DF05 编码无关；
 * 未提供目录时该 scheme **不下发**内核参数，POS 用自带表；
 * 仓库内的 `cases/<scheme>/kernel_params.json` 仅在显式开启兼容开关时才读取（默认关闭）。
+* 命名 POS 配置库（v1.2.x）：仓库外 `<kernel-params-dir>/<scheme>/<ref>.json`，case 用 `kernel_params_ref` 引用（loader 仅在内存中解析，模数不写回案例文件）；
+  Amex Expresspay 4.2.0 由 `tools/import_expresspay_xml.py` 生成（AID/CAPK/DRL/ExceptionFile/term，host 侧 `version:"4.2.0"`）。
+  参考 XML 目录 `refernce/` 已加入 `.gitignore`（含模数），只在本地保留。
 
 ## 测试与工具
 
@@ -222,6 +225,8 @@ cd backend && python -m pytest          # 后端单测（184 个）
 python tools/gen_cases.py cases         # 重新生成演示用例库（清单式覆盖，不删自建用例；
                                         #   清单项若逃逸 scheme 目录会被跳过）
 python tools/export_kernel_params.py --help   # 内核参数导出（写入仓库外目录）
+python tools/import_expresspay_xml.py --help # Expresspay XML -> 命名 POS 配置库
+                                             #   (--config-dir/--profile-dir/--out-dir/--scheme)
 python tools/mock_clients/mock_android.py  # 协议级 mock：安卓卡模拟（card_config 打印
                                           #   noResponseCommands 静默指令）
 python tools/mock_clients/mock_pos.py     # 协议级 mock：POS（--outcome approved_offline

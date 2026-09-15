@@ -240,9 +240,26 @@ def create_app(ctx: AppContext) -> FastAPI:
             if issue.severity == "error":
                 errors.append(f"pos_params: {issue.message}")
         # v1.2: case-level POS kernel parameters (AID/CAPK/TERM)
-        for issue in validate_kernel_params(case.kernel_params, case.case_id).issues:
-            if issue.severity == "error":
-                errors.append(f"kernel_params: {issue.message}")
+        if case.kernel_params is not None and case.kernel_params_ref:
+            errors.append("kernel_params 与 kernel_params_ref 不能同时设置")
+        elif case.kernel_params_ref:
+            resolved = ctx.library.named_kernel_params_for(
+                case.scheme, case.kernel_params_ref)
+            if resolved is None:
+                errors.append(
+                    f"kernel_params_ref {case.kernel_params_ref!r} 不存在于 "
+                    f"{case.scheme} 的命名 POS 配置库")
+            else:
+                # vendor test vectors are trusted verbatim (DF03 may mismatch)
+                for issue in validate_kernel_params(
+                        resolved, case.case_id, trust_checksum=True).issues:
+                    if issue.severity == "error":
+                        errors.append(f"kernel_params_ref: {issue.message}")
+        else:
+            for issue in validate_kernel_params(case.kernel_params,
+                                                case.case_id).issues:
+                if issue.severity == "error":
+                    errors.append(f"kernel_params: {issue.message}")
         return (case, errors)
 
     @app.post("/api/cases/validate")

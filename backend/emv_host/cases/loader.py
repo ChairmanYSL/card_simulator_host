@@ -76,6 +76,9 @@ class CaseLibrary:
     #: When True, also accept the legacy in-repo ``<scheme>/kernel_params.json``
     #: (compatibility only; it carries CAPK moduli so it is off by default).
     use_legacy_kernel_params: bool = False
+    #: v1.2.x: named POS configs from <kernel_params_dir>/<scheme>/<ref>.json
+    named_kernel_params: dict[tuple[str, str], KernelParams] = field(
+        default_factory=dict)
 
     # -- kernel params -------------------------------------------------------
     def kernel_params_for(self, scheme: str) -> KernelParams | None:
@@ -86,6 +89,11 @@ class CaseLibrary:
         """
         scheme_def = self.schemes.get(scheme)
         return scheme_def.kernel_params if scheme_def is not None else None
+
+    def named_kernel_params_for(self, scheme: str,
+                                ref: str) -> KernelParams | None:
+        """One named POS config from <kernel-params-dir>/<scheme>/<ref>.json."""
+        return self.named_kernel_params.get((scheme, ref))
 
     # -- lookups ------------------------------------------------------------
     def scheme_cases(self, scheme: str, mode: str) -> dict[str, TestCase]:
@@ -208,6 +216,7 @@ class CaseLibrary:
             # v1.2: per-case kernel parameter override (None = scheme default)
             "kernel_params": (None if tc.kernel_params is None
                               else tc.kernel_params.model_dump(mode="json")),
+            "kernel_params_ref": tc.kernel_params_ref,
         }
 
     def reload(self) -> None:
@@ -223,6 +232,7 @@ class CaseLibrary:
         self.issues = fresh.issues
         self.kernel_params_dir = fresh.kernel_params_dir
         self.use_legacy_kernel_params = fresh.use_legacy_kernel_params
+        self.named_kernel_params = fresh.named_kernel_params
 
 
 def load_library(root: str | Path,
@@ -295,6 +305,9 @@ def load_library(root: str | Path,
                 library.issues.append(LoadIssue(
                     str(params_path), issue.severity,
                     f"[{scheme}] {issue.message}"))
+
+        # v1.2.x named POS config library (out-of-repo, per scheme dir)
+        _load_named_kernel_params(scheme, library)
 
         # cases under each entry-mode dir: flat *.json (standalone) plus
         # sub-directories holding a group (group.json + 子案例 *.json files)
@@ -396,6 +409,24 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
                                         f"!= directory {mode!r}"))
         return
 
+    # v1.2.x: resolve a named POS config reference (CAPK moduli stay out of the
+    # case file; the resolved object is in-memory only).
+    if case.kernel_params is not None and case.kernel_params_ref:
+        library.issues.append(LoadIssue(
+            str(case_file), "error",
+            f"[{case.case_id}] kernel_params 与 kernel_params_ref 不能同时设置"))
+    elif case.kernel_params_ref:
+        resolved = library.named_kernel_params_for(scheme,
+                                                   case.kernel_params_ref)
+        if resolved is None:
+            library.issues.append(LoadIssue(
+                str(case_file), "error",
+                f"[{case.case_id}] kernel_params_ref "
+                f"{case.kernel_params_ref!r} 不存在于 {scheme} 的命名 POS 配置库 "
+                f"(<kernel-params-dir>/{scheme}/{case.kernel_params_ref}.json)"))
+        else:
+            case.kernel_params = resolved
+
     # profile ↔ case binding: missing id -> case_id; mismatch -> warning only
     if not case.profile.id:
         case.profile.id = case.case_id
@@ -417,7 +448,7 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
         library.issues.append(LoadIssue(str(case_file), issue.severity,
                                         f"[{case.case_id}] {issue.message}"))
     # v1.2: a case-level set overrides the scheme default entirely (R2)
-    if case.kernel_params is not None:
+    if case.kernel_params is not None and not case.kernel_params_ref:
         for issue in validate_kernel_params(case.kernel_params, case.case_id).issues:
             library.issues.append(LoadIssue(str(case_file), issue.severity,
                                             f"[{case.case_id}] {issue.message}"))
@@ -531,6 +562,8 @@ def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
     if external is not None:
         path = external / f"{scheme}{EXTERNAL_KERNEL_PARAMS_SUFFIX}"
         if not path.is_file():
+            if (external / scheme).is_dir():
+                return None, None
             library.issues.append(LoadIssue(
                 str(path), "error",
                 f"kernel params dir 已配置但缺少 {path.name}（该 scheme 将不下发内核参数）"))
@@ -556,6 +589,47 @@ def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
                 scheme, path, len(params.aids), len(params.caps),
                 "yes" if params.term else "no")
     return params, path
+
+
+def _load_named_kernel_params(scheme: str, library: CaseLibrary) -> None:
+    """Load one scheme's named POS config library (v1.2.x).
+
+    Layout: <kernel_params_dir>/<scheme>/<ref>.json -- each file is a
+    KernelParams document; index.json (metadata manifest) is ignored.
+    Named configs are vendor test vectors, so their CAPK DF03 is trusted
+    verbatim (trust_checksum=True: a mismatch warns instead of blocking).
+    """
+    external = library.kernel_params_dir
+    if external is None:
+        return
+    scheme_dir = external / scheme
+    if not scheme_dir.is_dir():
+        return
+    for path in sorted(scheme_dir.glob("*.json")):
+        if path.name == "index.json":
+            continue
+        raw = _safe_read_json(path)
+        if raw is None:
+            library.issues.append(LoadIssue(
+                str(path), "error", f"{path.name} 无法读取或不是合法 JSON 对象"))
+            continue
+        try:
+            params = KernelParams.model_validate(raw)
+        except ValidationError as exc:
+            library.issues.append(LoadIssue(
+                str(path), "error", f"invalid {path.name}: {exc}"))
+            continue
+        ref = path.stem
+        library.named_kernel_params[(scheme, ref)] = params
+        for issue in validate_kernel_params(
+                params, f"{scheme}:{ref}", trust_checksum=True).issues:
+            library.issues.append(LoadIssue(str(path), issue.severity,
+                                            f"[{scheme}:{ref}] {issue.message}"))
+        logger.info("scheme %s: loaded named POS config %s from %s "
+                    "(AID=%d CAPK=%d DRL=%d Exception=%d term=%s)",
+                    scheme, ref, path, len(params.aids), len(params.caps),
+                    len(params.drl), len(params.exception_file),
+                    "yes" if params.term else "no")
 
 
 def _safe_read_json(path: Path) -> dict[str, Any] | None:

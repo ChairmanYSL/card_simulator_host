@@ -15,9 +15,9 @@ The CAPK layout mirrors the POS asset file
 (``app/src/main/assets/emv/params``), which is what ``updateCAPKParam`` on the
 device parses, so an exported entry and a hand-written one are byte-identical.
 
-Length encoding (v1.2 §1.9): ``<= 0x7F`` uses the short form, ``0x80–0xFF``
-uses ``81 xx``.  CAPK moduli top out at 248 bytes, so the two-byte form is the
-only long form this module needs.
+Length encoding: ``<= 0x7F`` uses the short form, ``0x80-0xFF``
+uses ``81 xx`` and ``0x0100-0xFFFF`` uses ``82 xx xx``
+(the modulus cap is 256 bytes, see MAX_MODULUS_BYTES).
 """
 
 from __future__ import annotations
@@ -26,7 +26,12 @@ import hashlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import
-    from ..cases.models import AidKernelParam, CapkParam
+    from ..cases.models import (
+        AidKernelParam,
+        CapkParam,
+        DrlParam,
+        ExceptionFileParam,
+    )
 
 # CAPK element tags, in the mandatory order enforced by encode_capk()
 TAG_RID = "9F06"
@@ -38,8 +43,22 @@ TAG_MODULUS = "DF02"
 TAG_EXPONENT = "DF04"
 TAG_CHECKSUM = "DF03"
 
-#: Modulus byte lengths allowed by the POS kernel assets (1024/1152/1408/1984 bit)
-MODULUS_LENGTHS = (128, 144, 176, 248)
+# DRL element tags (Amex Expresspay names the file "CRL"): RID  index  serial
+TAG_DRL_INDEX = "8F"
+TAG_DRL_SERIAL = "DF8105"
+
+# Exception-file element tags: PAN  PAN sequence number
+TAG_PAN = "5A"
+TAG_PAN_SEQUENCE = "5F34"
+
+#: Modulus byte-length cap (DF02).  v1.2 originally pinned a whitelist matching
+#: the POS asset (128/144/176/248); the Amex Expresspay 4.2.0 test vectors use
+#: other sizes (126/160/192/224/...), so the rule is now only an upper bound.
+MAX_MODULUS_BYTES = 256
+
+#: Exponent byte-length cap (DF04).  EMV uses 1 byte (03) or 3 bytes (010001);
+#: the cap only stops an oversized vendor sample from reaching the wire.
+MAX_EXPONENT_BYTES = 8
 
 #: Accepted DF05 (CAPK expiry) encodings (C2).  Every current POS asset uses
 #: ascii8; bcd4/bcd3 exist because the field was historically 3 or 4 bytes on
@@ -129,15 +148,17 @@ def ascii_date_ok(date: str, *, require_20xx: bool = True) -> bool:
 
 
 def ber_length(length: int) -> bytes:
-    """Encode a BER length: short form up to 0x7F, then ``81 xx``."""
+    """Encode a BER length: short form up to 0x7F, then ``81 xx`` / ``82 xx xx``."""
     if length < 0:
         raise ValueError(f"negative TLV length: {length}")
     if length <= 0x7F:
         return bytes([length])
     if length <= 0xFF:
         return bytes([0x81, length])
+    if length <= 0xFFFF:
+        return bytes([0x82, (length >> 8) & 0xFF, length & 0xFF])
     raise ValueError(f"TLV length {length} needs a form this encoder does not "
-                     f"emit (max 255)")
+                     f"emit (max 65535)")
 
 
 def tlv(tag_hex: str, value_hex: str) -> str:
@@ -204,6 +225,23 @@ def encode_capk(cap: "CapkParam") -> str:
     ))
 
 
+def encode_drl(entry: "DrlParam") -> str:
+    """One DRL entry: ``9F06`` RID  ``8F`` index  ``DF8105`` serial number."""
+    return "".join((
+        tlv(TAG_RID, entry.rid),
+        tlv(TAG_DRL_INDEX, entry.index),
+        tlv(TAG_DRL_SERIAL, entry.serial),
+    ))
+
+
+def encode_exception_file(entry: "ExceptionFileParam") -> str:
+    """One exception-file entry: ``5A`` PAN  ``5F34`` PAN sequence number."""
+    return "".join((
+        tlv(TAG_PAN, entry.pan),
+        tlv(TAG_PAN_SEQUENCE, entry.pan_sequence),
+    ))
+
+
 def decode_tlv_map(hex_data: str) -> dict[str, str]:
     """Parse concatenated BER-TLV into ``{tag: value_hex}``.
 
@@ -230,12 +268,18 @@ def decode_tlv_map(hex_data: str) -> dict[str, str]:
 def _read_tag(raw: bytes, pos: int) -> tuple[str, int]:
     if pos >= len(raw):
         raise ValueError("truncated tag")
+    start = pos
     first = raw[pos]
-    if first & 0x1F == 0x1F:  # two-byte tag (9Fxx / DFxx / BFxx)
-        if pos + 1 >= len(raw):
-            raise ValueError("truncated two-byte tag")
-        return raw[pos:pos + 2].hex().upper(), pos + 2
-    return raw[pos:pos + 1].hex().upper(), pos + 1
+    pos += 1
+    if first & 0x1F == 0x1F:  # multi-byte tag (9Fxx / DFxx / DF810x / BFxx)
+        while True:
+            if pos >= len(raw):
+                raise ValueError("truncated multi-byte tag")
+            byte = raw[pos]
+            pos += 1
+            if not (byte & 0x80):
+                break
+    return raw[start:pos].hex().upper(), pos
 
 
 def _read_length(raw: bytes, pos: int) -> tuple[int, int]:

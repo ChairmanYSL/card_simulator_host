@@ -396,6 +396,7 @@ ARQC→`80`）。
   trace 演示、keys 感知）、`mock_pos.py`（`pos_kernel_config` + `session_abort`）；
 * POS 侧通知文档：`docs/protocol-change-notice-v1.2.md`（只生成不发送）；
 * 内核参数导出：`tools/export_kernel_params.py`（读 POS 资产，写到**仓库外**目录）。
+* Expresspay XML 导入：`tools/import_expresspay_xml.py`（写**仓库外**命名 POS 配置库）。
 
 ---
 
@@ -419,7 +420,7 @@ ARQC→`80`）。
 | 变化 | 内容 |
 |---|---|
 | **删除** | `config_push{config_type:"device_config"}` 不再发往任何端。心跳/判死/ack 超时改用硬编码缺省 **10s / 30s / 15s** |
-| **新增** | `config_push{config_type:"pos_kernel_config"}`（host→POS，AID/CAPK/TERM） |
+| **新增** | `config_push{config_type:"pos_kernel_config"}`（host→POS，AID/CAPK/TERM/DRL/ExceptionFile） |
 | **新增** | `session_abort`（host→双方，异常收尾通知） |
 | 不变 | `card_config`（卡端）、`pos_config`（POS 端，字段/编码冻结） |
 
@@ -437,18 +438,22 @@ ARQC→`80`）。
 
 ```json
 {"type":"config_push","config_type":"pos_kernel_config","case_id":"...","attempt_id":"...",
- "kernel_params":{"aid":["<拼接BER-TLV hex>"],"capk":["..."],"term":"<单条TLV hex>"}}
+ "kernel_params":{"aid":["<拼接BER-TLV hex>"],"capk":["..."],"drl":["<9F06+8F+DF8105 hex>"],"exception_file":["<5A+5F34 hex>"],"term":"<多个TLV拼接 hex>"}}
 ```
 
 * 每案例下发，且**先于** `pos_config`；
 * `pos_params` 整体缺失/为空 → 不下发，POS 用自带表；
+* `term` 是**多个 TLV 直接拼接**的 hex（不是单条）；
+* `drl[]`（Amex 文件内名为 CRL）每条 `9F06`+`8F`+`DF8105`，`exception_file[]` 每条 `5A`+`5F34`，均为拼接 BER-TLV；
+* `version` 是 host 侧元数据（Amex 为 `"4.2.0"`），**不上 wire**；
 * AID `9F06` 5–8 字节、首元素固定；CAPK 元素顺序固定
   `9F06‖9F22‖DF05‖DF06‖DF07‖DF02‖DF04‖DF03`；
   `DF03 = SHA1(9F06‖9F22‖DF02‖DF04)`；
 * DF05 支持 `ascii8`（默认）|`bcd4`|`bcd3`|`raw`；
 * 同一 RID 内容不同时必须**真正覆盖**（DELETE-then-ADD），不得静默跳过；
-* 数据来自**仓库外**目录（`serve --kernel-params-dir`，每 scheme 一个
-  `<scheme>.json`），仓库内不含密钥材料。
+* 数据来自**仓库外**目录（`serve --kernel-params-dir`）：`<scheme>.json` 为卡组默认，
+  `<scheme>/<ref>.json` 为命名 POS 配置库（case 通过 `kernel_params_ref` 引用）；
+  `tools/import_expresspay_xml.py` 从 Expresspay XML 生成（Amex `version:"4.2.0"`）。仓库内不含密钥材料。
 
 ### 12.5 `session_abort`
 

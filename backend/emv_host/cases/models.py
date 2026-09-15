@@ -117,8 +117,8 @@ class AidKernelParam(BaseModel):
 class CapkParam(BaseModel):
     """One CAPK entry, one field per TLV element of the POS asset format:
 
-    9F06 RID(5B) ‖ 9F22 index(1B) ‖ DF05 expiry ‖ DF06 hash alg(1B)
-    ‖ DF07 key alg(1B) ‖ DF02 modulus ‖ DF04 exponent(1B) ‖ DF03 checksum(20B)
+    9F06 RID(5B) + 9F22 index(1B) + DF05 expiry + DF06 hash alg(1B)
+    + DF07 key alg(1B) + DF02 modulus + DF04 exponent(1-8B) + DF03 checksum(20B)
 
     ``expiry`` is the canonical date (YYYYMMDD) and ``expiry_encoding`` selects
     how it is written into DF05 (C2): ``ascii8`` (8 ASCII bytes, the format all
@@ -141,10 +141,12 @@ class CapkParam(BaseModel):
         default="ascii8", description="how DF05 is encoded on the wire (C2)")
     expiry_raw: str = Field(default="",
                             description="DF05 hex verbatim; only with encoding=raw")
-    hash_alg: int = Field(default=1, ge=1, le=255, description="DF06 value")
-    key_alg: int = Field(default=1, ge=1, le=255, description="DF07 value")
+    # DF06/DF07 may be 00 in vendor test vectors (Amex Expresspay), so the
+    # model only bounds them to a byte instead of requiring a non-zero alg id.
+    hash_alg: int = Field(default=1, ge=0, le=255, description="DF06 value")
+    key_alg: int = Field(default=1, ge=0, le=255, description="DF07 value")
     modulus: str = Field(description="DF02 value: raw modulus, even-length hex")
-    exponent: str = Field(default="03", description="DF04 value: 1 byte hex")
+    exponent: str = Field(default="03", description="DF04 value: even-length hex (1-8B)")
     checksum: str = Field(default="",
                           description="DF03 value: 20-byte SHA1 hex; empty = compute")
 
@@ -176,13 +178,49 @@ class CapkParam(BaseModel):
         return self
 
 
+class DrlParam(BaseModel):
+    """One DRL entry (Amex Expresspay calls the file ``CRL``).
+
+    Wire shape: ``9F06`` RID(5B) + ``8F`` index(1B) + ``DF8105`` serial number.
+    The host carries vendor test vectors verbatim, so only the obvious shape
+    (RID 5 bytes / index 1 byte / non-empty even hex serial) is enforced.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rid: str = Field(description="9F06 value: exactly 5 bytes hex")
+    index: str = Field(description="8F value: 1 byte hex (e.g. 01)")
+    serial: str = Field(default="", description="DF8105 value: even-length hex")
+
+    @field_validator("rid", "index", "serial")
+    @classmethod
+    def _normalize_hex(cls, value: str) -> str:
+        return value.strip().upper().replace(" ", "")
+
+
+class ExceptionFileParam(BaseModel):
+    """One exception-file entry: ``5A`` PAN + ``5F34`` PAN sequence number."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pan: str = Field(default="", description="5A value: even-length hex")
+    pan_sequence: str = Field(default="", description="5F34 value: even-length hex")
+
+    @field_validator("pan", "pan_sequence")
+    @classmethod
+    def _normalize_hex(cls, value: str) -> str:
+        return value.strip().upper().replace(" ", "")
+
+
 class KernelParams(BaseModel):
     """POS kernel parameter set for one scheme (or a case-level override).
 
     Every field is optional: an omitted/empty ``KernelParams`` means "do not
-    push pos_kernel_config for this case" — the POS keeps its built-in tables.
-    Host-side data normally comes from the gitignored local file
-    ``cases/<scheme>/kernel_params.json`` (see tools/export_kernel_params.py).
+    push pos_kernel_config for this case" -- the POS keeps its built-in tables.
+    Host-side data normally comes from the out-of-repo kernel params directory
+    (``<kernel-params-dir>/<scheme>.json`` or the named library
+    ``<kernel-params-dir>/<scheme>/<ref>.json``); see
+    tools/export_kernel_params.py and tools/import_expresspay_xml.py.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -190,7 +228,16 @@ class KernelParams(BaseModel):
     aids: list[AidKernelParam] = Field(default_factory=list)
     caps: list[CapkParam] = Field(default_factory=list,
                                   description="CAPK entries ('capk' on the wire)")
-    term: str = Field(default="", description="single TERM TLV, hex")
+    drl: list[DrlParam] = Field(
+        default_factory=list,
+        description="DRL entries (Amex calls the file CRL); wire key 'drl'")
+    exception_file: list[ExceptionFileParam] = Field(
+        default_factory=list,
+        description="exception-file entries; wire key 'exception_file'")
+    term: str = Field(default="", description="concatenated TERM TLV(s), hex")
+    #: Host-side metadata only (never sent on the wire): vendor config revision,
+    #: e.g. "4.2.0" for the Amex Expresspay 4.2.0 set.
+    version: str = Field(default="", description="config revision, host-side only")
 
     @field_validator("term")
     @classmethod
@@ -199,20 +246,30 @@ class KernelParams(BaseModel):
 
     @property
     def empty(self) -> bool:
-        return not self.aids and not self.caps and not self.term
+        return (not self.aids and not self.caps and not self.drl
+                and not self.exception_file and not self.term)
 
     def payload(self) -> dict[str, Any]:
         """Wire form of ``config_push{config_type:"pos_kernel_config"}``.
 
-        v1.2 §1.5: aid[] / capk[] are concatenated BER-TLV hex strings with no
-        outer template; term is one TLV hex string.  Empty lists are allowed;
-        an entirely empty set means the case does not push kernel params.
+        aid[]/capk[]/drl[]/exception_file[] are concatenated BER-TLV hex strings
+        with no outer template; term is concatenated TLV hex.  Empty lists are
+        allowed; an entirely empty set means the case does not push kernel
+        params.  ``version`` is host-side metadata and is NOT emitted.
         """
-        from ..protocol.kernel_tlv import encode_aid, encode_capk
+        from ..protocol.kernel_tlv import (
+            encode_aid,
+            encode_capk,
+            encode_drl,
+            encode_exception_file,
+        )
 
         return {
             "aid": [encode_aid(a) for a in self.aids],
             "capk": [encode_capk(c) for c in self.caps],
+            "drl": [encode_drl(d) for d in self.drl],
+            "exception_file": [encode_exception_file(e)
+                               for e in self.exception_file],
             "term": self.term,
         }
 
@@ -449,6 +506,13 @@ class TestCase(BaseModel):
     # v1.2: case-level POS kernel parameter override; when None the scheme
     # default applies, when empty the case pushes nothing (POS keeps its tables)
     kernel_params: KernelParams | None = None
+    # v1.2.x: named POS config reference.  When set, the loader resolves it from
+    # the out-of-repo library ``<kernel-params-dir>/<scheme>/<ref>.json`` into
+    # ``kernel_params`` (in memory only -- CAPK moduli never enter the case file).
+    # Mutually exclusive with an inline ``kernel_params``.
+    kernel_params_ref: str | None = Field(
+        default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
+        description="named POS config id under <kernel-params-dir>/<scheme>/")
     preconditions: list[str] = Field(default_factory=list, max_length=20)
     test_plan: list[TestPlanStep] = Field(default_factory=list, max_length=50)
     timeout_seconds: int = Field(default=180, ge=10, le=3600)

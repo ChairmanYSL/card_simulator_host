@@ -43,6 +43,8 @@ export type CaseDraft = {
   // Deep validation is the server's job; this stays a textarea by design (no
   // AID/CAPK table UI in this iteration).
   kernelParamsJson: string;
+  // v1.2.x: named POS config id resolved from <kernel-params-dir>/<scheme>/.
+  kernelParamsRef: string;
   // operator guidance + machine expectations
   amount: string;
   currency: string;
@@ -180,6 +182,7 @@ export function emptyDraft(scheme: string): CaseDraft {
     keysJson: "",
     posParams: [],
     kernelParamsJson: "",
+    kernelParamsRef: "",
     amount: "100.00",
     currency: "CNY",
     pin_hint: "none",
@@ -305,6 +308,8 @@ export function buildPayload(d: CaseDraft): unknown {
     }),
   };
   if (d.groupId.trim()) payload.group_id = d.groupId.trim();
+  if (d.kernelParamsRef.trim())
+    payload.kernel_params_ref = d.kernelParamsRef.trim();
   const kernel = buildKernelParams(d);
   if (kernel !== null) payload.kernel_params = kernel;
   return payload;
@@ -394,26 +399,33 @@ function validate(d: CaseDraft): Errors {
   // DF03 checksums, DF05 encodings and dedup keys (see validate_kernel_params);
   // duplicating that here would drift, so we only catch malformed JSON and a
   // wrong top-level shape and let the server give the authoritative message.
+  if (d.kernelParamsJson.trim() && d.kernelParamsRef.trim()) {
+    e.kernelParams = "kernel_params 与 kernel_params_ref 不能同时填写";
+  }
   if (d.kernelParamsJson.trim()) {
     try {
       const parsed = JSON.parse(d.kernelParamsJson);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
         throw new Error("not object");
       const obj = parsed as Record<string, unknown>;
-      for (const key of ["aids", "caps"]) {
+      for (const key of ["aids", "caps", "drl", "exception_file"]) {
         const v = obj[key];
         if (v !== undefined && !Array.isArray(v))
           e.kernelParams = `kernel_params.${key} 须为数组`;
       }
       if (obj.term !== undefined && typeof obj.term !== "string")
         e.kernelParams = "kernel_params.term 须为字符串（hex）";
+      if (obj.version !== undefined && typeof obj.version !== "string")
+        e.kernelParams = "kernel_params.version 须为字符串";
       const empty =
         (!Array.isArray(obj.aids) || obj.aids.length === 0) &&
         (!Array.isArray(obj.caps) || obj.caps.length === 0) &&
+        (!Array.isArray(obj.drl) || obj.drl.length === 0) &&
+        (!Array.isArray(obj.exception_file) || obj.exception_file.length === 0) &&
         !(typeof obj.term === "string" && obj.term.trim());
       if (empty && !e.kernelParams)
         e.kernelParams =
-          "kernel_params 为空：aids/caps/term 至少给一项，或清空此页以使用卡组默认";
+          "kernel_params 为空：aids/caps/drl/exception_file/term 至少给一项，或清空此页以使用卡组默认";
     } catch {
       e.kernelParams = "内核参数 JSON 不合法（留空表示不下发，沿用卡组默认）";
     }
@@ -503,7 +515,7 @@ const CASE_TAB_KEYS: Record<CaseTabId, (key: string) => boolean> = {
     .includes(k) || k.startsWith("aid.") || k.startsWith("noResp."),
   transaction: (k) => ["amount", "currency", "exp_amount", "exp_currency"]
     .includes(k) || k.startsWith("pos."),
-  kernel: (k) => k === "kernelParams",
+  kernel: (k) => k === "kernelParams" || k === "kernelParamsRef",
   plan: (k) => k === "plan" || k.startsWith("plan."),
   rules: (k) => k === "rules" || k.startsWith("rules."),
   json: () => false,
@@ -1150,7 +1162,7 @@ export function AddCasePage({
             <p className="hint">
               本版本用 JSON 文本域编辑（不做 AID/CAPK 表格 UI）。服务端会做深度校验：
               <span className="mono">9F06</span> 5–8 字节、CAPK 元素顺序、
-              <span className="mono"> DF02</span> 模数长度 128/144/176/248、
+              <span className="mono"> DF02</span> 模数长度 <= 256 字节、
               <span className="mono"> DF03 = SHA1(9F06‖9F22‖DF02‖DF04)</span>、
               <span className="mono"> DF05</span> 编码（ascii8/bcd4/bcd3/raw）与去重。
             </p>
@@ -1169,9 +1181,23 @@ export function AddCasePage({
      "modulus": "<DF02 裸模数 hex>", "exponent": "03",
      "checksum": "<DF03 20 字节 hex，可留空由 host 计算>"}
   ],
-  "term": "9F6604360000809F1A0201569F7A0101"
+  "drl": [
+    {"rid": "A000000025", "index": "01", "serial": "001000"}
+  ],
+  "exception_file": [
+    {"pan": "373737345678904F", "pan_sequence": "00"}
+  ],
+  "term": "9F6604360000809F1A0201569F7A0101",
+  "version": "4.2.0"
 }`}</pre>
             </details>
+            <Field label="kernel_params_ref（命名 POS 配置）"
+              error={errors.kernelParams}
+              hint="外部 <kernel-params-dir>/<scheme>/<ref>.json 的 id；与下方 JSON 二选一。留空=不引用">
+              <input type="text" value={draft.kernelParamsRef}
+                placeholder="如 CONF_01"
+                onChange={(e) => input("kernelParamsRef", e.target.value)} />
+            </Field>
             <Field label="kernel_params（JSON）" error={errors.kernelParams}
               hint="留空=不下发；aids/caps 可为空数组；term 可省略（host 会告警）">
               <textarea rows={14} className="mono" spellCheck={false}
@@ -1182,7 +1208,7 @@ export function AddCasePage({
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button className="btn small" onClick={() =>
                 input("kernelParamsJson", JSON.stringify(
-                  { aids: [], caps: [], term: "" }, null, 2))}>
+                  { aids: [], caps: [], drl: [], exception_file: [], term: "" }, null, 2))}>
                 插入空模板
               </button>
               <button className="btn small" onClick={() =>

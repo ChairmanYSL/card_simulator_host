@@ -5,6 +5,36 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-15（v1.2.x：Amex Expresspay 4.2.0 POS 配置）
+
+### 新增：DRL / ExceptionFile + 命名 POS 配置库（仅 amex）
+- **类型**：协议扩展（host 侧）+ 数据导入工具 + 文档
+- **背景**：用户提供 `refernce/Expresspay 4.2.0/{TerminalConfig,TerminalProfile}`
+  参考 XML，要求给 amex 卡组补 POS 端配置，版本 `"4.2.0"`，不影响其他卡组。
+- **改动**：
+  - `KernelParams` 增 `drl`（`9F06+8F+DF8105`）、`exception_file`（`5A+5F34`）与
+    host 侧 `version`（不上 wire）；`payload()` 增 `drl`/`exception_file` 两个 wire 键。
+  - `kernel_tlv`：新增 `encode_drl`/`encode_exception_file`；模数上限由白名单
+    (128/144/176/248) 放宽为 **<=256 字节**；指数放宽为 1-8 字节；多字节 tag 解析支持
+    3 字节（`DF810x`）；BER 长度支持 `82 xx xx`。
+  - `validation`：DRL/ExceptionFile 校验；`DF06/DF07` 允许 0；命名库配置以
+    `trust_checksum=True` 校验（vendor 样例 DF03 不符只 warning，不阻断）。
+  - `loader`：新增仓库外命名 POS 配置库 `<kernel-params-dir>/<scheme>/<ref>.json` +
+    `CaseLibrary.named_kernel_params`；case 增 `kernel_params_ref`（与内联
+    `kernel_params` 互斥，仅内存解析，模数不写回案例文件）。
+  - 工具 `tools/import_expresspay_xml.py`：把 CONF/Profile XML 转成命名配置
+    （AID/CAPK/DRL/ExceptionFile/term）；term = CONF 的 TerminalParameter + 同号
+    Profile，多 TLV 拼接。
+  - 前端 AddCasePage 内核参数页签支持 `drl`/`exception_file`/`version` 与
+    `kernel_params_ref`。
+  - `.gitignore` 增 `refernce/`（含 CAPK 模数，仅本地保留，不进 git）。
+  - 文档：`docs/protocol.md` 12.2/12.4/11、
+    `docs/protocol-change-notice-v1.2.md` 2/4.1/4.2/4.4/4.8、`README.md`。
+- **已知数据异常**：`TerminalProfile/Profile_25.xml` 的 `9F6E=188000003` 为 9 位奇长 hex，
+  工具按源数据原样报错并跳过 `CONF_25`（其余 31 份正常），待用户裁决。
+- **验证**：按要求本轮**未运行 pytest**（仅做模块导入与 31/32 参考配置离线校验）。
+- **不影响**：其他卡组；`pos_config`/`card_config`/信封字段不变。
+
 ## 2026-09-14（v1.2 测试审核修复轮，host 侧 P0–P4）
 
 ### 修复：测试审核的 5 个在库缺陷（F1/F2/F3 + H1/H2）

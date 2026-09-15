@@ -32,3 +32,7 @@ cases/*/kernel_params.json
 .vscode/
 .DS_Store
 Thumbs.db
+
+# vendor reference XMLs (Expresspay 4.2.0)  local-only, contain CAPK moduli
+# (key material); never committed.  See docs/protocol-change-notice-v1.2.md
+refernce/

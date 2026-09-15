@@ -33,7 +33,7 @@ POS 端握手帧（示例）：
 | 项 | 冻结值 |
 |---|---|
 | 内核参数帧的 `config_type` | **`pos_kernel_config`**（**不是** `kernel_params`） |
-| 内核参数负载字段名 | `kernel_params: {aid:[...], capk:[...], term:"..."}` |
+| 内核参数负载字段名 | `kernel_params: {aid:[...], capk:[...], drl:[...], exception_file:[...], term:"..."}`（`drl`/`exception_file` 为 v1.2.x 新增，`version` 仅 host 侧） |
 | 交易参数帧 | `config_type="pos_config"`，`pos_params:[{tag,name,value}]`，字段名与编码不变 |
 | 结果帧 | `type="transaction_result"` + `case_id` + `attempt_id` + `result` |
 | 信封 | `v=1` |
@@ -75,20 +75,25 @@ POS 端握手帧（示例）：
  "kernel_params":{
    "aid":  ["9F0607A0000000031010DF0101009F08020002...", "..."],
    "capk": ["9F0605A0000000039F2201...", "..."],
+   "drl":  ["9F0605A0000000258F0101DF810503001000", "..."],
+   "exception_file": ["5A08373737345678904F5F340100"],
    "term": "9F6604360000809F1A0201569F7A0101"
  }}
 ```
 
-* `aid[]` / `capk[]` 每项是**拼接 BER-TLV 的大写 hex，无外层模板**；
-* `term` 是**单条** TLV 的 hex；
-* 长度编码：`<= 0x7F` 用短形式，`0x80–0xFF` 用 `81 xx`（CAPK 模数最长 248 字节，只会用到这两种）。
+* `aid[]` / `capk[]` / `drl[]` / `exception_file[]` 每项是**拼接 BER-TLV 的大写 hex，无外层模板**；
+* `term` 是**多个 TLV 直接拼接**的 hex（不是单条）；
+* 长度编码：`<= 0x7F` 短形式、`0x80-0xFF` 用 `81 xx`、`0x0100-0xFFFF` 用 `82 xx xx`（CAPK 模数上限 256 字节）；
+* `version` 是 host 侧元数据（Amex Expresspay 为 `"4.2.0"`），**不在 wire 上**。
 
 ### 4.2 逐条调用（顺序即数组顺序）
 
 ```
-for x in kernel_params.aid:  updateAidParam(1, bytes.fromhex(x))
-for x in kernel_params.capk: updateCAPKParam(1, bytes.fromhex(x))
-if kernel_params.term:       setTerminalParam(bytes.fromhex(term))
+for x in kernel_params.aid:            updateAidParam(1, bytes.fromhex(x))
+for x in kernel_params.capk:           updateCAPKParam(1, bytes.fromhex(x))
+for x in kernel_params.drl:            <POS SDK DRL API>(bytes.fromhex(x))
+for x in kernel_params.exception_file: <POS SDK ExceptionFile API>(bytes.fromhex(x))
+if kernel_params.term:                 setTerminalParam(bytes.fromhex(term))
 ```
 
 全部成功 → `ack{ok:true}`；任一条失败 → `ack{ok:false, detail:"<原因>"}`。
@@ -116,10 +121,10 @@ DF180100
 | 1 | `9F06` | 5B | RID |
 | 2 | `9F22` | 1B | 密钥索引 |
 | 3 | `DF05` | 见 4.5 | 失效期 |
-| 4 | `DF06` | 1B | 哈希算法（现资产恒 `01`） |
-| 5 | `DF07` | 1B | 密钥算法（现资产恒 `01`） |
-| 6 | `DF02` | 128/144/176/248B | 模数（裸字节） |
-| 7 | `DF04` | 1B | 指数（现资产恒 `03`） |
+| 4 | `DF06` | 1B | 哈希算法（POS 资产恒 `01`；Expresspay 为 `01`） |
+| 5 | `DF07` | 1B | 密钥算法（POS 资产恒 `01`；**Expresspay 为 `00`**） |
+| 6 | `DF02` | <=256B | 模数（裸字节；Expresspay 用到 126/128/160/176/192/224/248B） |
+| 7 | `DF04` | 1-8B | 指数（如 `03` / `010001`） |
 | 8 | `DF03` | 20B | 校验和 |
 
 **`DF03` 算法（POS 可自行复核）**：
@@ -171,6 +176,20 @@ host 按**每个案例**下发 AID/CAPK 全量。同一 RID 在两个案例里�
 已知约束（POS 现有实现里有记录）：`updateAidParam(DELETE)` 会在 `emvaids0.par` 留下空洞、
 导致下次启动只加载部分条目。若走 DELETE+ADD，请确保恢复该文件的一致性（或采用内核支持的
 原地更新路径），并在回报中说明采用的做法。CAPK 同理（同 RID+索引、内容不同时需覆盖）。
+
+### 4.8 `drl[]` 与 `exception_file[]`（v1.2.x 新增，Amex Expresspay 4.2.0）
+
+Expresspay 的 `TerminalConfig/*.xml` 每份还含 CRL（host 侧字段名 `drl`）与 ExceptionFile：
+
+| 数组 | 元素 TLV 顺序 | 长度 |
+|---|---|---|
+| `drl[]` | `9F06`(RID) + `8F`(index) + `DF8105`(SN) | 5B / 1B / 样例 3B |
+| `exception_file[]` | `5A`(PAN) + `5F34`(PSN) | 样例 8B / 1B |
+
+* 两者与 `aid[]`/`capk[]` 一样是**拼接 BER-TLV、无外层模板**，逐条调用 POS SDK 的 DRL /
+  ExceptionFile API（具体 API 名以 POS SDK 为准）；
+* DRL 去重键建议 `9F06 + 8F + DF8105`，ExceptionFile 去重键建议 `5A`；
+* `version:"4.2.0"` 只在 host 侧保留，不随帧下发。
 
 ---
 

@@ -253,6 +253,11 @@ def load_library(root: str | Path,
                           use_legacy_kernel_params=use_legacy_kernel_params)
     if not root.is_dir():
         raise CaseLibraryError(f"cases root does not exist: {root}")
+    if external is not None and not _external_has_any_config(external):
+        library.issues.append(LoadIssue(
+            str(external), "error",
+            "kernel params dir 已配置但目录内没有任何配置"
+            "（<scheme>.json / <scheme>/<ref>.json 均不存在）"))
 
     for scheme_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         scheme_json = scheme_dir / "scheme.json"
@@ -548,6 +553,23 @@ def _check_group_case_id_collisions(scheme: str, mode: str,
             f"（{scheme}/{mode}）：case_id 与 group_id 互斥，该案例不可执行"))
 
 
+def _external_has_any_config(external: Path) -> bool:
+    """True when the kernel-params dir holds at least one config file.
+
+    Either a top-level ``<scheme>.json`` or a named-library
+    ``<scheme>/<ref>.json``.  Used to tell a misconfigured (empty) directory
+    from a directory that legitimately covers only some schemes.
+    """
+    if not external.is_dir():
+        return False
+    for entry in external.iterdir():
+        if entry.is_file() and entry.suffix == ".json":
+            return True
+        if entry.is_dir() and any(entry.glob("*.json")):
+            return True
+    return False
+
+
 def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
                                library: CaseLibrary
                                ) -> tuple[KernelParams | None, Path | None]:
@@ -568,17 +590,17 @@ def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
     when explicitly opted into (``use_legacy_kernel_params``).  Default-off is
     deliberate (C3): the file carries CAPK moduli, so a misconfigured path must
     surface as an error rather than silently falling back to key material that
-    is supposed to have left the workspace.
+    is supposed to have left the workspace.  A directory that covers only some
+    schemes is not an error; only a completely empty/nonexistent dir is
+    reported, once, by ``load_library`` (v1.2.x, option c).
     """
     external = library.kernel_params_dir
     if external is not None:
         path = external / f"{scheme}{EXTERNAL_KERNEL_PARAMS_SUFFIX}"
         if not path.is_file():
-            if (external / scheme).is_dir():
-                return None, None
-            library.issues.append(LoadIssue(
-                str(path), "error",
-                f"kernel params dir 已配置但缺少 {path.name}（该 scheme 将不下发内核参数）"))
+            # (c) Per-scheme absence is normal: the dir may hold configs for
+            # only some schemes and/or a named library <dir>/<scheme>/.  A
+            # completely empty dir is reported once in load_library().
             return None, None
     elif library.use_legacy_kernel_params:
         path = scheme_dir / KERNEL_PARAMS_FILE

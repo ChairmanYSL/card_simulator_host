@@ -22,6 +22,17 @@
   - 文档同步 `protocol.md`/变更通知/`README.md`。
 - **验证**：按要求未跑 pytest；工具离线解析 32/32 CONF 通过、54/54 Profile 通过（合成后校验 0 error）。
 
+## 2026-09-15（v1.2.x：kernel params dir 缺文件策略放宽为 (c)）
+
+### 调整：目录只覆盖部分卡组不再报 error
+- **背景**：amex 命名库落地后，外部目录只有部分卡组有配置，原 C3「每 scheme 缺文件即 error」
+  会对 discover/jcb/mastercard/pure/unionpay 各报一条红色 error。
+- **改动**：`load_library` 改为仅当整个 `<kernel-params-dir>` 内**一个配置都没有**
+  （既无 `<scheme>.json` 也无 `<scheme>/<ref>.json`）时报 **一条** error；
+  单个卡组缺配置是正常情况，静默使用自带表。
+- **验证**：空目录/不存在目录 = 1 error；仅有 `visa.json` = 0 error；仅有 `amex/` = 0 error。
+  既有 `test_c3_missing_external_file_is_reported_not_silent`（空目录）仍成立。
+
 ## 2026-09-15（v1.2.x：Amex Expresspay 4.2.0 POS 配置）
 
 ### 新增：DRL / ExceptionFile + 命名 POS 配置库（仅 amex）

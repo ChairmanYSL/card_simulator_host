@@ -212,7 +212,7 @@ card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\
 * 默认排除资产里 `DF05=PHWWIPQI` 的那条（不是日期），导出 **AID 19 / CAPK 28 / TERM 1**；
   确需下发用 `--include-raw-expiry`（host 只报 warning）；
 * DF05 支持 `ascii8`（默认）/`bcd4`/`bcd3`/`raw`；`DF03 = SHA1(9F06‖9F22‖DF02‖DF04)` 与 DF05 编码无关；
-* 未提供目录时该 scheme **不下发**内核参数，POS 用自带表；
+* 未提供目录时该 scheme **不下发**内核参数，POS 用自带表；目录只覆盖部分卡组不算错误，只有整个目录没有任何配置时才报 error（v1.2.x）；
 * 仓库内的 `cases/<scheme>/kernel_params.json` 仅在显式开启兼容开关时才读取（默认关闭）。
 * 命名 POS 配置库（v1.2.x）：仓库外 `<kernel-params-dir>/<scheme>/<ref>.json`，分两类模块
   `CONF_*`（AID/CAPK/DRL/ExceptionFile + TerminalParameter）与 `PROFILE_*`（Profile tags）；

@@ -3,8 +3,8 @@ import type {
   HistorySummary,
   LibraryIssue,
   RunDetail,
-  SchemeNode,
-  SchemeTemplate,
+  BrandNode,
+  BrandTemplate,
   Snapshot,
 } from "./types";
 
@@ -40,14 +40,14 @@ function post<T>(path: string, body?: unknown): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string; busy: boolean; devices: unknown; session: unknown }>("/api/health"),
-  tree: () => request<{ schemes: SchemeNode[]; issues: LibraryIssue[] }>("/api/tree"),
-  listCases: (scheme: string, mode: string) =>
+  tree: () => request<{ brands: BrandNode[]; issues: LibraryIssue[] }>("/api/tree"),
+  listCases: (brand: string, mode: string) =>
     request<{ cases: { case_id: string; title: string; summary: string; entry_mode: string }[] }>(
-      `/api/cases/${scheme}/${mode}`),
-  caseDetail: (scheme: string, mode: string, caseId: string) =>
-    request<CaseDetail>(`/api/cases/${scheme}/${mode}/${caseId}`),
-  schemeTemplate: (scheme: string) =>
-    request<SchemeTemplate>(`/api/scheme/${scheme}/template`),
+      `/api/cases/${brand}/${mode}`),
+  caseDetail: (brand: string, mode: string, caseId: string) =>
+    request<CaseDetail>(`/api/cases/${brand}/${mode}/${caseId}`),
+  brandTemplate: (brand: string) =>
+    request<BrandTemplate>(`/api/brand/${brand}/template`),
   validateCase: (payload: unknown) =>
     post<{ ok: boolean; errors: string[] }>("/api/cases/validate", payload),
   addCase: (payload: unknown) =>
@@ -58,7 +58,7 @@ export const api = {
     post<{ ok: boolean; group_id: string; path: string }>("/api/groups", payload),
   snapshot: () => request<Snapshot>("/api/run"),
   startRun: (payload: {
-    scheme: string; mode: string; kind: string; case_ids?: string[];
+    brand: string; mode: string; kind: string; case_ids?: string[];
     group_id?: string | null;
     resume_from_run?: string | null; on_failure?: string | null; retry_count?: number | null;
   }) => post<{ ok: boolean; run_id: string }>("/api/run", payload),

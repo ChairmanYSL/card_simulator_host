@@ -2,7 +2,7 @@
   "case_id": "VISA-CL-001",
   "title": "Visa contactless offline approved (TC)",
   "summary": "contactless transaction with ac_behavior=offline_approved",
-  "scheme": "visa",
+  "brand": "visa",
   "entry_mode": "contactless",
   "profile": {
     "id": "VISA-CL-001",

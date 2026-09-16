@@ -1,6 +1,6 @@
 """Web API tests for the add-case feature (validation, persistence, hot reload).
 
-v2: profiles are embedded in each case JSON (bound to the case); scheme.json
+v2: profiles are embedded in each case JSON (bound to the case); brand.json
 provides card_template + pos_params for the add-case page.
 """
 
@@ -14,8 +14,8 @@ from emv_host.cases import load_library
 from emv_host.store.run_store import RunStore
 from emv_host.web import AppContext, EventBus, create_app
 
-SCHEME = {
-    "scheme": "visa",
+BRAND = {
+    "brand": "visa",
     "display_name": "Visa",
     "entry_modes": ["contactless"],
     "suite_policy": {"on_failure": "stop", "retry_count": 0},
@@ -54,7 +54,7 @@ EMBEDDED_PROFILE = {
 EXISTING_CASE = {
     "case_id": "VIS-CL-001",
     "title": "existing",
-    "scheme": "visa",
+    "brand": "visa",
     "entry_mode": "contactless",
     "profile": dict(EMBEDDED_PROFILE),
     "transaction": {
@@ -72,7 +72,7 @@ NEW_CASE = {
     "case_id": "VIS-CL-900",
     "title": "web created case",
     "summary": "created through the add-case page",
-    "scheme": "visa",
+    "brand": "visa",
     "entry_mode": "contactless",
     "profile": dict(EMBEDDED_PROFILE),
     "transaction": {
@@ -107,7 +107,7 @@ def _write(path, obj):
 @pytest.fixture
 def client(tmp_path):
     root = tmp_path / "cases"
-    _write(root / "visa" / "scheme.json", SCHEME)
+    _write(root / "visa" / "brand.json", BRAND)
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", EXISTING_CASE)
     library = load_library(root)
     store = RunStore(tmp_path / "runs")
@@ -117,18 +117,18 @@ def client(tmp_path):
     return TestClient(create_app(context)), root
 
 
-def test_scheme_template(client):
+def test_brand_template(client):
     api, _ = client
-    response = api.get("/api/scheme/visa/template")
+    response = api.get("/api/brand/visa/template")
     assert response.status_code == 200
     body = response.json()
     assert body["card_template"]["id"] == "visa_card_template"
     assert [p["tag"] for p in body["pos_params"]] == ["9F02", "5F2A"]
 
 
-def test_scheme_template_unknown_scheme(client):
+def test_brand_template_unknown_brand(client):
     api, _ = client
-    assert api.get("/api/scheme/amex/template").status_code == 404
+    assert api.get("/api/brand/amex/template").status_code == 404
 
 
 def test_validate_ok(client):
@@ -148,8 +148,8 @@ def test_create_case_and_hot_reload(client):
     assert saved.is_file()
 
     # hot reload: the new case is immediately visible in the tree and API
-    tree = api.get("/api/tree").json()["schemes"]
-    visa = next(s for s in tree if s["scheme"] == "visa")
+    tree = api.get("/api/tree").json()["brands"]
+    visa = next(s for s in tree if s["brand"] == "visa")
     assert visa["case_count"] == 2
     assert any(c["case_id"] == "VIS-CL-900" for c in visa["entry_modes"][0]["cases"])
     detail = api.get("/api/cases/visa/contactless/VIS-CL-900")
@@ -169,9 +169,9 @@ def test_duplicate_case_rejected(client):
     assert any("已存在" in m for m in response.json()["detail"])
 
 
-def test_unknown_scheme_rejected(client):
+def test_unknown_brand_rejected(client):
     api, _ = client
-    payload = dict(NEW_CASE, scheme="amex")
+    payload = dict(NEW_CASE, brand="amex")
     response = api.post("/api/cases", json=payload)
     assert response.status_code == 400
     assert any("卡组" in m for m in response.json()["detail"])
@@ -245,7 +245,7 @@ def test_non_object_payload_rejected(client):
 
 def test_validate_reports_errors(client):
     api, _ = client
-    payload = dict(NEW_CASE, scheme="nope", entry_mode="contact",
+    payload = dict(NEW_CASE, brand="nope", entry_mode="contact",
                    expected_results=[])
     response = api.post("/api/cases/validate", json=payload)
     assert response.json()["ok"] is False
@@ -256,16 +256,16 @@ def test_tree_exposes_groups_and_run_rejects_group_id(tmp_path):
     """总案例 group shows up in the tree; running a group id is rejected with
     a hint (groups are not executable, only their 子案例 are)."""
     root = tmp_path / "gcases"
-    _write(root / "visa" / "scheme.json", SCHEME)
+    _write(root / "visa" / "brand.json", BRAND)
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", EXISTING_CASE)
     group_dir = root / "visa" / "contactless" / "cases" / "OPBD-001"
     _write(group_dir / "group.json", {
         "group_id": "OPBD-001", "title": "PPSE group",
-        "purpose": "p", "scheme": "visa", "entry_mode": "contactless",
+        "purpose": "p", "brand": "visa", "entry_mode": "contactless",
         "test_plan": [{"step": 1, "action": "a", "expect": "b"}],
         "pass_criteria": ["c1"]})
     _write(group_dir / "OPBD-001-01.json", {
-        "case_id": "OPBD-001-01", "title": "sub", "scheme": "visa",
+        "case_id": "OPBD-001-01", "title": "sub", "brand": "visa",
         "entry_mode": "contactless",
         "profile": dict(EMBEDDED_PROFILE, ppseMode="custom"),
         "test_plan": [{"step": 1, "action": "a", "expect": "b"}],
@@ -277,14 +277,14 @@ def test_tree_exposes_groups_and_run_rejects_group_id(tmp_path):
                          bus=EventBus(), static_dir="")
     api = TestClient(create_app(context))
 
-    tree = api.get("/api/tree").json()["schemes"]
-    mode = next(s for s in tree if s["scheme"] == "visa")["entry_modes"][0]
+    tree = api.get("/api/tree").json()["brands"]
+    mode = next(s for s in tree if s["brand"] == "visa")["entry_modes"][0]
     assert mode["groups"][0]["group_id"] == "OPBD-001"
     assert {c["case_id"] for c in mode["standalone"]} == {"VIS-CL-001"}
 
     # a group id is not a runnable target
     response = api.post("/api/run", json={
-        "scheme": "visa", "mode": "contactless", "kind": "selected",
+        "brand": "visa", "mode": "contactless", "kind": "selected",
         "case_ids": ["OPBD-001"]})
     assert response.status_code == 400
     assert "子案例" in response.json()["detail"]
@@ -299,7 +299,7 @@ NEW_GROUP = {
     "title": "PPSE group created by UI",
     "purpose": "test purpose",
     "test_conditions": "some conditions",
-    "scheme": "visa",
+    "brand": "visa",
     "entry_mode": "contactless",
     "test_plan": [{"step": 1, "action": "tap", "expect": "ok"}],
     "pass_criteria": ["criterion 1"],
@@ -331,8 +331,8 @@ def test_create_group_and_hot_reload(client):
     path = root / "visa" / "contactless" / "cases" / "OPBD-900" / "group.json"
     assert path.is_file()
 
-    tree = api.get("/api/tree").json()["schemes"]
-    mode = next(s for s in tree if s["scheme"] == "visa")["entry_modes"][0]
+    tree = api.get("/api/tree").json()["brands"]
+    mode = next(s for s in tree if s["brand"] == "visa")["entry_modes"][0]
     assert any(g["group_id"] == "OPBD-900" for g in mode["groups"])
 
 
@@ -356,10 +356,10 @@ def test_create_sub_case_into_group_dir(tmp_path):
     """A case created with group_id lands inside the group directory and is
     bound by the loader (tree children + group_id on the case)."""
     root = tmp_path / "gcases"
-    _write(root / "visa" / "scheme.json", SCHEME)
+    _write(root / "visa" / "brand.json", BRAND)
     group_dir = root / "visa" / "contactless" / "cases" / "OPBD-900"
     _write(group_dir / "group.json", {
-        "group_id": "OPBD-900", "title": "g", "scheme": "visa",
+        "group_id": "OPBD-900", "title": "g", "brand": "visa",
         "entry_mode": "contactless",
         "test_plan": [{"step": 1, "action": "a", "expect": "b"}]})
     library = load_library(root)
@@ -378,8 +378,8 @@ def test_create_sub_case_into_group_dir(tmp_path):
     # the persisted file must NOT carry group_id (binding from the directory)
     assert "group_id" not in json.loads(saved.read_text(encoding="utf-8"))
 
-    tree = api.get("/api/tree").json()["schemes"]
-    mode = next(s for s in tree if s["scheme"] == "visa")["entry_modes"][0]
+    tree = api.get("/api/tree").json()["brands"]
+    mode = next(s for s in tree if s["brand"] == "visa")["entry_modes"][0]
     group = next(g for g in mode["groups"] if g["group_id"] == "OPBD-900")
     assert "OPBD-900-01" in {c["case_id"] for c in group["children"]}
     assert {c["case_id"] for c in mode["standalone"]} == set()
@@ -495,7 +495,7 @@ def test_websocket_since_garbage_is_tolerated(tmp_path):
             return {"devices": {}, "session": None}
 
     root = tmp_path / "wscases"
-    _write(root / "visa" / "scheme.json", SCHEME)
+    _write(root / "visa" / "brand.json", BRAND)
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json",
            EXISTING_CASE)
     library = load_library(root)
@@ -516,11 +516,11 @@ def test_run_request_accepts_group_kind(client):
     api, _ = client
     # unknown group -> 404 (proof the branch is reached, not the generic 400)
     response = api.post("/api/run", json={
-        "scheme": "visa", "mode": "contactless", "kind": "group",
+        "brand": "visa", "mode": "contactless", "kind": "group",
         "group_id": "NOPE-001"})
     assert response.status_code == 404
     # missing group_id -> 400
     response = api.post("/api/run", json={
-        "scheme": "visa", "mode": "contactless", "kind": "group"})
+        "brand": "visa", "mode": "contactless", "kind": "group"})
     assert response.status_code == 400
     assert "group_id" in response.json()["detail"]

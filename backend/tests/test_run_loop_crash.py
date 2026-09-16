@@ -10,7 +10,7 @@ from emv_host.store.run_store import RunStore
 
 
 class _ExplodingLibrary:
-    def get_case(self, scheme, mode, case_id):  # noqa: ARG002
+    def get_case(self, brand, mode, case_id):  # noqa: ARG002
         raise RuntimeError("boom in library")
 
 

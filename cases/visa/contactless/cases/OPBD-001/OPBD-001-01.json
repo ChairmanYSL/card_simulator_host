@@ -2,7 +2,7 @@
   "case_id": "OPBD-001-01",
   "title": "卡片返回格式正确的FCI信息",
   "summary": "PPSE 子案例：PPSE 正常 FCI(auto)（档案随案例内嵌）",
-  "scheme": "visa",
+  "brand": "visa",
   "entry_mode": "contactless",
   "profile": {
     "id": "OPBD-001-01",

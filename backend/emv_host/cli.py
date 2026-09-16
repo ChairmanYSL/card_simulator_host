@@ -60,8 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--pos-ack-timeout", type=float, default=15.0,
                        help="seconds to wait for a POS-side ack (default 15)")
     serve.add_argument("--kernel-params-dir", default=None,
-                       help="out-of-repo directory holding per-scheme POS kernel "
-                            "parameter sets (<scheme>.json); it carries CAPK "
+                       help="out-of-repo directory holding per-brand POS kernel "
+                            "parameter sets (<brand>.json); it carries CAPK "
                             "moduli, so it must never live inside the repository")
 
     for name, help_text in (
@@ -75,14 +75,14 @@ def build_parser() -> argparse.ArgumentParser:
         cmd = sub.add_parser(name, help=help_text)
         cmd.add_argument("--port", type=int, default=8000, help="server web port")
         if name == "run":
-            cmd.add_argument("--scheme", required=True)
+            cmd.add_argument("--brand", required=True)
             cmd.add_argument("--mode", required=True)
             cmd.add_argument("--all", action="store_true",
-                             help="run the whole scheme/mode")
+                             help="run the whole brand/mode")
             cmd.add_argument("--case", action="append", default=[],
                              help="case id (repeatable; kind=selected)")
             cmd.add_argument("--resume", action="store_true",
-                             help="resume from the latest run of this scheme/mode")
+                             help="resume from the latest run of this brand/mode")
     return parser
 
 
@@ -111,10 +111,10 @@ def client_command(args: argparse.Namespace) -> None:
         print(json.dumps(_api(args.port, "/api/health"), indent=2))
     elif args.command == "list":
         tree = _api(args.port, "/api/tree")
-        for scheme in tree["schemes"]:
-            print(f"{scheme['scheme']:<14} {scheme['display_name']} "
-                  f"({scheme['case_count']} cases)")
-            for mode in scheme["entry_modes"]:
+        for brand in tree["brands"]:
+            print(f"{brand['brand']:<14} {brand['display_name']} "
+                  f"({brand['case_count']} cases)")
+            for mode in brand["entry_modes"]:
                 print(f"  {mode['mode']:<12} {mode['case_count']} cases")
                 for case in mode["cases"]:
                     print(f"    {case['case_id']:<24} {case['title']}")
@@ -125,7 +125,7 @@ def client_command(args: argparse.Namespace) -> None:
             ("full" if args.all else ("single" if len(args.case) == 1
                                       else "selected"))
         result = _api(args.port, "/api/run", "POST", {
-            "scheme": args.scheme, "mode": args.mode, "kind": kind,
+            "brand": args.brand, "mode": args.mode, "kind": kind,
             "case_ids": args.case})
         print(f"run started: {result['run_id']}")
     elif args.command in ("stop", "abort", "skip"):

@@ -46,7 +46,7 @@ async def _sink(event, data):  # noqa: ARG001
 
 def make_case(case_id: str = CASE_ID, *, pos_params: bool = False) -> TestCase:
     return TestCase(
-        case_id=case_id, title=case_id, scheme="visa",
+        case_id=case_id, title=case_id, brand="visa",
         profile=CardProfile(id=case_id),
         transaction=TransactionParams(
             operator_instructions=OperatorInstructions(),
@@ -58,14 +58,14 @@ class StubLibrary:
     def __init__(self, cases, kernel=None):
         self.cases = cases
         self._kernel = kernel
-        self.schemes = {"visa": type("S", (), {
+        self.brands = {"visa": type("S", (), {
             "suite_policy": SuitePolicy(retry_count=0),
             "kernel_params": kernel})()}
 
-    def get_case(self, scheme, mode, case_id):  # noqa: ARG002
+    def get_case(self, brand, mode, case_id):  # noqa: ARG002
         return self.cases.get(case_id)
 
-    def kernel_params_for(self, scheme):  # noqa: ARG002
+    def kernel_params_for(self, brand):  # noqa: ARG002
         return self._kernel
 
 
@@ -228,7 +228,7 @@ async def test_f2_assertion_failure_abort_reason_carries_case_id(tmp_path, monke
     """The assertion FAIL path never calls _fail() from _judge, yet must name
     the case — and must NOT be relabelled result_timeout."""
     case = TestCase(
-        case_id=CASE_ID, title=CASE_ID, scheme="visa",
+        case_id=CASE_ID, title=CASE_ID, brand="visa",
         profile=CardProfile(id=CASE_ID),
         transaction=TransactionParams(operator_instructions=OperatorInstructions()),
         # DECLINED answers resp_code "05", so this rule fails -> assertion FAIL
@@ -253,7 +253,7 @@ async def test_f2_assertion_failure_abort_reason_carries_case_id(tmp_path, monke
 async def test_f2_passing_case_is_not_aborted(tmp_path, monkeypatch):
     """Control: the same wiring with an approved payload ends FINISHED."""
     case = TestCase(
-        case_id=CASE_ID, title=CASE_ID, scheme="visa",
+        case_id=CASE_ID, title=CASE_ID, brand="visa",
         profile=CardProfile(id=CASE_ID),
         transaction=TransactionParams(operator_instructions=OperatorInstructions()),
         timeout_seconds=10)
@@ -460,8 +460,8 @@ def test_c3_external_dir_takes_precedence(tmp_path):
 
     cases_root = tmp_path / "cases"
     (cases_root / "visa").mkdir(parents=True)
-    (cases_root / "visa" / "scheme.json").write_text(json.dumps({
-        "scheme": "visa", "display_name": "Visa",
+    (cases_root / "visa" / "brand.json").write_text(json.dumps({
+        "brand": "visa", "display_name": "Visa",
         "entry_modes": ["contactless"]}), encoding="utf-8")
 
     external = tmp_path / "secure"
@@ -482,8 +482,8 @@ def test_c3_missing_external_file_is_reported_not_silent(tmp_path):
 
     cases_root = tmp_path / "cases"
     (cases_root / "visa").mkdir(parents=True)
-    (cases_root / "visa" / "scheme.json").write_text(json.dumps({
-        "scheme": "visa", "display_name": "Visa",
+    (cases_root / "visa" / "brand.json").write_text(json.dumps({
+        "brand": "visa", "display_name": "Visa",
         "entry_modes": ["contactless"]}), encoding="utf-8")
     external = tmp_path / "secure"
     external.mkdir()  # configured but empty
@@ -500,8 +500,8 @@ def test_c3_without_external_dir_in_repo_file_is_no_longer_read(tmp_path):
 
     cases_root = tmp_path / "cases"
     (cases_root / "visa").mkdir(parents=True)
-    (cases_root / "visa" / "scheme.json").write_text(json.dumps({
-        "scheme": "visa", "display_name": "Visa",
+    (cases_root / "visa" / "brand.json").write_text(json.dumps({
+        "brand": "visa", "display_name": "Visa",
         "entry_modes": ["contactless"]}), encoding="utf-8")
     (cases_root / "visa" / "kernel_params.json").write_text(
         json.dumps(_kernel_json()), encoding="utf-8")

@@ -2,7 +2,7 @@
   "case_id": "MC-CL-001",
   "title": "Mastercard contactless offline approved (TC)",
   "summary": "contactless transaction with ac_behavior=offline_approved",
-  "scheme": "mastercard",
+  "brand": "mastercard",
   "entry_mode": "contactless",
   "profile": {
     "id": "MC-CL-001",

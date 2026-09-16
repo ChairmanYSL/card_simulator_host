@@ -51,8 +51,8 @@ class AppConfig:
     log_level: str = "info"
     log_dir: str | None = None
     trace_enabled: bool = False
-    #: C3: out-of-repo directory holding one ``<scheme>.json`` POS kernel
-    #: parameter set per scheme.  It lives outside the repository because those
+    #: C3: out-of-repo directory holding one ``<brand>.json`` POS kernel
+    #: parameter set per brand.  It lives outside the repository because those
     #: files carry CAPK moduli (key material).  None = load none.
     kernel_params_dir: str | None = None
     heartbeat_interval: float = 10.0

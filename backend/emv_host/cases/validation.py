@@ -13,7 +13,7 @@ Host-consumed subset checks:
 * ``acBehavior``: invalid values are tolerated (follow terminal P1) but
   flagged as a warning;
 * embedded keys bundle (in a case JSON): key values must be valid base64;
-* pos_params (scheme template & per-case): tag format is enforced by the
+* pos_params (brand template & per-case): tag format is enforced by the
   PosParam model itself; duplicate tags are flagged here as a warning.
 """
 
@@ -301,10 +301,10 @@ def validate_keys(keys: KeysBundle, owner: str) -> Report:
 
 
 def validate_pos_params(params: list[PosParam], owner: str) -> Report:
-    """Per-case / per-scheme POS transaction parameter checks.
+    """Per-case / per-brand POS transaction parameter checks.
 
     Tag *format* and length limits are enforced by the PosParam model (raises
-    at parse time, which surfaces as an invalid case/scheme file in the
+    at parse time, which surfaces as an invalid case/brand file in the
     loader).  Here we only flag cross-item issues: duplicate tags (warning —
     the POS app decides whether duplicates are meaningful, e.g. a repeated tag
     per card instance).

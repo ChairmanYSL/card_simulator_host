@@ -2,7 +2,7 @@
   "case_id": "UPI-CL-001",
   "title": "UnionPay contactless offline approved (TC)",
   "summary": "contactless transaction with ac_behavior=offline_approved",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "UPI-CL-001",

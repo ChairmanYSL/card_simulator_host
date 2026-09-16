@@ -26,7 +26,7 @@
 | L1-1 | `python -m py_compile <12 模块>`（backend） | `EVID\L1-1_py_compile.log` | PASS（exit 0、无输出） |
 | L1-2 | 3×`python -c`（backend）：导入 / 常量 / AppConfig | `EVID\L1-2_imports.log` | PASS（`1.2 session_abort pos_kernel_config`；`15.0 15.0 3.0 3.0`） |
 | L1-3 | `python -m emv_host --help`、`--version`、`run --help`、`status`（仓库根） | `EVID\L1-3_help.txt`、`L1-3_version.txt`、`L1-3_run_help.txt`、`L1-3_status_no_host.txt` | PASS |
-| L1-4 | `python SCR\l1_4_load_library.py`、`python SCR\l1_4_all_schemes.py`（`PYTHONPATH=backend`） | `EVID\L1-4_load_library.log`、`L1-4_all_schemes.log` | PASS（7 scheme / 0 error / 0 warning） |
+| L1-4 | `python SCR\l1_4_load_library.py`、`python SCR\l1_4_all_brands.py`（`PYTHONPATH=backend`） | `EVID\L1-4_load_library.log`、`L1-4_all_brands.log` | PASS（7 brand / 0 error / 0 warning） |
 
 ---
 
@@ -130,7 +130,7 @@
 | `l2_u1_u7.py` | §3.4 边界断言 U-1…U-7 |
 | `td0_validate_kp.py` | §6.3 用被测代码校验生成的 kernel_params |
 | `build_kernel_params.py` | §6.2 生成 kernel_params（自带独立 TLV 解析） |
-| `l1_4_load_library.py` / `l1_4_all_schemes.py` | §L1-4 案例库冷加载 |
+| `l1_4_load_library.py` / `l1_4_all_brands.py` | §L1-4 案例库冷加载 |
 | `check_redlines.ps1` | §3.2 22 条红线逐条核对 |
 | `smoke.py` | harness 自检 + 陈旧锁清理取证 |
 

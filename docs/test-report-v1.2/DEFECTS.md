@@ -53,7 +53,7 @@ cd E:\Work\ZT\card_simulator_host
 python -m emv_host serve --trace-enabled                     # 终端 A
 python tools\mock_clients\mock_android.py --tap-delay 0.5    # 终端 B
 python tools\mock_clients\mock_pos.py --delay 1              # 终端 C
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
 # 观察：终端 C 在 case_started 约 1s 后打印 ack timeout (15.0s) + WARNING
 # 对照：runs\<日期>\<run_id>\results\VISA-CL-001.json 已是 PASS
 ```

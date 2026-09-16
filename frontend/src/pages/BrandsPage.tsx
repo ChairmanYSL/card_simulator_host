@@ -1,31 +1,31 @@
-import type { LibraryIssue, SchemeNode } from "../types";
+import type { LibraryIssue, BrandNode } from "../types";
 
-export function SchemesPage({
-  schemes,
+export function BrandsPage({
+  brands,
   issues,
   onEnter,
 }: {
-  schemes: SchemeNode[];
+  brands: BrandNode[];
   issues: LibraryIssue[];
-  onEnter: (scheme: string, mode: string) => void;
+  onEnter: (brand: string, mode: string) => void;
 }) {
   return (
     <div>
       <h3 className="section-title">
         <b>01</b> / test library · 卡组入口
       </h3>
-      {schemes.length === 0 && (
+      {brands.length === 0 && (
         <div className="panel muted">library empty — check the --cases directory</div>
       )}
       <div className="card-grid">
-        {schemes.map((scheme) => (
-          <div key={scheme.scheme} className="scheme-card"
-            onClick={() => onEnter(scheme.scheme, scheme.entry_modes[0]?.mode ?? "contactless")}>
-            <div className="name">{scheme.display_name.toUpperCase()}</div>
-            <div className="desc">{scheme.description || "no description"}</div>
+        {brands.map((brand) => (
+          <div key={brand.brand} className="brand-card"
+            onClick={() => onEnter(brand.brand, brand.entry_modes[0]?.mode ?? "contactless")}>
+            <div className="name">{brand.display_name.toUpperCase()}</div>
+            <div className="desc">{brand.description || "no description"}</div>
             <div className="modes">
-              <span className="chip">TOTAL {scheme.case_count}</span>
-              {scheme.entry_modes.map((m) => (
+              <span className="chip">TOTAL {brand.case_count}</span>
+              {brand.entry_modes.map((m) => (
                 <span className="chip" key={m.mode}>
                   {m.mode.toUpperCase()} {m.case_count}
                 </span>

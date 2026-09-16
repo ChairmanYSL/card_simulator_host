@@ -327,7 +327,7 @@ def L4_5_loader_tolerance() -> Harness:
     group_dir.mkdir(parents=True, exist_ok=True)
     (group_dir / "group.json").write_text(json.dumps({
         "group_id": "OPBD-900", "title": "dup probe", "summary": "dup probe",
-        "scheme": "visa", "entry_mode": "contactless",
+        "brand": "visa", "entry_mode": "contactless",
         "test_plan": [{"step": 1, "action": "a", "expect": "b"}],
         "pass_criteria": ["x"],
     }, ensure_ascii=False, indent=2), encoding="utf-8")

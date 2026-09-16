@@ -4,7 +4,7 @@
   "summary": "PPSE 目录选择方式：SELECT PPSE 响应正确性分组（UnionPay）",
   "purpose": "确保读写器使用目录选择方式来选择PPSE",
   "test_conditions": "卡片对 SELECT PPSE 命令的响应为 FCI 和 '9000'",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "test_plan": [
     {

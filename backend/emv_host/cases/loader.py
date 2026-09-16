@@ -3,15 +3,15 @@
 Layout (root = ``--cases`` dir)::
 
     cases/
-      <scheme>/
-        scheme.json                      scheme metadata + card_template + pos_params
+      <brand>/
+        brand.json                      brand metadata + card_template + pos_params
         contactless/cases/<case_id>.json              standalone self-contained case
         contactless/cases/<group_id>/group.json       总案例 (description only, no profile)
         contactless/cases/<group_id>/<group_id>-NN.json  子案例 (self-contained case)
 
 Every executable case is self-contained: ``profile`` (and optional ``keys``)
 are embedded in the case JSON and bound to the case (v2 binding); there is no
-scheme-level shared profile library any more.  A 总案例 group carries no
+brand-level shared profile library any more.  A 总案例 group carries no
 profile — only its 子案例 do.
 """
 
@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from .models import (
     GroupDef,
     KernelParams,
-    SchemeDef,
+    BrandDef,
     TestCase,
 )
 from .validation import (
@@ -40,19 +40,19 @@ from .validation import (
 
 logger = logging.getLogger("emv_host.cases")
 
-#: Commit-safe name for the optional per-scheme kernel parameter file that may
-#: sit next to ``scheme.json``.  Kept only for backward compatibility: since C3
+#: Commit-safe name for the optional per-brand kernel parameter file that may
+#: sit next to ``brand.json``.  Kept only for backward compatibility: since C3
 #: the file holds CAPK moduli (key material), so production deployments must
 #: keep it OUTSIDE the repository and load it via ``kernel_params_dir``.
 KERNEL_PARAMS_FILE = "kernel_params.json"
 
 #: File name used inside the external (out-of-repo) kernel params directory:
-#: ``<kernel_params_dir>/<scheme>.json``.
+#: ``<kernel_params_dir>/<brand>.json``.
 EXTERNAL_KERNEL_PARAMS_SUFFIX = ".json"
 
 
 class CaseLibraryError(Exception):
-    """Fatal library problem (bad root dir, no schemes...)."""
+    """Fatal library problem (bad root dir, no brands...)."""
 
 
 @dataclass
@@ -65,70 +65,70 @@ class LoadIssue:
 @dataclass
 class CaseLibrary:
     root: Path
-    schemes: dict[str, SchemeDef] = field(default_factory=dict)
+    brands: dict[str, BrandDef] = field(default_factory=dict)
     cases: dict[tuple[str, str], dict[str, TestCase]] = field(default_factory=dict)
-    # (scheme, mode) -> {group_id: GroupDef}; sub-cases carry group_id
+    # (brand, mode) -> {group_id: GroupDef}; sub-cases carry group_id
     groups: dict[tuple[str, str], dict[str, GroupDef]] = field(default_factory=dict)
     issues: list[LoadIssue] = field(default_factory=list)
-    #: External, out-of-repo directory holding ``<scheme>.json`` kernel parameter
+    #: External, out-of-repo directory holding ``<brand>.json`` kernel parameter
     #: sets (C3).  Takes precedence over the in-repo legacy file.
     kernel_params_dir: Path | None = None
-    #: When True, also accept the legacy in-repo ``<scheme>/kernel_params.json``
+    #: When True, also accept the legacy in-repo ``<brand>/kernel_params.json``
     #: (compatibility only; it carries CAPK moduli so it is off by default).
     use_legacy_kernel_params: bool = False
-    #: v1.2.x: named POS configs from <kernel_params_dir>/<scheme>/<ref>.json
+    #: v1.2.x: named POS configs from <kernel_params_dir>/<brand>/<ref>.json
     named_kernel_params: dict[tuple[str, str], KernelParams] = field(
         default_factory=dict)
 
     # -- kernel params -------------------------------------------------------
-    def kernel_params_for(self, scheme: str) -> KernelParams | None:
-        """The POS kernel parameter set that applies to ``scheme``.
+    def kernel_params_for(self, brand: str) -> KernelParams | None:
+        """The POS kernel parameter set that applies to ``brand``.
 
-        Scheme-level only; per-case overrides are applied by the runner.  One
+        Brand-level only; per-case overrides are applied by the runner.  One
         lookup point so the loader, the API and the executor cannot disagree.
         """
-        scheme_def = self.schemes.get(scheme)
-        return scheme_def.kernel_params if scheme_def is not None else None
+        brand_def = self.brands.get(brand)
+        return brand_def.kernel_params if brand_def is not None else None
 
-    def named_kernel_params_for(self, scheme: str,
+    def named_kernel_params_for(self, brand: str,
                                 ref: str) -> KernelParams | None:
-        """One named POS config from <kernel-params-dir>/<scheme>/<ref>.json."""
-        return self.named_kernel_params.get((scheme, ref))
+        """One named POS config from <kernel-params-dir>/<brand>/<ref>.json."""
+        return self.named_kernel_params.get((brand, ref))
 
     # -- lookups ------------------------------------------------------------
-    def scheme_cases(self, scheme: str, mode: str) -> dict[str, TestCase]:
-        return self.cases.get((scheme, mode), {})
+    def brand_cases(self, brand: str, mode: str) -> dict[str, TestCase]:
+        return self.cases.get((brand, mode), {})
 
-    def get_case(self, scheme: str, mode: str, case_id: str) -> TestCase | None:
-        return self.scheme_cases(scheme, mode).get(case_id)
+    def get_case(self, brand: str, mode: str, case_id: str) -> TestCase | None:
+        return self.brand_cases(brand, mode).get(case_id)
 
-    def scheme_groups(self, scheme: str, mode: str) -> dict[str, GroupDef]:
-        return self.groups.get((scheme, mode), {})
+    def brand_groups(self, brand: str, mode: str) -> dict[str, GroupDef]:
+        return self.groups.get((brand, mode), {})
 
-    def get_group(self, scheme: str, mode: str, group_id: str) -> GroupDef | None:
-        return self.scheme_groups(scheme, mode).get(group_id)
+    def get_group(self, brand: str, mode: str, group_id: str) -> GroupDef | None:
+        return self.brand_groups(brand, mode).get(group_id)
 
-    def group_child_ids(self, scheme: str, mode: str, group_id: str) -> list[str]:
-        return sorted(cid for cid, tc in self.scheme_cases(scheme, mode).items()
+    def group_child_ids(self, brand: str, mode: str, group_id: str) -> list[str]:
+        return sorted(cid for cid, tc in self.brand_cases(brand, mode).items()
                       if tc.group_id == group_id)
 
-    def entry_modes_for(self, scheme: str) -> list[str]:
-        scheme_def = self.schemes.get(scheme)
-        if scheme_def is None:
+    def entry_modes_for(self, brand: str) -> list[str]:
+        brand_def = self.brands.get(brand)
+        if brand_def is None:
             return []
-        return [m.value for m in scheme_def.entry_modes]
+        return [m.value for m in brand_def.entry_modes]
 
-    def all_case_ids(self, scheme: str, mode: str) -> list[str]:
-        return sorted(self.scheme_cases(scheme, mode).keys())
+    def all_case_ids(self, brand: str, mode: str) -> list[str]:
+        return sorted(self.brand_cases(brand, mode).keys())
 
     # -- tree for the web UI ------------------------------------------------
     def tree(self) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
-        for scheme in sorted(self.schemes):
-            scheme_def = self.schemes[scheme]
+        for brand in sorted(self.brands):
+            brand_def = self.brands[brand]
             modes = []
-            for mode in scheme_def.entry_modes:
-                mode_cases = self.scheme_cases(scheme, mode.value)
+            for mode in brand_def.entry_modes:
+                mode_cases = self.brand_cases(brand, mode.value)
                 group_ids = {
                     cid for cid, tc in mode_cases.items() if tc.group_id}
                 modes.append({
@@ -144,24 +144,24 @@ class CaseLibrary:
                         if cid not in group_ids
                     ],
                     "groups": [  # 总案例 groups with their 子案例 children
-                        self._group_node(scheme, mode.value, g)
+                        self._group_node(brand, mode.value, g)
                         for g in sorted(
-                            self.scheme_groups(scheme, mode.value).values(),
+                            self.brand_groups(brand, mode.value).values(),
                             key=lambda x: x.group_id)
                     ],
                 })
             out.append({
-                "scheme": scheme,
-                "display_name": scheme_def.display_name,
-                "description": scheme_def.description,
+                "brand": brand,
+                "display_name": brand_def.display_name,
+                "description": brand_def.description,
                 "case_count": sum(m["case_count"] for m in modes),
                 "entry_modes": modes,
             })
         return out
 
-    def _group_node(self, scheme: str, mode: str, group: GroupDef) -> dict[str, Any]:
+    def _group_node(self, brand: str, mode: str, group: GroupDef) -> dict[str, Any]:
         children = sorted(
-            (tc for tc in self.scheme_cases(scheme, mode).values()
+            (tc for tc in self.brand_cases(brand, mode).values()
              if tc.group_id == group.group_id),
             key=lambda tc: tc.case_id)
         return {
@@ -177,8 +177,8 @@ class CaseLibrary:
                          for tc in children],
         }
 
-    def public_case(self, scheme: str, mode: str, case_id: str) -> dict[str, Any] | None:
-        tc = self.get_case(scheme, mode, case_id)
+    def public_case(self, brand: str, mode: str, case_id: str) -> dict[str, Any] | None:
+        tc = self.get_case(brand, mode, case_id)
         if tc is None:
             return None
         profile = tc.profile
@@ -186,7 +186,7 @@ class CaseLibrary:
             "case_id": tc.case_id,
             "title": tc.title,
             "summary": tc.summary,
-            "scheme": tc.scheme,
+            "brand": tc.brand,
             "entry_mode": tc.entry_mode.value,
             "profile": {
                 "id": profile.id or tc.case_id,
@@ -213,7 +213,7 @@ class CaseLibrary:
             "operator_instructions": tc.transaction.operator_instructions.model_dump(),
             "pos_params": [p.model_dump() for p in tc.transaction.pos_params],
             "expected_results": [r.model_dump() for r in tc.expected_results],
-            # v1.2: per-case kernel parameter override (None = scheme default)
+            # v1.2: per-case kernel parameter override (None = brand default)
             "kernel_params": (None if tc.kernel_params is None
                               else tc.kernel_params.model_dump(mode="json")),
             "kernel_params_ref": tc.kernel_params_ref,
@@ -227,7 +227,7 @@ class CaseLibrary:
         fresh = load_library(self.root,
                              kernel_params_dir=self.kernel_params_dir,
                              use_legacy_kernel_params=self.use_legacy_kernel_params)
-        self.schemes = fresh.schemes
+        self.brands = fresh.brands
         self.cases = fresh.cases
         self.groups = fresh.groups
         self.issues = fresh.issues
@@ -239,12 +239,12 @@ class CaseLibrary:
 def load_library(root: str | Path,
                  kernel_params_dir: str | Path | None = None,
                  use_legacy_kernel_params: bool = False) -> CaseLibrary:
-    """Scan ``root`` for schemes/cases.
+    """Scan ``root`` for brands/cases.
 
     ``kernel_params_dir`` (C3) is an out-of-repo directory holding one
-    ``<scheme>.json`` per scheme — the supported location, because those files
+    ``<brand>.json`` per brand — the supported location, because those files
     carry CAPK moduli.  ``use_legacy_kernel_params`` additionally accepts the
-    old in-repo ``<scheme>/kernel_params.json``; it defaults to False so key
+    old in-repo ``<brand>/kernel_params.json``; it defaults to False so key
     material is never picked up from inside the repository unless asked for.
     """
     root = Path(root)
@@ -257,80 +257,80 @@ def load_library(root: str | Path,
         library.issues.append(LoadIssue(
             str(external), "error",
             "kernel params dir 已配置但目录内没有任何配置"
-            "（<scheme>.json / <scheme>/<ref>.json 均不存在）"))
+            "（<brand>.json / <brand>/<ref>.json 均不存在）"))
 
-    for scheme_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        scheme_json = scheme_dir / "scheme.json"
-        if not scheme_json.is_file():
-            library.issues.append(LoadIssue(str(scheme_json), "warning",
-                                            "directory has no scheme.json, skipped"))
+    for brand_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        brand_json = brand_dir / "brand.json"
+        if not brand_json.is_file():
+            library.issues.append(LoadIssue(str(brand_json), "warning",
+                                            "directory has no brand.json, skipped"))
             continue
-        raw_scheme = _safe_read_json(scheme_json)
-        if raw_scheme is None:
-            library.issues.append(LoadIssue(str(scheme_json), "error",
-                                            "scheme.json 无法读取或不是合法 JSON 对象"))
+        raw_brand = _safe_read_json(brand_json)
+        if raw_brand is None:
+            library.issues.append(LoadIssue(str(brand_json), "error",
+                                            "brand.json 无法读取或不是合法 JSON 对象"))
             continue
         try:
-            scheme_def = SchemeDef.model_validate(raw_scheme)
+            brand_def = BrandDef.model_validate(raw_brand)
         except (ValidationError, json.JSONDecodeError) as exc:
-            library.issues.append(LoadIssue(str(scheme_json), "error",
-                                            f"invalid scheme.json: {exc}"))
+            library.issues.append(LoadIssue(str(brand_json), "error",
+                                            f"invalid brand.json: {exc}"))
             continue
-        scheme = scheme_def.scheme
-        # D1: two directories declaring the same scheme key would silently shadow
-        # each other (the second wins in library.schemes) — reject the later one.
-        if scheme in library.schemes:
+        brand = brand_def.brand
+        # D1: two directories declaring the same brand key would silently shadow
+        # each other (the second wins in library.brands) — reject the later one.
+        if brand in library.brands:
             library.issues.append(LoadIssue(
-                str(scheme_json), "error",
-                f"scheme {scheme!r} 重复定义（同一 cases 根目录下另一个目录已声明），"
+                str(brand_json), "error",
+                f"brand {brand!r} 重复定义（同一 cases 根目录下另一个目录已声明），"
                 f"该目录被忽略"))
             continue
-        library.schemes[scheme] = scheme_def
+        library.brands[brand] = brand_def
 
-        # C3: scheme-level kernel parameters.  The external directory (out of
+        # C3: brand-level kernel parameters.  The external directory (out of
         # repo) wins; the legacy in-repo file is a compatibility fallback.  The
-        # data is never in the committed scheme.json because it carries CAPK
+        # data is never in the committed brand.json because it carries CAPK
         # moduli (key material).
-        params, params_path = _load_scheme_kernel_params(
-            scheme_dir, scheme, library)
-        scheme_def.kernel_params = params
+        params, params_path = _load_brand_kernel_params(
+            brand_dir, brand, library)
+        brand_def.kernel_params = params
 
-        # scheme-level defaults are advisory (clone templates), not shared
-        # runnable profiles; validate them but never block the scheme itself.
-        if scheme_def.card_template is not None:
-            for issue in validate_profile(scheme_def.card_template).issues:
+        # brand-level defaults are advisory (clone templates), not shared
+        # runnable profiles; validate them but never block the brand itself.
+        if brand_def.card_template is not None:
+            for issue in validate_profile(brand_def.card_template).issues:
                 library.issues.append(LoadIssue(
-                    str(scheme_json), issue.severity,
-                    f"[card_template:{issue.profile_id or scheme}] {issue.message}"))
-        for issue in validate_pos_params(scheme_def.pos_params, scheme).issues:
-            library.issues.append(LoadIssue(str(scheme_json), issue.severity,
+                    str(brand_json), issue.severity,
+                    f"[card_template:{issue.profile_id or brand}] {issue.message}"))
+        for issue in validate_pos_params(brand_def.pos_params, brand).issues:
+            library.issues.append(LoadIssue(str(brand_json), issue.severity,
                                             f"[pos_params] {issue.message}"))
-        if scheme_def.kernel_params is not None:
+        if brand_def.kernel_params is not None:
             for issue in validate_kernel_params(
-                    scheme_def.kernel_params, f"{scheme}:kernel_params").issues:
+                    brand_def.kernel_params, f"{brand}:kernel_params").issues:
                 library.issues.append(LoadIssue(
                     str(params_path), issue.severity,
-                    f"[{scheme}] {issue.message}"))
+                    f"[{brand}] {issue.message}"))
 
-        # v1.2.x named POS config library (out-of-repo, per scheme dir)
-        _load_named_kernel_params(scheme, library)
+        # v1.2.x named POS config library (out-of-repo, per brand dir)
+        _load_named_kernel_params(brand, library)
 
         # cases under each entry-mode dir: flat *.json (standalone) plus
         # sub-directories holding a group (group.json + 子案例 *.json files)
-        for mode in scheme_def.entry_modes:
-            mode_dir = scheme_dir / mode.value / "cases"
+        for mode in brand_def.entry_modes:
+            mode_dir = brand_dir / mode.value / "cases"
             if not mode_dir.is_dir():
                 library.issues.append(LoadIssue(str(mode_dir), "warning",
-                                                f"no cases dir for {scheme}/{mode.value}"))
+                                                f"no cases dir for {brand}/{mode.value}"))
                 continue
             mode_cases: dict[str, TestCase] = {}
             mode_groups: dict[str, GroupDef] = {}
             group_paths: dict[str, str] = {}
             # Groups first: every case must be checked against the full set of
-            # group_ids in this (scheme, mode) regardless of directory order.
+            # group_ids in this (brand, mode) regardless of directory order.
             for item in sorted(mode_dir.iterdir()):
                 if item.is_dir():
-                    _load_group_dir(item, scheme, mode.value, mode_cases,
+                    _load_group_dir(item, brand, mode.value, mode_cases,
                                     mode_groups, group_paths, library)
             # Then cases in ONE deterministic order: standalone files first
             # (empty group key), then each group's children by group id, each
@@ -348,20 +348,20 @@ def load_library(root: str | Path,
                             ((group_id, case_file.stem), case_file, group_id))
             for _key, case_file, owner_group in sorted(candidates,
                                                        key=lambda item: item[0]):
-                _load_case_file(case_file, scheme, mode.value, mode_cases,
+                _load_case_file(case_file, brand, mode.value, mode_cases,
                                 mode_groups, group_paths, library,
                                 group_id=owner_group)
-            _check_group_case_id_collisions(scheme, mode.value, mode_cases,
+            _check_group_case_id_collisions(brand, mode.value, mode_cases,
                                             mode_groups, group_paths, library)
-            library.cases[(scheme, mode.value)] = mode_cases
-            library.groups[(scheme, mode.value)] = mode_groups
+            library.cases[(brand, mode.value)] = mode_cases
+            library.groups[(brand, mode.value)] = mode_groups
 
-    if not library.schemes:
-        raise CaseLibraryError(f"no valid schemes found under {root}")
+    if not library.brands:
+        raise CaseLibraryError(f"no valid brands found under {root}")
     return library
 
 
-def _load_case_file(case_file: Path, scheme: str, mode: str,
+def _load_case_file(case_file: Path, brand: str, mode: str,
                     mode_cases: dict[str, TestCase],
                     mode_groups: dict[str, GroupDef],
                     group_paths: dict[str, str], library: CaseLibrary,
@@ -380,7 +380,7 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
     if case_file.stem in mode_cases:
         library.issues.append(LoadIssue(
             str(case_file), "error",
-            f"case_id {case_file.stem!r} 重复（{scheme}/{mode} 中已存在同号案例："
+            f"case_id {case_file.stem!r} 重复（{brand}/{mode} 中已存在同号案例："
             f"{mode_cases[case_file.stem].title!r}），该文件被忽略"))
         return
     raw = _safe_read_json(case_file)
@@ -404,10 +404,10 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
         library.issues.append(LoadIssue(str(case_file), "warning",
                                         f"case_id {case.case_id!r} differs "
                                         f"from file name {case_file.stem!r}"))
-    if case.scheme != scheme:
+    if case.brand != brand:
         library.issues.append(LoadIssue(str(case_file), "error",
-                                        f"case scheme {case.scheme!r} != "
-                                        f"directory scheme {scheme!r}"))
+                                        f"case brand {case.brand!r} != "
+                                        f"directory brand {brand!r}"))
         return
     if case.entry_mode.value != mode:
         library.issues.append(LoadIssue(str(case_file), "error",
@@ -429,13 +429,13 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
     elif active_refs:
         resolved: dict[str, KernelParams] = {}
         for field_name, ref in active_refs:
-            params = library.named_kernel_params_for(scheme, ref)
+            params = library.named_kernel_params_for(brand, ref)
             if params is None:
                 library.issues.append(LoadIssue(
                     str(case_file), "error",
-                    f"[{case.case_id}] {field_name} {ref!r} 不存在于 {scheme} "
+                    f"[{case.case_id}] {field_name} {ref!r} 不存在于 {brand} "
                     f"的命名 POS 配置库 "
-                    f"(<kernel-params-dir>/{scheme}/{ref}.json)"))
+                    f"(<kernel-params-dir>/{brand}/{ref}.json)"))
             else:
                 resolved[field_name] = params
         if len(resolved) == len(active_refs):
@@ -463,7 +463,7 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
     for issue in validate_pos_params(case.transaction.pos_params, case.case_id).issues:
         library.issues.append(LoadIssue(str(case_file), issue.severity,
                                         f"[{case.case_id}] {issue.message}"))
-    # v1.2: a case-level set overrides the scheme default entirely (R2)
+    # v1.2: a case-level set overrides the brand default entirely (R2)
     if (case.kernel_params is not None and not case.kernel_params_ref
             and not case.terminal_profile_ref):
         for issue in validate_kernel_params(case.kernel_params, case.case_id).issues:
@@ -475,7 +475,7 @@ def _load_case_file(case_file: Path, scheme: str, mode: str,
     mode_cases[case.case_id] = case
 
 
-def _load_group_dir(group_dir: Path, scheme: str, mode: str,
+def _load_group_dir(group_dir: Path, brand: str, mode: str,
                     mode_cases: dict[str, TestCase],
                     mode_groups: dict[str, GroupDef],
                     group_paths: dict[str, str],
@@ -502,10 +502,10 @@ def _load_group_dir(group_dir: Path, scheme: str, mode: str,
         library.issues.append(LoadIssue(str(group_file), "warning",
                                         f"group_id {group.group_id!r} differs "
                                         f"from directory name {group_dir.name!r}"))
-    if group.scheme != scheme:
+    if group.brand != brand:
         library.issues.append(LoadIssue(str(group_file), "error",
-                                        f"group scheme {group.scheme!r} != "
-                                        f"directory scheme {scheme!r}"))
+                                        f"group brand {group.brand!r} != "
+                                        f"directory brand {brand!r}"))
         return
     if group.entry_mode.value != mode:
         library.issues.append(LoadIssue(str(group_file), "error",
@@ -535,7 +535,7 @@ def _load_group_dir(group_dir: Path, scheme: str, mode: str,
     # resolution has one well-defined order.  Do NOT load them here.
 
 
-def _check_group_case_id_collisions(scheme: str, mode: str,
+def _check_group_case_id_collisions(brand: str, mode: str,
                                     mode_cases: dict[str, TestCase],
                                     mode_groups: dict[str, GroupDef],
                                     group_paths: dict[str, str],
@@ -550,15 +550,15 @@ def _check_group_case_id_collisions(scheme: str, mode: str,
         library.issues.append(LoadIssue(
             group_paths.get(case_id, ""), "error",
             f"case_id {case_id!r} 与总案例 group_id 冲突"
-            f"（{scheme}/{mode}）：case_id 与 group_id 互斥，该案例不可执行"))
+            f"（{brand}/{mode}）：case_id 与 group_id 互斥，该案例不可执行"))
 
 
 def _external_has_any_config(external: Path) -> bool:
     """True when the kernel-params dir holds at least one config file.
 
-    Either a top-level ``<scheme>.json`` or a named-library
-    ``<scheme>/<ref>.json``.  Used to tell a misconfigured (empty) directory
-    from a directory that legitimately covers only some schemes.
+    Either a top-level ``<brand>.json`` or a named-library
+    ``<brand>/<ref>.json``.  Used to tell a misconfigured (empty) directory
+    from a directory that legitimately covers only some brands.
     """
     if not external.is_dir():
         return False
@@ -570,19 +570,19 @@ def _external_has_any_config(external: Path) -> bool:
     return False
 
 
-def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
+def _load_brand_kernel_params(brand_dir: Path, brand: str,
                                library: CaseLibrary
                                ) -> tuple[KernelParams | None, Path | None]:
-    """Load one scheme's POS kernel parameter set (C3).
+    """Load one brand's POS kernel parameter set (C3).
 
     Precedence:
 
-    1. ``<kernel_params_dir>/<scheme>.json`` — the external, out-of-repo
+    1. ``<kernel_params_dir>/<brand>.json`` — the external, out-of-repo
        location (the supported production form; it holds CAPK moduli);
-    2. ``<scheme_dir>/kernel_params.json`` — legacy in-repo fallback.
+    2. ``<brand_dir>/kernel_params.json`` — legacy in-repo fallback.
 
     Returns ``(params, path)``.  A missing file yields ``(None, None)``: the
-    scheme then pushes nothing and the POS keeps its built-in tables.  An
+    brand then pushes nothing and the POS keeps its built-in tables.  An
     unreadable/invalid file yields an error issue and ``(None, path)`` — never a
     crash.
 
@@ -591,19 +591,19 @@ def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
     deliberate (C3): the file carries CAPK moduli, so a misconfigured path must
     surface as an error rather than silently falling back to key material that
     is supposed to have left the workspace.  A directory that covers only some
-    schemes is not an error; only a completely empty/nonexistent dir is
+    brands is not an error; only a completely empty/nonexistent dir is
     reported, once, by ``load_library`` (v1.2.x, option c).
     """
     external = library.kernel_params_dir
     if external is not None:
-        path = external / f"{scheme}{EXTERNAL_KERNEL_PARAMS_SUFFIX}"
+        path = external / f"{brand}{EXTERNAL_KERNEL_PARAMS_SUFFIX}"
         if not path.is_file():
-            # (c) Per-scheme absence is normal: the dir may hold configs for
-            # only some schemes and/or a named library <dir>/<scheme>/.  A
+            # (c) Per-brand absence is normal: the dir may hold configs for
+            # only some brands and/or a named library <dir>/<brand>/.  A
             # completely empty dir is reported once in load_library().
             return None, None
     elif library.use_legacy_kernel_params:
-        path = scheme_dir / KERNEL_PARAMS_FILE
+        path = brand_dir / KERNEL_PARAMS_FILE
         if not path.is_file():
             return None, None
     else:
@@ -619,8 +619,8 @@ def _load_scheme_kernel_params(scheme_dir: Path, scheme: str,
         library.issues.append(LoadIssue(
             str(path), "error", f"invalid {path.name}: {exc}"))
         return None, path
-    logger.info("scheme %s: loaded kernel params from %s (AID=%d CAPK=%d term=%s)",
-                scheme, path, len(params.aids), len(params.caps),
+    logger.info("brand %s: loaded kernel params from %s (AID=%d CAPK=%d term=%s)",
+                brand, path, len(params.aids), len(params.caps),
                 "yes" if params.term else "no")
     return params, path
 
@@ -650,10 +650,10 @@ def _compose_kernel_params(conf: KernelParams | None,
     )
 
 
-def _load_named_kernel_params(scheme: str, library: CaseLibrary) -> None:
-    """Load one scheme's named POS config library (v1.2.x).
+def _load_named_kernel_params(brand: str, library: CaseLibrary) -> None:
+    """Load one brand's named POS config library (v1.2.x).
 
-    Layout: <kernel_params_dir>/<scheme>/<ref>.json -- each file is a
+    Layout: <kernel_params_dir>/<brand>/<ref>.json -- each file is a
     KernelParams document; index.json (metadata manifest) is ignored.
     Named configs are vendor test vectors, so their CAPK DF03 is trusted
     verbatim (trust_checksum=True: a mismatch warns instead of blocking).
@@ -661,10 +661,10 @@ def _load_named_kernel_params(scheme: str, library: CaseLibrary) -> None:
     external = library.kernel_params_dir
     if external is None:
         return
-    scheme_dir = external / scheme
-    if not scheme_dir.is_dir():
+    brand_dir = external / brand
+    if not brand_dir.is_dir():
         return
-    for path in sorted(scheme_dir.glob("*.json")):
+    for path in sorted(brand_dir.glob("*.json")):
         if path.name == "index.json":
             continue
         raw = _safe_read_json(path)
@@ -679,14 +679,14 @@ def _load_named_kernel_params(scheme: str, library: CaseLibrary) -> None:
                 str(path), "error", f"invalid {path.name}: {exc}"))
             continue
         ref = path.stem
-        library.named_kernel_params[(scheme, ref)] = params
+        library.named_kernel_params[(brand, ref)] = params
         for issue in validate_kernel_params(
-                params, f"{scheme}:{ref}", trust_checksum=True).issues:
+                params, f"{brand}:{ref}", trust_checksum=True).issues:
             library.issues.append(LoadIssue(str(path), issue.severity,
-                                            f"[{scheme}:{ref}] {issue.message}"))
-        logger.info("scheme %s: loaded named POS config %s from %s "
+                                            f"[{brand}:{ref}] {issue.message}"))
+        logger.info("brand %s: loaded named POS config %s from %s "
                     "(AID=%d CAPK=%d DRL=%d Exception=%d term=%s)",
-                    scheme, ref, path, len(params.aids), len(params.caps),
+                    brand, ref, path, len(params.aids), len(params.caps),
                     len(params.drl), len(params.exception_file),
                     "yes" if params.term else "no")
 

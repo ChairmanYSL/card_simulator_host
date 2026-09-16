@@ -99,7 +99,7 @@
 | 陈旧单实例锁 | `runs\.host.lock` = `{"pid": 60656, "ts": 1788943878.13}`，pid 60656 **已死** |
 | 端口 | 8000 / 9100 执行前**空闲** |
 | 依赖 | pytest / pydantic / fastapi / uvicorn / websockets / httpx 均可导入 |
-| 案例库 | 7 个 scheme、**0 error、0 warning**（见 §4.4） |
+| 案例库 | 7 个 brand、**0 error、0 warning**（见 §4.4） |
 | `cases/visa/kernel_params.json` | **不存在**（T-D0 需生成） |
 
 **关于陈旧锁的处理（与方案 §4.1 的差异）**：方案要求手工 `Remove-Item runs\.host.lock`。实际**未手工删**，而是交给 `appconfig.py:151-164` 的 `acquire_lock()` 自动处理——它对「记录 pid 已死」的锁会打 warning 并替换。首轮 host 启动日志实测出现：
@@ -217,7 +217,7 @@ MISSING (deleted)       : 0
 |---|---|---|
 | `python -m emv_host --help` | exit 0；含 `--card-ack-timeout` 与 `--pos-ack-timeout`（默认 15）；**不出现** `Uvicorn running` | exit 0；两开关均在，帮助文本为 `seconds to wait for a card-side ack (default 15)` / `... (default 15)`；`Uvicorn running` 出现次数 **0** |
 | `python -m emv_host --version` | `0.1.0` | `0.1.0` |
-| `python -m emv_host run --help` | 列出 `--scheme/--mode/--all/--case/--resume` | 五个开关齐备 |
+| `python -m emv_host run --help` | 列出 `--brand/--mode/--all/--case/--resume` | 五个开关齐备 |
 | `python -m emv_host status`（host 未起） | **非零退出**，报 `cannot reach server at 127.0.0.1:8000` | exit **1**，报 `cannot reach server at 127.0.0.1:8000: <urlopen error [WinError 10061] ...>`（属正常行为，非缺陷） |
 
 > 补充说明：仓库根的 `emv_host/` 是零安装 shim（`emv_host/__init__.py`，把 `backend` 插到 `sys.path` 首位后重导入真包），因此上述命令在**仓库根**直接可用，无需 `PYTHONPATH`。这与方案 §L1-3 的描述一致。
@@ -227,19 +227,19 @@ MISSING (deleted)       : 0
 ### 4.4 L1-4 案例库冷加载
 
 ```
-schemes: ['amex', 'discover', 'jcb', 'mastercard', 'pure', 'unionpay', 'visa']
+brands: ['amex', 'discover', 'jcb', 'mastercard', 'pure', 'unionpay', 'visa']
 errors: []
 visa cases: ['OPBD-001-01', 'OPBD-001-02', 'OPBD-001-03', 'OPBD-001-04',
              'VISA-CL-001', 'VISA-CL-002', 'VISA-CL-003', 'VISA-CL-004']
 ```
 
-* scheme 数 **7**，与期望一致；
+* brand 数 **7**，与期望一致；
 * **errors 为空**，与期望一致；
 * visa/contactless 含 `VISA-CL-001..004` 与 `OPBD-001-*`（4 个子案例），与期望一致；
-* **加强验证（超出方案要求）**：全库逐 scheme / 逐 mode 展开，并把 issues **全表**（不只 error）打印出来 →
+* **加强验证（超出方案要求）**：全库逐 brand / 逐 mode 展开，并把 issues **全表**（不只 error）打印出来 →
   `amex 1`、`discover 1`、`jcb 1`、`mastercard 4`、`pure 1`、`unionpay 12`、`visa 8` 共 **28** 例，**issues 全表为空（0 error / 0 warning）**。
 
-→ PASS　证据：`evidence/L1-4_load_library.log`、`L1-4_all_schemes.log`
+→ PASS　证据：`evidence/L1-4_load_library.log`、`L1-4_all_brands.log`
 
 ---
 
@@ -284,11 +284,11 @@ PYTEST_EXIT=0
 | 11 | `::test_pos_offline_fails_case_instead_of_warning` | POS 离线 → `FAIL` + `pos_not_connected`（不再是 warn） | PASSED |
 | 12 | `::test_android_error_keeps_status_error_and_stops_run` | `status:error` → 案例 ERROR，`results[...].android_error == {code,message}` | PASSED |
 | 13 | `::test_kernel_config_is_pushed_before_pos_config` | `pos_kernel_config` 在 `pos_config` **之前**；帧内 `kernel_params.aid[0]` 以 `9F06` 开头 | PASSED |
-| 14 | `::test_case_level_kernel_params_override_scheme` | 案例级 `kernel_params` 完全覆盖 scheme 默认 | PASSED |
+| 14 | `::test_case_level_kernel_params_override_brand` | 案例级 `kernel_params` 完全覆盖 brand 默认 | PASSED |
 | 15 | `test_loader_store.py::test_duplicate_case_id_rejected_and_first_kept` | 同号案例记 error；保留**独立文件**（`cases/<ID>.json`）那一份 | PASSED |
 | 16 | `::test_case_id_colliding_with_group_id_is_an_error` | `case_id` 与 `group_id` 互斥，报「互斥」 | PASSED |
 | 17 | `::test_atomic_write_leaves_no_tmp_and_reads_back` | 无 `*.tmp` 残留；覆盖后内容完整 | PASSED |
-| 18 | `::test_local_kernel_params_are_loaded` | `cases/<scheme>/kernel_params.json` 被加载且 0 error | PASSED |
+| 18 | `::test_local_kernel_params_are_loaded` | `cases/<brand>/kernel_params.json` 被加载且 0 error | PASSED |
 | 19 | `test_api_cases.py::test_write_path_guard_refuses_escape` | `../` 路径 → HTTP 400 +「用例库之外」 | PASSED |
 | 20 | `::test_group_payload_cannot_carry_kernel_params` | 总案例带 `kernel_params` → 校验失败 | PASSED |
 | 21 | `::test_websocket_since_garbage_is_tolerated` | `/ws?since=abc` → 仍先收到 `kind=snapshot`，`seq=0` | PASSED |
@@ -774,7 +774,7 @@ cd E:\Work\ZT\card_simulator_host
 python -m emv_host serve --trace-enabled                     # 终端 A
 python tools\mock_clients\mock_android.py --tap-delay 0.5     # 终端 B
 python tools\mock_clients\mock_pos.py --delay 1               # 终端 C
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
 # 观察：终端 C 在 case_started 约 1s 后打印 ack timeout (15.0s) + WARNING
 # 对照：runs\<日期>\<run_id>\results\VISA-CL-001.json 已是 PASS
 ```
@@ -1009,6 +1009,6 @@ python docs\test-report-v1.2\scripts\rebuild_summary.py
 
 * P2 全部：`tools/export_kernel_params.py`（不存在）、`tools/gen_cases.py` 的 kernel_params 生成、前端 T14–T18、`tools/joint_debug` 的 T20；
 * P3 全部：`docs/protocol.md` / `README.md` / `docs/CHANGELOG.md` / 对端通知文档的 1.1→1.2 更新；
-* 接触式（contact）与其余 scheme（amex/discover/jcb/mastercard/pure/unionpay）的端到端行为；
+* 接触式（contact）与其余 brand（amex/discover/jcb/mastercard/pure/unionpay）的端到端行为；
 * L5 真机联调与 L6 跨案例 AID 覆盖（POS 端 DELETE-then-ADD）语义；
 * 任何「未在设备上落地」的结论。

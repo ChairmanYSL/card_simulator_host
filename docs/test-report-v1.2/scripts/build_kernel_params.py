@@ -9,7 +9,7 @@ Read-only on the POS repo.  Writes only the gitignored
 cases/visa/kernel_params.json.
 
 Usage:
-    python build_kernel_params.py <asset-file> <out-json> [--scheme visa]
+    python build_kernel_params.py <asset-file> <out-json> [--brand visa]
 
 Parsing note: this script uses its OWN ordered BER-TLV walker rather than
 emv_host's decode_tlv_map, so the generated data is not produced by the same
@@ -131,7 +131,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("asset")
     ap.add_argument("out")
-    ap.add_argument("--scheme", default="visa")
+    ap.add_argument("--brand", default="visa")
     args = ap.parse_args()
 
     asset = Path(args.asset)

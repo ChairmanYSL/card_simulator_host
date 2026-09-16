@@ -391,14 +391,14 @@ def I_kind_group() -> Harness:
     h.wait_connected()
 
     # negatives first
-    st404, b404 = h.api_run({"scheme": "visa", "mode": "contactless",
+    st404, b404 = h.api_run({"brand": "visa", "mode": "contactless",
                              "kind": "group", "group_id": "NOPE-001"})
     h.ck("unknown group -> HTTP 404", 404, st404)
-    st400, b400 = h.api_run({"scheme": "visa", "mode": "contactless",
+    st400, b400 = h.api_run({"brand": "visa", "mode": "contactless",
                              "kind": "group"})
     h.ck("group kind without group_id -> HTTP 400", 400, st400)
 
-    st, body = h.api_run({"scheme": "visa", "mode": "contactless",
+    st, body = h.api_run({"brand": "visa", "mode": "contactless",
                           "kind": "group", "group_id": "OPBD-001"})
     h.ck("group run accepted -> HTTP 200", 200, st)
     h.ck("response has ok=true", True,
@@ -507,7 +507,7 @@ def TD0_fail_plan_example_term() -> Harness:
     h.ck("patched term value", "9F660436000080", kp.get("term"))
     h.ck("patched term is even-length hex", True,
          len(kp.get("term", "")) % 2 == 0)
-    h.sub("host: scheme kernel params still loaded", hl,
+    h.sub("host: brand kernel params still loaded", hl,
           "loaded local kernel params")
     h.sub("host: no term validation error", hl,
           "kernel_params.term 不是偶数长度 hex", want=False)

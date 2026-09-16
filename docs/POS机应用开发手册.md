@@ -109,7 +109,7 @@
 | type | 字段 | POS 动作 |
 |---|---|---|
 | `config_push`（`pos_config`） | `config_type, case_id, attempt_id, pos_params[{tag,name,value}]` | **先 ack**（应用成功），再把参数填到本次交易的对应栏位（金额/币种/交易类型等，按 tag 解释，见 §8）；记录 case_id/attempt_id |
-| `case_started` | `case_id, attempt_id, scheme, entry_mode, operator_instructions{amount,currency,entry_mode,pin_hint,notes}` | **先 ack**；显示操作员指引（金额/币种/PIN 提示/备注），进入人工交易；`pos_config` 若已下发则以其参数为准（金额等可自动填） |
+| `case_started` | `case_id, attempt_id, brand, entry_mode, operator_instructions{amount,currency,entry_mode,pin_hint,notes}` | **先 ack**；显示操作员指引（金额/币种/PIN 提示/备注），进入人工交易；`pos_config` 若已下发则以其参数为准（金额等可自动填） |
 | `heartbeat` | `ref_msg_id` | 回 `heartbeat_ack`（任何帧都算存活，但要回心跳） |
 | `error` | `code, message, ref_msg_id?` | 记录并提示（如 auth/protocol 错误） |
 

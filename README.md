@@ -68,9 +68,9 @@ CLI 子命令（与浏览器按钮同一命令通道）：
 python -m emv_host serve [--port 8000 --device-port 9100 --cases cases …]
 python -m emv_host list                              # 列出用例库
 python -m emv_host status                            # 服务健康与设备状态
-python -m emv_host run --scheme visa --mode contactless --all
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
-python -m emv_host run --scheme visa --mode contactless --resume
+python -m emv_host run --brand visa --mode contactless --all
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --resume
 python -m emv_host stop | abort | skip
 ```
 
@@ -79,7 +79,7 @@ python -m emv_host stop | abort | skip
 明亮 Apple 风格界面（系统字体、大圆角、毛玻璃顶栏，字号随系统缩放）：
 
 * **01 · 卡组入口**：按目录展示卡组（visa / mastercard / unionpay / jcb / amex / discover / pure，全部为非接 contactless 用例），显示用例数，点击进入；进入后为**用例选择**页——整轮测试 / 勾选批量 / 单个用例 / 断点续跑；可临时覆盖 suite 策略（失败即停/继续、重试次数）；点击用例查看 test plan、操作员指引与预期结果；
-* **02 · 添加用例**：页面顶部区分两种形态——**可执行案例**（独立案例 / 选「所属总案例」即为子案例，写进该组目录并自动建议 `组号-NN` 编号）与**总案例（分组）**（只配置测试目的/条件/test plan/通过标准，**不配置** profile/交易参数/预期结果；新建即 `group.json`）。可执行案例表单：卡片档案从该卡组默认模板（`scheme.json.card_template`）克隆并与案例**内嵌绑定**（profile.id 自动 = 案例号），可编辑 PAN/AID/PPSE/acBehavior 等卡片侧字段（**acBehavior 含「无」选项**——不设置首 GAC 行为、按终端 P1 应答，用于不支持 GAC 决策的卡组），完整 JSON 兜底；「交易参数」页签按卡组模板自动带出 **POS 交易参数（tag 列表，tag 可自行设定修改）**，只下发 POS；前端逐字段校验，服务端二次校验（案例号/总案例号唯一、内嵌档案存在且校验通过、仅非接、路径安全），错误逐条提示并自动定位到出错选项卡；添加后热重载立即生效，也可在「JSON 导入」选项卡粘贴整份用例/总案例 JSON（先经 `/api/cases/validate` 或 `/api/groups/validate` 校验再落盘）；
+* **02 · 添加用例**：页面顶部区分两种形态——**可执行案例**（独立案例 / 选「所属总案例」即为子案例，写进该组目录并自动建议 `组号-NN` 编号）与**总案例（分组）**（只配置测试目的/条件/test plan/通过标准，**不配置** profile/交易参数/预期结果；新建即 `group.json`）。可执行案例表单：卡片档案从该卡组默认模板（`brand.json.card_template`）克隆并与案例**内嵌绑定**（profile.id 自动 = 案例号），可编辑 PAN/AID/PPSE/acBehavior 等卡片侧字段（**acBehavior 含「无」选项**——不设置首 GAC 行为、按终端 P1 应答，用于不支持 GAC 决策的卡组），完整 JSON 兜底；「交易参数」页签按卡组模板自动带出 **POS 交易参数（tag 列表，tag 可自行设定修改）**，只下发 POS；前端逐字段校验，服务端二次校验（案例号/总案例号唯一、内嵌档案存在且校验通过、仅非接、路径安全），错误逐条提示并自动定位到出错选项卡；添加后热重载立即生效，也可在「JSON 导入」选项卡粘贴整份用例/总案例 JSON（先经 `/api/cases/validate` 或 `/api/groups/validate` 校验再落盘）；
 * **03 · 运行视图**：两端设备状态灯、当前用例与 attempt、操作员指引（金额/交易类型/PIN）、用例队列实时状态（PASS/FAIL/WARN/ABORTED/SKIPPED/INCONCLUSIVE）、终端风格滚动日志；三级控制按钮——立即中止 / 本用例后停 / 跳过当前用例；浏览器刷新不影响后端运行（WS 重连按事件序号重放）；
 * **04 · 历史记录**：每次运行落盘 `runs/<日期>/<run_id>/`（run.json、逐用例结果、checkpoint、quarantine 迟到结果、断言明细），页面可回溯每一条断言的 实际 vs 预期。
 
@@ -88,7 +88,7 @@ python -m emv_host stop | abort | skip
 ```
 cases/
   visa/
-    scheme.json                  # 卡组元信息 + suite 策略 + 环境假设
+    brand.json                  # 卡组元信息 + suite 策略 + 环境假设
                                  # + card_template(默认卡片模板) + pos_params(默认POS参数)
     .gen_cases_manifest.json     # demo 生成器清单（见下）
     contactless/cases/*.json     # 独立用例（文件名 = case_id，直接可执行，自包含 profile）
@@ -101,7 +101,7 @@ cases/
 > **通过网页「添加用例」自建的用例不会被生成器删除**（避免误删，历史教训见 N12 轮次）。
 >
 > **新增演示卡组（2026-09）**：`jcb` / `amex`（American Express）/ `discover` /
-> `pure` 各含 scheme.json + 1 冒烟用例（`JCB/AMEX/DISC/PURE-CL-001`）。JCB/AMEX/
+> `pure` 各含 brand.json + 1 冒烟用例（`JCB/AMEX/DISC/PURE-CL-001`）。JCB/AMEX/
 > Discover 为占位 AID/PAN，可在网页改真实值；**PURE**（Gemalto，PPSE=2PAY.SYS.DDF01）
 > 使用发卡方数据：AID 列表 `D9999999991010/D9999999992020/D666666666/
 > A0000002282010/A0000002802010/A0000007231010`、示例 PAN `6280706258024090`、
@@ -112,11 +112,11 @@ cases/
 > profiles/ 档案库**。安卓侧只接收卡片数据（AIP=82、CVM=8E、PPSE、PAN…都在 profile 内）；
 > 交易参数（`transaction.pos_params`，带 tag）只下发 POS（`config_push{pos_config}`）。
 
-`scheme.json`：
+`brand.json`：
 
 ```json
 {
-  "scheme": "visa", "display_name": "Visa",
+  "brand": "visa", "display_name": "Visa",
   "entry_modes": ["contactless"],
   "suite_policy": {"on_failure": "stop", "retry_count": 1},
   "card_template": { "id": "visa_card_template", "pan": "…", "aip": "5800", "afl": "…",
@@ -170,7 +170,7 @@ cases/
 * **失败策略（v1.2 起）**：**任一案例 FAIL/ERROR → 整轮立即停止**，剩余队列逐条落盘为 `SKIPPED`
   （`note=run_stopped_after_failure:<case_id>`）。`suite_policy.on_failure=continue` 与请求里的
   `on_failure` **已不再生效**（字段保留仅为兼容）。
-* 重试次数取 max(scheme 策略, case 的 retry_on_fail)，每次重试新 `attempt_id`；但 FAIL 不再重试
+* 重试次数取 max(brand 策略, case 的 retry_on_fail)，每次重试新 `attempt_id`；但 FAIL 不再重试
   （FAIL 即停轮）。
 * run 级 `abort_reason` 统一为 `case_failed:<case_id>:<failure_reason>`；案例级失败原因写在
   `results/<case>.json` 的 `failure_reason`（同时进 run 索引）。
@@ -203,8 +203,8 @@ cd frontend && npm run dev     # http://localhost:5173, 自动代理 /api 与 /w
 # 1) 从 POS 资产导出到仓库外的受控目录（只读 POS 仓库）
 python tools/export_kernel_params.py \
   --asset "E:\Work\ZT\KS8226\L2-SELFTEST-APP\app\src\main\assets\emv\params" \
-  --out-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params" --scheme visa
-# 2) 启动时指向该目录（每 scheme 一个 <scheme>.json）
+  --out-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params" --brand visa
+# 2) 启动时指向该目录（每 brand 一个 <brand>.json）
 card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params"
 ```
 
@@ -212,9 +212,9 @@ card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\
 * 默认排除资产里 `DF05=PHWWIPQI` 的那条（不是日期），导出 **AID 19 / CAPK 28 / TERM 1**；
   确需下发用 `--include-raw-expiry`（host 只报 warning）；
 * DF05 支持 `ascii8`（默认）/`bcd4`/`bcd3`/`raw`；`DF03 = SHA1(9F06‖9F22‖DF02‖DF04)` 与 DF05 编码无关；
-* 未提供目录时该 scheme **不下发**内核参数，POS 用自带表；目录只覆盖部分卡组不算错误，只有整个目录没有任何配置时才报 error（v1.2.x）；
-* 仓库内的 `cases/<scheme>/kernel_params.json` 仅在显式开启兼容开关时才读取（默认关闭）。
-* 命名 POS 配置库（v1.2.x）：仓库外 `<kernel-params-dir>/<scheme>/<ref>.json`，分两类模块
+* 未提供目录时该 brand **不下发**内核参数，POS 用自带表；目录只覆盖部分卡组不算错误，只有整个目录没有任何配置时才报 error（v1.2.x）；
+* 仓库内的 `cases/<brand>/kernel_params.json` 仅在显式开启兼容开关时才读取（默认关闭）。
+* 命名 POS 配置库（v1.2.x）：仓库外 `<kernel-params-dir>/<brand>/<ref>.json`，分两类模块
   `CONF_*`（AID/CAPK/DRL/ExceptionFile + TerminalParameter）与 `PROFILE_*`（Profile tags）；
   case 用 `kernel_params_ref` 选 CONF、`terminal_profile_ref` 选 PROFILE，自由配对，合成
   `term = CONF + PROFILE`。loader 仅在内存中解析，模数不写回案例文件。
@@ -226,10 +226,10 @@ card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\
 ```bash
 cd backend && python -m pytest          # 后端单测（184 个）
 python tools/gen_cases.py cases         # 重新生成演示用例库（清单式覆盖，不删自建用例；
-                                        #   清单项若逃逸 scheme 目录会被跳过）
+                                        #   清单项若逃逸 brand 目录会被跳过）
 python tools/export_kernel_params.py --help   # 内核参数导出（写入仓库外目录）
 python tools/import_expresspay_xml.py --help # Expresspay XML -> 命名 POS 配置库
-                                             #   (--config-dir/--profile-dir/--out-dir/--scheme)
+                                             #   (--config-dir/--profile-dir/--out-dir/--brand)
 python tools/mock_clients/mock_android.py  # 协议级 mock：安卓卡模拟（card_config 打印
                                           #   noResponseCommands 静默指令）
 python tools/mock_clients/mock_pos.py     # 协议级 mock：POS（--outcome approved_offline
@@ -248,8 +248,8 @@ python tools/joint_debug/run_cases.py --all \
     --expect-versions pos=1.0.13,card=1.0.31 \
     --on-failure continue --retry 0 --settle 15
 
-# 单个 scheme / 单个用例
-python tools/joint_debug/run_cases.py --scheme visa --case VISA-CL-001
+# 单个 brand / 单个用例
+python tools/joint_debug/run_cases.py --brand visa --case VISA-CL-001
 
 # 逐用例归因报告（读 run 汇总 + 结果 + 卡端 trace + 用例库 + 基线）
 python tools/joint_debug/report.py --inputs logs/joint_debug/full15_1_visa.json \
@@ -258,8 +258,8 @@ python tools/joint_debug/report.py --inputs logs/joint_debug/full15_1_visa.json 
 ```
 
 * `run_cases.py`：每轮 run 自动抓双端 logcat（`logs/joint_debug/logcat/<stamp>-{pos,card}.log`）；
-  长耗时用例（`UPI-CL-006/007`）自动排到队尾；`--settle` 控制 scheme 之间的静默等待
-  （默认 15s，等 POS 收尾上一笔，避免下一个 scheme 首例被 ack 门控饿死）。
+  长耗时用例（`UPI-CL-006/007`）自动排到队尾；`--settle` 控制 brand 之间的静默等待
+  （默认 15s，等 POS 收尾上一笔，避免下一个 brand 首例被 ack 门控饿死）。
 * `report.py`：归因规则集中在脚本顶部 `ATTRIBUTION_RULES`（按 case_id 维护）；报告含
   概览 / 按卡组汇总 / 逐用例表 / 归因明细（含 POS 诊断字段）；未上报诊断字段时如实标注。
 * 手工改用例后可用 `POST /api/library/reload` 热重载，无需重启后端。

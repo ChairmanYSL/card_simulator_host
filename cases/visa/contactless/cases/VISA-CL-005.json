@@ -2,7 +2,7 @@
   "case_id": "VISA-CL-005",
   "title": "Visa contactless DEMO expected-failure (declined card, expect approve)",
   "summary": "contactless transaction with ac_behavior=offline_declined",
-  "scheme": "visa",
+  "brand": "visa",
   "entry_mode": "contactless",
   "profile": {
     "id": "VISA-CL-005",

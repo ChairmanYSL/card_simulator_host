@@ -2,7 +2,7 @@
   "case_id": "OPBD-001-04",
   "title": "卡片错误响应码",
   "summary": "PPSE 子案例：PPSE 错误 SW(disabled)（档案随案例内嵌）",
-  "scheme": "visa",
+  "brand": "visa",
   "entry_mode": "contactless",
   "profile": {
     "id": "OPBD-001-04",

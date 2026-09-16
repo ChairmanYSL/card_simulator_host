@@ -350,9 +350,9 @@ class Harness:
         return False
 
     # -- run control --------------------------------------------------------
-    def start_run_cli(self, scheme: str, mode: str, cases: list[str]) -> tuple[int, str]:
+    def start_run_cli(self, brand: str, mode: str, cases: list[str]) -> tuple[int, str]:
         args = [sys.executable, "-m", "emv_host", "run",
-                "--scheme", scheme, "--mode", mode]
+                "--brand", brand, "--mode", mode]
         for c in cases:
             args += ["--case", c]
         p = subprocess.run(args, cwd=str(REPO), capture_output=True, text=True,

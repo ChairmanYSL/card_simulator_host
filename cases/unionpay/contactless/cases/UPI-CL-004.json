@@ -2,7 +2,7 @@
   "case_id": "UPI-CL-004",
   "title": "UnionPay contactless transaction data tags present",
   "summary": "contactless transaction with ac_behavior=offline_approved",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "UPI-CL-004",

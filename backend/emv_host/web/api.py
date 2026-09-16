@@ -48,7 +48,7 @@ class AppContext:
 
 
 class RunRequest(BaseModel):
-    scheme: str
+    brand: str
     mode: str
     kind: str = Field(default="full")  # full | selected | single | resume | group
     case_ids: list[str] = Field(default_factory=list)
@@ -130,9 +130,9 @@ def create_app(ctx: AppContext) -> FastAPI:
         except CaseLibraryError as exc:
             raise HTTPException(400, f"用例库重载失败: {exc}") from exc
         errors = [i for i in ctx.library.issues if i.severity == "error"]
-        counts = {f"{s['scheme']}/{m['mode']}": len(m["cases"])
+        counts = {f"{s['brand']}/{m['mode']}": len(m["cases"])
                   for s in ctx.library.tree() for m in s["entry_modes"]}
-        logger.info("case library reloaded: %d scheme/mode groups, %d errors",
+        logger.info("case library reloaded: %d brand/mode groups, %d errors",
                     len(counts), len(errors))
         await ctx.bus.publish("library", {"event": "reloaded",
                                           "counts": counts})
@@ -141,14 +141,14 @@ def create_app(ctx: AppContext) -> FastAPI:
 
     @app.get("/api/tree")
     async def tree() -> dict[str, Any]:
-        return {"schemes": ctx.library.tree(),
+        return {"brands": ctx.library.tree(),
                 "issues": [i.__dict__ for i in ctx.library.issues]}
 
-    @app.get("/api/cases/{scheme}/{mode}")
-    async def list_cases(scheme: str, mode: str) -> dict[str, Any]:
-        cases = ctx.library.scheme_cases(scheme, mode)
+    @app.get("/api/cases/{brand}/{mode}")
+    async def list_cases(brand: str, mode: str) -> dict[str, Any]:
+        cases = ctx.library.brand_cases(brand, mode)
         if not cases:
-            raise HTTPException(404, f"no cases for {scheme}/{mode}")
+            raise HTTPException(404, f"no cases for {brand}/{mode}")
         return {
             "cases": [
                 {"case_id": tc.case_id, "title": tc.title,
@@ -157,26 +157,26 @@ def create_app(ctx: AppContext) -> FastAPI:
             ],
         }
 
-    @app.get("/api/cases/{scheme}/{mode}/{case_id}")
-    async def case_detail(scheme: str, mode: str, case_id: str) -> dict[str, Any]:
-        data = ctx.library.public_case(scheme, mode, case_id)
+    @app.get("/api/cases/{brand}/{mode}/{case_id}")
+    async def case_detail(brand: str, mode: str, case_id: str) -> dict[str, Any]:
+        data = ctx.library.public_case(brand, mode, case_id)
         if data is None:
-            raise HTTPException(404, f"case {scheme}/{mode}/{case_id} not found")
+            raise HTTPException(404, f"case {brand}/{mode}/{case_id} not found")
         return data
 
     # -- case creation (web "add case" form / JSON import) ---------------------
-    @app.get("/api/scheme/{scheme}/template")
-    async def scheme_template(scheme: str) -> dict[str, Any]:
-        """Scheme-level defaults for the add-case page: the default card
-        template (cloned into a new case's embedded profile) and the scheme's
+    @app.get("/api/brand/{brand}/template")
+    async def brand_template(brand: str) -> dict[str, Any]:
+        """Brand-level defaults for the add-case page: the default card
+        template (cloned into a new case's embedded profile) and the brand's
         default POS transaction parameter template (auto-added per case)."""
-        scheme_def = ctx.library.schemes.get(scheme)
-        if scheme_def is None:
-            raise HTTPException(404, f"scheme {scheme!r} not found")
+        brand_def = ctx.library.brands.get(brand)
+        if brand_def is None:
+            raise HTTPException(404, f"brand {brand!r} not found")
         return {
-            "card_template": None if scheme_def.card_template is None
-            else scheme_def.card_template.model_dump(mode="json"),
-            "pos_params": [p.model_dump() for p in scheme_def.pos_params],
+            "card_template": None if brand_def.card_template is None
+            else brand_def.card_template.model_dump(mode="json"),
+            "pos_params": [p.model_dump() for p in brand_def.pos_params],
         }
 
     def _validate_case_payload(payload: Any) -> tuple[TestCase | None, list[str]]:
@@ -197,8 +197,8 @@ def create_app(ctx: AppContext) -> FastAPI:
                 errors.append(f"{loc}: {err['msg']}")
             return None, errors
 
-        if case.scheme not in ctx.library.schemes:
-            errors.append(f"卡组 {case.scheme!r} 不存在")
+        if case.brand not in ctx.library.brands:
+            errors.append(f"卡组 {case.brand!r} 不存在")
         if case.entry_mode != EntryMode.CONTACTLESS:
             errors.append("本后台仅支持 contactless（非接）测试")
         # profile is embedded & bound to the case (v2); a missing/invalid
@@ -214,12 +214,12 @@ def create_app(ctx: AppContext) -> FastAPI:
         if group_id:
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", group_id):
                 errors.append(f"group_id 只能包含字母/数字/下划线/连字符：{group_id!r}")
-            elif ctx.library.get_group(case.scheme, mode, group_id) is None:
-                errors.append(f"所属总案例 {group_id!r} 不存在于卡组 {case.scheme!r} "
+            elif ctx.library.get_group(case.brand, mode, group_id) is None:
+                errors.append(f"所属总案例 {group_id!r} 不存在于卡组 {case.brand!r} "
                               f"（请先创建总案例，或去掉选择作为独立案例）")
-        if ctx.library.get_case(case.scheme, mode, case.case_id) is not None:
+        if ctx.library.get_case(case.brand, mode, case.case_id) is not None:
             errors.append(f"案例号 {case.case_id!r} 已存在")
-        if ctx.library.get_group(case.scheme, mode, case.case_id) is not None:
+        if ctx.library.get_group(case.brand, mode, case.case_id) is not None:
             errors.append(f"案例号 {case.case_id!r} 与总案例 group_id 冲突"
                           f"（总案例不直接执行，请另选子案例号）")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", case.case_id):
@@ -249,10 +249,10 @@ def create_app(ctx: AppContext) -> FastAPI:
         elif active_refs:
             resolved: dict[str, Any] = {}
             for field_name, ref in active_refs:
-                params = ctx.library.named_kernel_params_for(case.scheme, ref)
+                params = ctx.library.named_kernel_params_for(case.brand, ref)
                 if params is None:
                     errors.append(f"{field_name} {ref!r} 不存在于 "
-                                  f"{case.scheme} 的命名 POS 配置库")
+                                  f"{case.brand} 的命名 POS 配置库")
                 else:
                     resolved[field_name] = params
             if len(resolved) == len(active_refs):
@@ -286,7 +286,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         group_id = (payload.get("group_id") or "").strip() or None
         # v1.2: resolve and confirm the target stays inside the case library
         # before creating anything
-        parts = [case.scheme, mode, "cases"] + ([group_id] if group_id else []) \
+        parts = [case.brand, mode, "cases"] + ([group_id] if group_id else []) \
             + [f"{case.case_id}.json"]
         path = _resolve_inside(ctx.library.root, *parts, label="案例路径")
         case_dir = path.parent
@@ -317,7 +317,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         await ctx.bus.publish("library", {"event": "case_added",
                                           "case_id": case.case_id,
                                           "group_id": group_id,
-                                          "scheme": case.scheme})
+                                          "brand": case.brand})
         logger.info("case added via web UI: %s (%s%s)", case.case_id,
                     f"{group_id}/" if group_id else "", path)
         return {"ok": True, "case_id": case.case_id,
@@ -337,22 +337,22 @@ def create_app(ctx: AppContext) -> FastAPI:
                 loc = ".".join(str(p) for p in err["loc"]) or "(root)"
                 errors.append(f"{loc}: {err['msg']}")
             return None, errors
-        if group.scheme not in ctx.library.schemes:
-            errors.append(f"卡组 {group.scheme!r} 不存在")
+        if group.brand not in ctx.library.brands:
+            errors.append(f"卡组 {group.brand!r} 不存在")
         if group.entry_mode != EntryMode.CONTACTLESS:
             errors.append("本后台仅支持 contactless（非接）测试")
         mode = group.entry_mode.value
         if not group.test_plan:
             errors.append("总案例 test_plan 至少需要 1 个步骤（总案例仅配置说明与 test plan，"
                           "不配置档案/交易参数/预期结果）")
-        if ctx.library.get_group(group.scheme, mode, group.group_id) is not None:
+        if ctx.library.get_group(group.brand, mode, group.group_id) is not None:
             errors.append(f"总案例 {group.group_id!r} 已存在")
-        if ctx.library.get_case(group.scheme, mode, group.group_id) is not None:
+        if ctx.library.get_case(group.brand, mode, group.group_id) is not None:
             errors.append(f"总案例号 {group.group_id!r} 与已有案例号冲突")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", group.group_id):
             errors.append("总案例号只能包含字母、数字、下划线、连字符")
         # v1.2: groups carry no kernel params of their own — a 总案例 is a
-        # description only, and its 子案例 each override the scheme default.
+        # description only, and its 子案例 each override the brand default.
         # Any kernel_params in a group payload is rejected, well-formed or not.
         if payload.get("kernel_params") is not None:
             errors.append("总案例不承载 kernel_params（仅子案例可逐案例配置）")
@@ -373,7 +373,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         # v1.2: resolve and confirm the target stays inside the case library
         # before creating the group directory
         path = _resolve_inside(
-            ctx.library.root, group.scheme, mode, "cases", group.group_id,
+            ctx.library.root, group.brand, mode, "cases", group.group_id,
             "group.json", label="总案例路径")
         group_dir = path.parent
         try:
@@ -400,7 +400,7 @@ def create_app(ctx: AppContext) -> FastAPI:
 
         await ctx.bus.publish("library", {"event": "group_added",
                                           "group_id": group.group_id,
-                                          "scheme": group.scheme})
+                                          "brand": group.brand})
         logger.info("group added via web UI: %s (%s)", group.group_id, path)
         return {"ok": True, "group_id": group.group_id, "path": str(path)}
 
@@ -409,20 +409,20 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def start_run(req: RunRequest) -> dict[str, Any]:
         case_ids = list(req.case_ids)
         if req.kind in ("full", "resume"):
-            all_ids = ctx.library.all_case_ids(req.scheme, req.mode)
+            all_ids = ctx.library.all_case_ids(req.brand, req.mode)
             if req.kind == "full":
                 case_ids = all_ids
             else:
-                case_ids = _resume_cases(ctx, req.scheme, req.mode,
+                case_ids = _resume_cases(ctx, req.brand, req.mode,
                                         req.resume_from_run)
         elif req.kind == "group":
             # v1.2 T17: "运行本组" runs exactly one 总案例's 子案例
             group_id = (req.group_id or "").strip()
             if not group_id:
                 raise HTTPException(400, "kind=group requires group_id")
-            if ctx.library.get_group(req.scheme, req.mode, group_id) is None:
+            if ctx.library.get_group(req.brand, req.mode, group_id) is None:
                 raise HTTPException(404, f"总案例 {group_id!r} 不存在")
-            case_ids = ctx.library.group_child_ids(req.scheme, req.mode, group_id)
+            case_ids = ctx.library.group_child_ids(req.brand, req.mode, group_id)
             if not case_ids:
                 raise HTTPException(400, f"总案例 {group_id!r} 没有任何子案例")
         elif req.kind == "single":
@@ -436,7 +436,7 @@ def create_app(ctx: AppContext) -> FastAPI:
         if not case_ids:
             raise HTTPException(400, "nothing to run")
         # 总案例 (groups) are not executable: they only group 子案例
-        groups = ctx.library.scheme_groups(req.scheme, req.mode)
+        groups = ctx.library.brand_groups(req.brand, req.mode)
         if groups:
             group_hits = [gid for gid in case_ids if gid in groups]
             if group_hits:
@@ -444,7 +444,7 @@ def create_app(ctx: AppContext) -> FastAPI:
                     400, f"{group_hits} 是总案例（分组），不可直接运行，"
                          f"请选择其子案例（如 {group_hits[0]}-01）或使用运行本组")
         ok, message = await ctx.executor.start(
-            req.scheme, req.mode, case_ids, req.kind, req.resume_from_run,
+            req.brand, req.mode, case_ids, req.kind, req.resume_from_run,
             overrides={"on_failure": req.on_failure,
                        "retry_count": req.retry_count})
         if not ok:
@@ -569,7 +569,7 @@ def create_app(ctx: AppContext) -> FastAPI:
     return app
 
 
-def _resume_cases(ctx: AppContext, scheme: str, mode: str,
+def _resume_cases(ctx: AppContext, brand: str, mode: str,
                   resume_from_run: str | None) -> list[str]:
     """Resume: rerun every case whose last recorded status is not PASS/WARN."""
     source_run: dict[str, Any] | None = None
@@ -577,7 +577,7 @@ def _resume_cases(ctx: AppContext, scheme: str, mode: str,
         source_run = ctx.store.get_run(resume_from_run)
     else:
         candidates = [r for r in ctx.store.history(limit=500)
-                      if r["scheme"] == scheme and r["mode"] == mode]
+                      if r["brand"] == brand and r["mode"] == mode]
         source_run = ctx.store.get_run(candidates[0]["run_id"]) if candidates else None
     if source_run is None:
         raise HTTPException(404, "no previous run to resume from")

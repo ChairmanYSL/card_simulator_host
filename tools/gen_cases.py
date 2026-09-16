@@ -3,12 +3,12 @@
 Usage:  python tools/gen_cases.py [cases_root]
 
 v2 layout: profiles are EMBEDDED in each executable case JSON (bound to the
-case, id auto = case_id); scheme.json carries a ``card_template`` (default card
-for the add-case page) and a ``pos_params`` template (scheme-specific POS-side
+case, id auto = case_id); brand.json carries a ``card_template`` (default card
+for the add-case page) and a ``pos_params`` template (brand-specific POS-side
 transaction parameters auto-added per case).  There is no shared profiles/
 directory any more.
 
-Safety: this tool NEVER deletes whole scheme directories.  Each scheme keeps a
+Safety: this tool NEVER deletes whole brand directories.  Each brand keeps a
 ``.gen_cases_manifest.json`` listing the files the generator owns; a rerun only
 overwrites those files (and drops previously generated ones that are no longer
 part of the demo).  User-created cases (e.g. added via the web UI) are left
@@ -16,7 +16,7 @@ untouched — but note a case added through the UI with a case_id equal to one o
 the demo ids WOULD be overwritten by design.
 
 PANs are generated Luhn-valid and unique per case.  Demo data is synthetic;
-online cases assume a test acquirer host / whitelist (see scheme.json
+online cases assume a test acquirer host / whitelist (see brand.json
 environment_assumptions).  Values inside pos_params are informational strings
 that the POS app interprets by tag.
 """
@@ -42,8 +42,8 @@ def _track(path: Path) -> None:
             _gen_files.append(rel)
 
 
-def _read_manifest(scheme_root: Path) -> list[str]:
-    manifest = scheme_root / ".gen_cases_manifest.json"
+def _read_manifest(brand_root: Path) -> list[str]:
+    manifest = brand_root / ".gen_cases_manifest.json"
     if not manifest.is_file():
         return []
     try:
@@ -53,18 +53,18 @@ def _read_manifest(scheme_root: Path) -> list[str]:
         return []
 
 
-def _clean_previous_generated(scheme_root: Path) -> None:
+def _clean_previous_generated(brand_root: Path) -> None:
     """Delete only files this generator created before (per its manifest).
 
-    Every entry is resolved and must stay inside ``scheme_root``: a hand-edited
+    Every entry is resolved and must stay inside ``brand_root``: a hand-edited
     or corrupted manifest containing ``../`` would otherwise let a regeneration
     delete files outside the case library.
     """
-    root = scheme_root.resolve()
-    for rel in _read_manifest(scheme_root):
-        target = (scheme_root / rel).resolve()
+    root = brand_root.resolve()
+    for rel in _read_manifest(brand_root):
+        target = (brand_root / rel).resolve()
         if target != root and root not in target.parents:
-            print(f"  ! manifest entry outside the scheme dir, skipped: {rel}")
+            print(f"  ! manifest entry outside the brand dir, skipped: {rel}")
             continue
         try:
             if target.is_file():
@@ -72,8 +72,8 @@ def _clean_previous_generated(scheme_root: Path) -> None:
         except OSError:
             pass
     # prune now-empty sub-directories (best effort, bottom-up)
-    for rel in reversed(sorted(_read_manifest(scheme_root))):
-        parent = (scheme_root / Path(rel).parent).resolve()
+    for rel in reversed(sorted(_read_manifest(brand_root))):
+        parent = (brand_root / Path(rel).parent).resolve()
         if parent != root and root not in parent.parents:
             continue
         try:
@@ -82,8 +82,8 @@ def _clean_previous_generated(scheme_root: Path) -> None:
             pass
 
 
-def _write_manifest(scheme_root: Path) -> None:
-    manifest = scheme_root / ".gen_cases_manifest.json"
+def _write_manifest(brand_root: Path) -> None:
+    manifest = brand_root / ".gen_cases_manifest.json"
     manifest.write_text(json.dumps({"files": sorted(_gen_files)},
                                    ensure_ascii=False, indent=2) + "\n",
                         encoding="utf-8")
@@ -112,7 +112,7 @@ def write(path: Path, obj: dict) -> None:
     _track(path)
 
 
-SCHEMES = {
+BRANDS = {
     "visa": {
         "display_name": "Visa",
         "aid": "A0000000031010",
@@ -175,8 +175,8 @@ SCHEMES = {
     },
 }
 
-# scheme -> POS transaction parameter template (POS-side, tag-keyed;
-# per-scheme requirements differ: add/remove tags as needed)
+# brand -> POS transaction parameter template (POS-side, tag-keyed;
+# per-brand requirements differ: add/remove tags as needed)
 POS_PARAMS = {
     "visa": [
         {"tag": "9F02", "name": "amount", "value": "100.00"},
@@ -274,30 +274,30 @@ MODES = {
 }
 
 
-def embedded_profile(scheme: dict, brand: str, case_id: str, title: str,
+def embedded_profile(brand: dict, brand: str, case_id: str, title: str,
                      ac_behavior: str, pan_key: int,
                      extra: dict | None = None) -> dict:
     """One case-bound CardProfile (id = case_id, unique PAN per case)."""
     network_name = {"visa": "VISA", "mastercard": "MASTERCARD",
                     "unionpay": "UNIONPAY"}.get(brand, brand.upper())
-    # multi-AID schemes (PURE) vs single-AID demo schemes
-    aids_list = scheme.get("aids_list") or [scheme.get("aid")]
-    aids = [{"aid": aid, "label": scheme["label"], "priority": i}
+    # multi-AID brands (PURE) vs single-AID demo brands
+    aids_list = brand.get("aids_list") or [brand.get("aid")]
+    aids = [{"aid": aid, "label": brand["label"], "priority": i}
             for i, aid in enumerate(aids_list) if aid]
-    pan = scheme.get("fixed_pan") or luhn_digit(f"{scheme['pan_prefix']}{pan_key:02d}")
-    track2 = scheme.get("fixed_track2") or f"{pan}=2812201".encode("ascii").hex()
+    pan = brand.get("fixed_pan") or luhn_digit(f"{brand['pan_prefix']}{pan_key:02d}")
+    track2 = brand.get("fixed_track2") or f"{pan}=2812201".encode("ascii").hex()
     profile = {
         "id": case_id,  # bound: profile id == case id
-        "name": f"{scheme['display_name']} {title}",
+        "name": f"{brand['display_name']} {title}",
         "network": network_name,
         "isActive": True,
         "aids": aids,
         "pan": pan,
         "panSequenceNumber": 1,
         "applicationExpirationDate": "281231",
-        "cardholderName": scheme["holder"],
+        "cardholderName": brand["holder"],
         "track2EquivalentData": track2,
-        "applicationLabel": scheme["label"],
+        "applicationLabel": brand["label"],
         "applicationVersionNumber": "0001",
         "aip": "5800",
         "afl": "08010100",
@@ -311,32 +311,32 @@ def embedded_profile(scheme: dict, brand: str, case_id: str, title: str,
         # (8x0xFA, ac_crypto:"fake") per v1.1 O4/N8
         "acBehavior": ac_behavior,
     }
-    if scheme.get("kernel_id"):
+    if brand.get("kernel_id"):
         # PURE: PPSE 目录项 9F2A Kernel Identifier（透传字段供安卓侧使用）
-        profile["kernelId"] = scheme["kernel_id"]
+        profile["kernelId"] = brand["kernel_id"]
     if extra:
         profile.update(extra)
     return profile
 
 
-def card_template(scheme: dict, brand: str) -> dict:
-    """scheme.json card_template: default card cloned by the add-case page."""
-    return embedded_profile(scheme, brand, f"{brand}_card_template",
+def card_template(brand: dict, brand: str) -> dict:
+    """brand.json card_template: default card cloned by the add-case page."""
+    return embedded_profile(brand, brand, f"{brand}_card_template",
                             "默认卡片模板", "offline_approved", pan_key=0,
-                            extra={"name": f"{scheme['display_name']} 默认卡片"})
+                            extra={"name": f"{brand['display_name']} 默认卡片"})
 
 
-def gen_case(scheme_key: str, scheme: dict, mode: str, spec: dict,
+def gen_case(brand_key: str, brand: dict, mode: str, spec: dict,
              brand: str, case_prefix: str, pos_params: list[dict]) -> dict:
     case_id = f"{case_prefix}-CL-{spec['suffix']}"
     pin = MODES[mode]["pin_hint"]
     return {
         "case_id": case_id,
-        "title": f"{scheme['display_name']} {mode} {spec['title']}",
+        "title": f"{brand['display_name']} {mode} {spec['title']}",
         "summary": f"{mode} transaction with ac_behavior={spec['behavior']}",
-        "scheme": scheme_key,
+        "brand": brand_key,
         "entry_mode": mode,
-        "profile": embedded_profile(scheme, brand, case_id, spec["title"],
+        "profile": embedded_profile(brand, brand, case_id, spec["title"],
                                     spec["behavior"], int(spec["suffix"])),
         "transaction": {
             "operator_instructions": {
@@ -377,30 +377,30 @@ def gen_case(scheme_key: str, scheme: dict, mode: str, spec: dict,
 
 def main(root: str) -> None:
     root = Path(root)
-    full_demo_schemes = {"visa", "mastercard", "unionpay"}  # 原有完整演示（5 用例+分组）
+    full_demo_brands = {"visa", "mastercard", "unionpay"}  # 原有完整演示（5 用例+分组）
     prefix_map = {"visa": "VISA", "mastercard": "MC", "unionpay": "UPI",
                   "jcb": "JCB", "amex": "AMEX", "discover": "DISC",
                   "pure": "PURE"}
-    for scheme_key, scheme in SCHEMES.items():
-        brand = scheme_key
-        case_prefix = prefix_map[scheme_key]
-        pos_params = POS_PARAMS[scheme_key]
+    for brand_key, brand in BRANDS.items():
+        brand = brand_key
+        case_prefix = prefix_map[brand_key]
+        pos_params = POS_PARAMS[brand_key]
 
         # non-destructive regeneration: only remove files we generated before
-        scheme_root = root / scheme_key
-        scheme_root.mkdir(parents=True, exist_ok=True)
+        brand_root = root / brand_key
+        brand_root.mkdir(parents=True, exist_ok=True)
         global _gen_root, _gen_files
-        _gen_root = scheme_root
+        _gen_root = brand_root
         _gen_files = []
-        _clean_previous_generated(scheme_root)
+        _clean_previous_generated(brand_root)
 
-        write(scheme_root / "scheme.json", {
-            "scheme": scheme_key,
-            "display_name": scheme["display_name"],
-            "description": f"{scheme['display_name']} demo case library",
+        write(brand_root / "brand.json", {
+            "brand": brand_key,
+            "display_name": brand["display_name"],
+            "description": f"{brand['display_name']} demo case library",
             "entry_modes": ["contactless"],
             "suite_policy": {"on_failure": "stop", "retry_count": 1},
-            "card_template": card_template(scheme, brand),
+            "card_template": card_template(brand, brand),
             "pos_params": pos_params,
             "environment_assumptions":
                 "online cases require a test acquirer host / card whitelist; "
@@ -408,39 +408,39 @@ def main(root: str) -> None:
                 "production host would decline online transactions",
         })
 
-        if scheme_key in full_demo_schemes:
+        if brand_key in full_demo_brands:
             for mode in ("contactless",):
                 for spec in CASE_SPECS:
-                    case = gen_case(scheme_key, scheme, mode, spec, brand,
+                    case = gen_case(brand_key, brand, mode, spec, brand,
                                     case_prefix, pos_params)
-                    write(scheme_root / mode / "cases" / f"{case['case_id']}.json",
+                    write(brand_root / mode / "cases" / f"{case['case_id']}.json",
                           case)
         else:
             # 新增卡组（JCB/AMEX/DISCOVER/PURE）：骨架 + 1 个冒烟用例
-            _gen_smoke_case(scheme_root, scheme, brand, case_prefix, pos_params)
+            _gen_smoke_case(brand_root, brand, brand, case_prefix, pos_params)
 
         # PPSE 分组演示：总案例 OPBD-001 + 4 个子案例（各内嵌 PPSE 变体档案）
-        if scheme_key == "visa":
-            _gen_ppse_group(scheme_root, scheme, brand, pos_params)
+        if brand_key == "visa":
+            _gen_ppse_group(brand_root, brand, brand, pos_params)
 
         # v1.1 N12: 指令不响应（静默）演示 —— UnionPay 卡组
-        if scheme_key == "unionpay":
-            _gen_no_response_cases(scheme_root, scheme, brand, pos_params)
+        if brand_key == "unionpay":
+            _gen_no_response_cases(brand_root, brand, brand, pos_params)
             # UnionPay QPB.I.010.00: 交易不能联机完成（分组演示）
-            _gen_qpb_i_010_group(scheme_root, scheme, brand, pos_params)
+            _gen_qpb_i_010_group(brand_root, brand, brand, pos_params)
             # UnionPay QPB.B.002.00: 状态检查请求（分组演示）
-            _gen_qpb_b_002_group(scheme_root, scheme, brand, pos_params)
+            _gen_qpb_b_002_group(brand_root, brand, brand, pos_params)
             # UnionPay QPB.D.001.00: 使用 PPSE 目录选择方式（总案例 + 4 子案例）
-            _gen_qpb_d_001_group(scheme_root, scheme, brand, pos_params)
+            _gen_qpb_d_001_group(brand_root, brand, brand, pos_params)
 
-        _write_manifest(scheme_root)
+        _write_manifest(brand_root)
         _gen_root = None
         _gen_files = []
 
     print(f"case library generated under {root}")
 
 
-def _gen_smoke_case(scheme_root: Path, scheme: dict, brand: str,
+def _gen_smoke_case(brand_root: Path, brand: dict, brand: str,
                     case_prefix: str, pos_params: list[dict]) -> None:
     """新增卡组（JCB/AMEX/DISCOVER/PURE）：仅生成 1 个冒烟用例（offline approved）。
 
@@ -449,15 +449,15 @@ def _gen_smoke_case(scheme_root: Path, scheme: dict, brand: str,
     mode = "contactless"
     case_id = f"{case_prefix}-CL-001"
     placeholder_note = ("（AID/PAN 为演示占位数据，可在网页 AddCase 中改为真实值）"
-                        if not scheme.get("aids_list")
+                        if not brand.get("aids_list")
                         else "（PURE：使用规范确认的 AID/PAN/track2/kernelId）")
-    write(scheme_root / mode / "cases" / f"{case_id}.json", {
+    write(brand_root / mode / "cases" / f"{case_id}.json", {
         "case_id": case_id,
-        "title": f"{scheme['display_name']} contactless offline approved (TC) 冒烟用例",
+        "title": f"{brand['display_name']} contactless offline approved (TC) 冒烟用例",
         "summary": f"{mode} smoke case with ac_behavior=offline_approved {placeholder_note}",
-        "scheme": brand,
+        "brand": brand,
         "entry_mode": mode,
-        "profile": embedded_profile(scheme, brand, case_id,
+        "profile": embedded_profile(brand, brand, case_id,
                                     "offline approved (TC)", "offline_approved",
                                     pan_key=1),
         "transaction": {
@@ -491,21 +491,21 @@ def _gen_smoke_case(scheme_root: Path, scheme: dict, brand: str,
     })
 
 
-def _gen_no_response_cases(scheme_root: Path, scheme: dict, brand: str,
+def _gen_no_response_cases(brand_root: Path, brand: dict, brand: str,
                            pos_params: list[dict]) -> None:
     """UnionPay 演示：GPO 不响应（每次静默 / 仅首次 N 次静默）。"""
-    cases_dir = scheme_root / "contactless" / "cases"
+    cases_dir = brand_root / "contactless" / "cases"
 
     def write_case(case_id: str, title: str, behavior: str, no_resp,
                    rules: list[dict]) -> None:
         mode = "contactless"
         write(cases_dir / f"{case_id}.json", {
             "case_id": case_id,
-            "title": f"{scheme['display_name']} contactless {title}",
+            "title": f"{brand['display_name']} contactless {title}",
             "summary": f"noResponseCommands={behavior}（档案随案例内嵌）",
-            "scheme": brand,
+            "brand": brand,
             "entry_mode": mode,
-            "profile": embedded_profile(scheme, brand, case_id, title,
+            "profile": embedded_profile(brand, brand, case_id, title,
                                         "offline_approved",
                                         int(case_id.rsplit("-", 1)[1]),
                                         extra={"noResponseCommands": no_resp}),
@@ -551,7 +551,7 @@ def _gen_no_response_cases(scheme_root: Path, scheme: dict, brand: str,
                 {"path": "outcome", "op": "eq", "expect": "approved"}])
 
 
-def _gen_qpb_i_010_group(scheme_root: Path, scheme: dict, brand: str,
+def _gen_qpb_i_010_group(brand_root: Path, brand: dict, brand: str,
                          pos_params: list[dict]) -> None:
     """UnionPay QPB.I.010.00「交易不能联机完成」分组演示（QPB-I-010）。
 
@@ -565,7 +565,7 @@ def _gen_qpb_i_010_group(scheme_root: Path, scheme: dict, brand: str,
       联机失败后读写器应拒绝交易；
     * 通过标准映射（用户约定）：outcome=declined 且 resp_code ∈ {05,91,16,80}。
     """
-    cases_dir = scheme_root / "contactless" / "cases"
+    cases_dir = brand_root / "contactless" / "cases"
     group_dir = cases_dir / "QPB-I-010"
 
     # 9F10（issuerApplicationData）样例：22 10 90 42 03 24 00 00 00 00 00 00
@@ -579,7 +579,7 @@ def _gen_qpb_i_010_group(scheme_root: Path, scheme: dict, brand: str,
         "summary": "联机交易不能完成（如主机没有响应）时，读写器应拒绝交易并提示商户和持卡人交易被拒绝",
         "purpose": "在交易不能联机完成时，确保读写器拒绝交易并提示商户和持卡人交易被拒绝",
         "test_conditions": "读写器支持拒绝交易；读写器具有联机能力；联机交易不能完成（例如：主机没有响应）",
-        "scheme": brand,
+        "brand": brand,
         "entry_mode": "contactless",
         "test_plan": [
             {"step": 1, "action": "交易预处理和探测卡片成功完成",
@@ -608,9 +608,9 @@ def _gen_qpb_i_010_group(scheme_root: Path, scheme: dict, brand: str,
         "title": "交易不能联机完成（读写器拒绝交易）",
         "summary": "GPO 响应含 9F10（第5字节第6-5位='10'）；联机主机无响应；"
                    "读写器应拒绝交易（档案随案例内嵌）",
-        "scheme": brand,
+        "brand": brand,
         "entry_mode": "contactless",
-        "profile": embedded_profile(scheme, brand, case_id,
+        "profile": embedded_profile(brand, brand, case_id,
                                     "交易不能联机完成（拒绝交易）",
                                     "online_request", 8,
                                     extra={"issuerApplicationData": iad_9f10}),
@@ -651,7 +651,7 @@ def _gen_qpb_i_010_group(scheme_root: Path, scheme: dict, brand: str,
     })
 
 
-def _gen_qpb_b_002_group(scheme_root: Path, scheme: dict, brand: str,
+def _gen_qpb_b_002_group(brand_root: Path, brand: dict, brand: str,
                          pos_params: list[dict]) -> None:
     """UnionPay QPB.B.002.00「状态检查请求（Status Check Requested）」分组演示。
 
@@ -666,7 +666,7 @@ def _gen_qpb_b_002_group(scheme_root: Path, scheme: dict, brand: str,
     * 终局（用户约定）：acBehavior=online_request 回 ARQC，联机批准
       （outcome=approved / online=online / resp_code=00，需测试收单主机）。
     """
-    cases_dir = scheme_root / "contactless" / "cases"
+    cases_dir = brand_root / "contactless" / "cases"
     group_dir = cases_dir / "QPB-B-002"
 
     # PDOL tag-长度模板（12 字节）：请求 9F37(不可预知数) 9F02(金额)
@@ -683,7 +683,7 @@ def _gen_qpb_b_002_group(scheme_root: Path, scheme: dict, brand: str,
                    "一个货币单位）",
         "test_conditions": "读卡器支持状态检查；授权金额为一个货币单位且低于"
                            "读写器非接触脱机金额/最低限额",
-        "scheme": brand,
+        "brand": brand,
         "entry_mode": "contactless",
         "test_plan": [
             {"step": 1, "action": "交易预处理和探测卡片成功完成",
@@ -714,9 +714,9 @@ def _gen_qpb_b_002_group(scheme_root: Path, scheme: dict, brand: str,
         "summary": "金额 0.01（一个货币单位，低于各限额）；FCI 带 9F38 PDOL 请求 "
                    "9F66；终端 TTQ 9F66=36804000（字节2位8='1'）请求联机密文并联机"
                    "批准（档案随案例内嵌）",
-        "scheme": brand,
+        "brand": brand,
         "entry_mode": "contactless",
-        "profile": embedded_profile(scheme, brand, case_id,
+        "profile": embedded_profile(brand, brand, case_id,
                                     "状态检查请求（9F66 请求联机密文）",
                                     "online_request", 9,
                                     extra={"pdol": pdol_9f66}),
@@ -771,7 +771,7 @@ def _gen_qpb_b_002_group(scheme_root: Path, scheme: dict, brand: str,
     })
 
 
-def _gen_qpb_d_001_group(scheme_root: Path, scheme: dict, brand: str,
+def _gen_qpb_d_001_group(brand_root: Path, brand: dict, brand: str,
                          pos_params: list[dict]) -> None:
     """UnionPay QPB.D.001.00「使用 PPSE 目录选择方式」分组演示。
 
@@ -786,12 +786,12 @@ def _gen_qpb_d_001_group(scheme_root: Path, scheme: dict, brand: str,
     注：Visa 卡组下同名历史分组 OPBD-001（早期测试添加）保留不动；本组
     仅属于 UnionPay（AID A000000333010101，FCI 内 label = UNIONPAY）。
     """
-    cases_dir = scheme_root / "contactless" / "cases"
+    cases_dir = brand_root / "contactless" / "cases"
     group_dir = cases_dir / "QPB-D-001"
 
     def missing_aid_fci() -> str:
         """PPSE FCI：目录条目(61)带 50 label + 87 priority，但无 4F=AID。"""
-        label_hex = scheme["label"].encode().hex()  # UNIONPAY
+        label_hex = brand["label"].encode().hex()  # UNIONPAY
         entry61 = _tlv("61", _tlv("50", label_hex) + "870101")
         fci = _tlv("6F", _tlv("84", "2PAY.SYS.DDF01".encode().hex())
                    + _tlv("A5", _tlv("BF0C", entry61)))
@@ -803,7 +803,7 @@ def _gen_qpb_d_001_group(scheme_root: Path, scheme: dict, brand: str,
         "summary": "PPSE 目录选择方式：SELECT PPSE 响应正确性分组（UnionPay）",
         "purpose": "确保读写器使用目录选择方式来选择PPSE",
         "test_conditions": "卡片对 SELECT PPSE 命令的响应为 FCI 和 '9000'",
-        "scheme": brand,
+        "brand": brand,
         "entry_mode": "contactless",
         "test_plan": [
             {"step": 1, "action": "交易预处理和探测卡片处理成功完成",
@@ -857,9 +857,9 @@ def _gen_qpb_d_001_group(scheme_root: Path, scheme: dict, brand: str,
             "case_id": case_id,
             "title": sub_title,
             "summary": f"PPSE 子案例：{ppse_name}（档案随案例内嵌）",
-            "scheme": brand,
+            "brand": brand,
             "entry_mode": "contactless",
-            "profile": embedded_profile(scheme, brand, case_id, ppse_name,
+            "profile": embedded_profile(brand, brand, case_id, ppse_name,
                                         behavior, pan_key, extra=ppse_extra),
             "transaction": {
                 "operator_instructions": {
@@ -909,9 +909,9 @@ def _ppse_missing_aid_fci() -> str:
     return fci.upper()
 
 
-def _gen_ppse_group(scheme_root: Path, scheme: dict, brand: str,
+def _gen_ppse_group(brand_root: Path, brand: dict, brand: str,
                     pos_params: list[dict]) -> None:
-    cases_dir = scheme_root / "contactless" / "cases"
+    cases_dir = brand_root / "contactless" / "cases"
 
     group_dir = cases_dir / "OPBD-001"
     write(group_dir / "group.json", {
@@ -920,7 +920,7 @@ def _gen_ppse_group(scheme_root: Path, scheme: dict, brand: str,
         "summary": "PPSE 目录选择方式：SELECT PPSE 响应正确性分组",
         "purpose": "确保读写器使用目录选择方式来选择PPSE",
         "test_conditions": "卡片对 SELECT PPSE 命令的响应为 FCI 和 '9000'",
-        "scheme": brand,
+        "brand": brand,
         "entry_mode": "contactless",
         "test_plan": [
             {"step": 1, "action": "交易预处理和探测卡片处理成功完成",
@@ -969,9 +969,9 @@ def _gen_ppse_group(scheme_root: Path, scheme: dict, brand: str,
             "case_id": case_id,
             "title": sub_title,
             "summary": f"PPSE 子案例：{ppse_name}（档案随案例内嵌）",
-            "scheme": brand,
+            "brand": brand,
             "entry_mode": "contactless",
-            "profile": embedded_profile(scheme, brand, case_id, ppse_name,
+            "profile": embedded_profile(brand, brand, case_id, ppse_name,
                                         behavior, pan_key, extra=ppse_extra),
             "transaction": {
                 "operator_instructions": {

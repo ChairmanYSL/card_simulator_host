@@ -1,7 +1,7 @@
 {
-  "scheme": "amex",
-  "display_name": "American Express",
-  "description": "American Express demo case library",
+  "brand": "visa",
+  "display_name": "Visa",
+  "description": "Visa demo case library",
   "entry_modes": [
     "contactless"
   ],
@@ -10,23 +10,23 @@
     "retry_count": 1
   },
   "card_template": {
-    "id": "amex_card_template",
-    "name": "American Express 默认卡片",
-    "network": "AMEX",
+    "id": "visa_card_template",
+    "name": "Visa 默认卡片",
+    "network": "VISA",
     "isActive": true,
     "aids": [
       {
-        "aid": "A00000002501",
-        "label": "AMEX",
+        "aid": "A0000000031010",
+        "label": "VISA CREDIT",
         "priority": 0
       }
     ],
-    "pan": "3400000000000000",
+    "pan": "4761340000000001",
     "panSequenceNumber": 1,
     "applicationExpirationDate": "281231",
-    "cardholderName": "AMEX TEST CARD",
-    "track2EquivalentData": "333430303030303030303030303030303d32383132323031",
-    "applicationLabel": "AMEX",
+    "cardholderName": "VISA TEST CARD",
+    "track2EquivalentData": "343736313334303030303030303030313d32383132323031",
+    "applicationLabel": "VISA CREDIT",
     "applicationVersionNumber": "0001",
     "aip": "5800",
     "afl": "08010100",

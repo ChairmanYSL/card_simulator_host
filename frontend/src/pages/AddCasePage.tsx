@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import type { PosParam, SchemeNode } from "../types";
+import type { PosParam, BrandNode } from "../types";
 
 type PlanRow = { action: string; expect: string };
 type RuleRow = { path: string; op: string; expect: string; severity: string };
@@ -14,13 +14,13 @@ export type CaseDraft = {
   case_id: string;
   title: string;
   summary: string;
-  scheme: string;
+  brand: string;
   // optional 所属总案例: when set the case is a 子案例 (written into the group dir)
   groupId: string;
   timeout_seconds: number;
   retry_on_fail: number;
   preconditions: string[];
-  // card profile (cloned from the scheme card_template, bound to the case)
+  // card profile (cloned from the brand card_template, bound to the case)
   profileName: string;
   network: string;
   pan: string;
@@ -37,13 +37,13 @@ export type CaseDraft = {
   jsonProfileMode: boolean;
   jsonProfileText: string;
   keysJson: string;
-  // POS transaction parameters (scheme template auto-added, tags editable)
+  // POS transaction parameters (brand template auto-added, tags editable)
   posParams: PosRow[];
   // v1.2: per-case POS kernel parameters (AID/CAPK/TERM) as a JSON document.
   // Deep validation is the server's job; this stays a textarea by design (no
   // AID/CAPK table UI in this iteration).
   kernelParamsJson: string;
-  // v1.2.x: modular named POS configs resolved from <kernel-params-dir>/<scheme>/.
+  // v1.2.x: modular named POS configs resolved from <kernel-params-dir>/<brand>/.
   kernelParamsRef: string;   // CONF module
   terminalProfileRef: string; // PROFILE module (term appended after CONF)
   // operator guidance + machine expectations
@@ -66,7 +66,7 @@ export type GroupDraft = {
   summary: string;
   purpose: string;
   test_conditions: string;
-  scheme: string;
+  brand: string;
   plan: PlanRow[];
   pass_criteria: string[];
 };
@@ -167,12 +167,12 @@ function posToRows(params: PosParam[] | null | undefined): PosRow[] {
   }));
 }
 
-export function emptyDraft(scheme: string): CaseDraft {
+export function emptyDraft(brand: string): CaseDraft {
   return {
     case_id: "",
     title: "",
     summary: "",
-    scheme,
+    brand,
     groupId: "",
     timeout_seconds: 180,
     retry_on_fail: 0,
@@ -197,14 +197,14 @@ export function emptyDraft(scheme: string): CaseDraft {
   };
 }
 
-export function emptyGroupDraft(scheme: string): GroupDraft {
+export function emptyGroupDraft(brand: string): GroupDraft {
   return {
     group_id: "",
     title: "",
     summary: "",
     purpose: "",
     test_conditions: "",
-    scheme,
+    brand,
     plan: [{ action: "", expect: "" }],
     pass_criteria: [""],
   };
@@ -268,7 +268,7 @@ export function buildPayload(d: CaseDraft): unknown {
     case_id: d.case_id.trim(),
     title: d.title.trim(),
     summary: d.summary.trim(),
-    scheme: d.scheme,
+    brand: d.brand,
     entry_mode: "contactless",
     profile: buildProfile(d),
     keys: buildKeys(d),
@@ -334,7 +334,7 @@ export function buildGroupPayload(g: GroupDraft): unknown {
     summary: g.summary.trim(),
     purpose: g.purpose.trim(),
     test_conditions: g.test_conditions.trim(),
-    scheme: g.scheme,
+    brand: g.brand,
     entry_mode: "contactless",
     test_plan: g.plan.map((row, i) => ({ step: i + 1, action: row.action.trim(), expect: row.expect.trim() })),
     pass_criteria: g.pass_criteria.map((c) => c.trim()).filter(Boolean),
@@ -550,18 +550,18 @@ function suggestSubId(groupId: string, childCount: number): string {
 }
 
 export function AddCasePage({
-  schemes,
+  brands,
   onAdded,
   onGoto,
 }: {
-  schemes: SchemeNode[];
+  brands: BrandNode[];
   onAdded: () => void;
-  onGoto: (scheme: string, mode: string) => void;
+  onGoto: (brand: string, mode: string) => void;
 }) {
   const [kind, setKind] = useState<Kind>("case");
   const [tab, setTab] = useState<string>("basic");
-  const [draft, setDraft] = useState<CaseDraft>(() => emptyDraft(schemes[0]?.scheme ?? ""));
-  const [gdraft, setGdraft] = useState<GroupDraft>(() => emptyGroupDraft(schemes[0]?.scheme ?? ""));
+  const [draft, setDraft] = useState<CaseDraft>(() => emptyDraft(brands[0]?.brand ?? ""));
+  const [gdraft, setGdraft] = useState<GroupDraft>(() => emptyGroupDraft(brands[0]?.brand ?? ""));
   const [errors, setErrors] = useState<Errors>({});
   const [gerrors, setGerrors] = useState<Errors>({});
   const [templateError, setTemplateError] = useState<string | null>(null);
@@ -571,9 +571,9 @@ export function AddCasePage({
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonText, setJsonText] = useState("");
 
-  const scheme = kind === "case" ? draft.scheme : gdraft.scheme;
-  const schemeNode = schemes.find((s) => s.scheme === scheme);
-  const groups = schemeNode?.entry_modes.find((m) => m.mode === "contactless")?.groups ?? [];
+  const brand = kind === "case" ? draft.brand : gdraft.brand;
+  const brandNode = brands.find((s) => s.brand === brand);
+  const groups = brandNode?.entry_modes.find((m) => m.mode === "contactless")?.groups ?? [];
 
   const set = <K extends keyof CaseDraft>(key: K, value: CaseDraft[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -582,9 +582,9 @@ export function AddCasePage({
 
   const applyTemplate = (sch: string) => {
     setTemplateError(null);
-    api.schemeTemplate(sch).then((res) => {
+    api.brandTemplate(sch).then((res) => {
       setDraft((prev) => {
-        if (prev.scheme !== sch) return prev; // user switched away meanwhile
+        if (prev.brand !== sch) return prev; // user switched away meanwhile
         const card = templateToDraft(res.card_template);
         return { ...prev, ...card, posParams: posToRows(res.pos_params) };
       });
@@ -593,12 +593,12 @@ export function AddCasePage({
   };
 
   useEffect(() => {
-    if (!draft.scheme) return;
-    applyTemplate(draft.scheme);
+    if (!draft.brand) return;
+    applyTemplate(draft.brand);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.scheme]);
+  }, [draft.brand]);
 
-  const changeScheme = (sch: string) => {
+  const changeBrand = (brand: string) => {
     setDraft((prev) => ({ ...emptyDraft(sch), title: prev.title, summary: prev.summary,
       timeout_seconds: prev.timeout_seconds, retry_on_fail: prev.retry_on_fail }));
     setGdraft((prev) => ({ ...emptyGroupDraft(sch), title: prev.title, summary: prev.summary }));
@@ -632,7 +632,7 @@ export function AddCasePage({
   };
 
   const reset = () => {
-    const sch = scheme;
+    const sch = brand;
     setDraft(emptyDraft(sch));
     setGdraft(emptyGroupDraft(sch));
     setErrors({});
@@ -657,7 +657,7 @@ export function AddCasePage({
     setJsonText("");
     if (k === "group") {
       setGdraft((prev) =>
-        prev.scheme === draft.scheme ? prev : { ...emptyGroupDraft(draft.scheme), title: prev.title });
+        prev.brand === draft.brand ? prev : { ...emptyGroupDraft(draft.brand), title: prev.title });
     }
   };
 
@@ -823,7 +823,7 @@ export function AddCasePage({
               }));
               setSuccess(null);
             }}>＋ 继续添加该组的子案例</button>
-            : <button className="btn" onClick={() => onGoto(draft.scheme, "contactless")}>查看用例</button>}
+            : <button className="btn" onClick={() => onGoto(draft.brand, "contactless")}>查看用例</button>}
           <button className="btn" onClick={reset}>继续添加</button>
         </div>
       )}
@@ -865,9 +865,9 @@ export function AddCasePage({
                 onChange={(e) => input("title", e.target.value)} />
             </Field>
             <Field label="卡组 *">
-              <select value={draft.scheme} onChange={(e) => changeScheme(e.target.value)}>
-                {schemes.map((s) => (
-                  <option key={s.scheme} value={s.scheme}>{s.display_name}</option>
+              <select value={draft.brand} onChange={(e) => changeBrand(e.target.value)}>
+                {brands.map((s) => (
+                  <option key={s.brand} value={s.brand}>{s.display_name}</option>
                 ))}
               </select>
             </Field>
@@ -1199,14 +1199,14 @@ export function AddCasePage({
             </details>
             <Field label="kernel_params_ref（命名 POS 配置）"
               error={errors.kernelParams}
-              hint="外部 <kernel-params-dir>/<scheme>/<ref>.json 的 id；与下方 JSON 二选一。留空=不引用">
+              hint="外部 <kernel-params-dir>/<brand>/<ref>.json 的 id；与下方 JSON 二选一。留空=不引用">
               <input type="text" value={draft.kernelParamsRef}
                 placeholder="如 CONF_01"
                 onChange={(e) => input("kernelParamsRef", e.target.value)} />
             </Field>
             <Field label="terminal_profile_ref（终端 Profile 模块）"
               error={errors.kernelParams}
-              hint="外部 <kernel-params-dir>/<scheme>/PROFILE_XX.json 的 id；与 CONF 模块自由配对，term 追加在 CONF 之后。留空=不加 Profile">
+              hint="外部 <kernel-params-dir>/<brand>/PROFILE_XX.json 的 id；与 CONF 模块自由配对，term 追加在 CONF 之后。留空=不加 Profile">
               <input type="text" value={draft.terminalProfileRef}
                 placeholder="如 PROFILE_01"
                 onChange={(e) => input("terminalProfileRef", e.target.value)} />
@@ -1350,9 +1350,9 @@ export function AddCasePage({
                   onChange={(e) => ginput("title", e.target.value)} />
               </Field>
               <Field label="卡组 *">
-                <select value={gdraft.scheme} onChange={(e) => changeScheme(e.target.value)}>
-                  {schemes.map((s) => (
-                    <option key={s.scheme} value={s.scheme}>{s.display_name}</option>
+                <select value={gdraft.brand} onChange={(e) => changeBrand(e.target.value)}>
+                  {brands.map((s) => (
+                    <option key={s.brand} value={s.brand}>{s.display_name}</option>
                   ))}
                 </select>
               </Field>

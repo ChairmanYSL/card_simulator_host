@@ -1,7 +1,7 @@
 {
-  "scheme": "unionpay",
-  "display_name": "UnionPay",
-  "description": "UnionPay demo case library",
+  "brand": "discover",
+  "display_name": "Discover",
+  "description": "Discover demo case library",
   "entry_modes": [
     "contactless"
   ],
@@ -10,23 +10,23 @@
     "retry_count": 1
   },
   "card_template": {
-    "id": "unionpay_card_template",
-    "name": "UnionPay 默认卡片",
-    "network": "UNIONPAY",
+    "id": "discover_card_template",
+    "name": "Discover 默认卡片",
+    "network": "DISCOVER",
     "isActive": true,
     "aids": [
       {
-        "aid": "A000000333010101",
-        "label": "UNIONPAY",
+        "aid": "A0000003241010",
+        "label": "DISCOVER",
         "priority": 0
       }
     ],
-    "pan": "6222020000000007",
+    "pan": "6011000000000004",
     "panSequenceNumber": 1,
     "applicationExpirationDate": "281231",
-    "cardholderName": "UP TEST CARD",
-    "track2EquivalentData": "363232323032303030303030303030373d32383132323031",
-    "applicationLabel": "UNIONPAY",
+    "cardholderName": "DISCOVER TEST CARD",
+    "track2EquivalentData": "363031313030303030303030303030343d32383132323031",
+    "applicationLabel": "DISCOVER",
     "applicationVersionNumber": "0001",
     "aip": "5800",
     "afl": "08010100",
@@ -59,9 +59,9 @@
       "value": "156"
     },
     {
-      "tag": "9F33",
-      "name": "terminal_capabilities",
-      "value": "E0F0C8"
+      "tag": "9C",
+      "name": "transaction_type",
+      "value": "00"
     }
   ],
   "environment_assumptions": "online cases require a test acquirer host / card whitelist; the card answers ARQC with a dummy cryptogram, so a real production host would decline online transactions"

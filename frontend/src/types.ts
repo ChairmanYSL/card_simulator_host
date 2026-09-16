@@ -26,7 +26,7 @@ export type CaseRunResult = {
 
 export type SessionInfo = {
   run_id: string;
-  scheme: string;
+  brand: string;
   mode: string;
   run_status: string;
   stop_requested: boolean;
@@ -42,7 +42,7 @@ export type Snapshot = {
   session: SessionInfo;
 };
 
-export type SchemeCase = { case_id: string; title: string };
+export type BrandCase = { case_id: string; title: string };
 
 export type GroupChild = { case_id: string; title: string };
 
@@ -58,20 +58,20 @@ export type GroupNode = {
   children: GroupChild[];
 };
 
-export type SchemeMode = {
+export type BrandMode = {
   mode: string;
   case_count: number;
-  cases: SchemeCase[];       // all leaf cases (standalone + 子案例)
-  standalone: SchemeCase[];  // leaf cases that belong to no group
+  cases: BrandCase[];       // all leaf cases (standalone + 子案例)
+  standalone: BrandCase[];  // leaf cases that belong to no group
   groups: GroupNode[];       // 总案例 groups (with 子案例 children)
 };
 
-export type SchemeNode = {
-  scheme: string;
+export type BrandNode = {
+  brand: string;
   display_name: string;
   description: string;
   case_count: number;
-  entry_modes: SchemeMode[];
+  entry_modes: BrandMode[];
 };
 
 export type LibraryIssue = { path: string; severity: string; message: string };
@@ -134,7 +134,7 @@ export type ProfileSummary = {
   hasKeys: boolean;
 };
 
-export type SchemeTemplate = {
+export type BrandTemplate = {
   card_template: Record<string, unknown> | null;
   pos_params: PosParam[];
 };
@@ -158,7 +158,7 @@ export type CaseDetail = {
   case_id: string;
   title: string;
   summary: string;
-  scheme: string;
+  brand: string;
   entry_mode: string;
   profile: ProfileSummary;
   has_keys: boolean;
@@ -169,14 +169,14 @@ export type CaseDetail = {
   operator_instructions: OperatorInstructions;
   pos_params: PosParam[];
   expected_results: MatchRule[];
-  // v1.2: per-case POS kernel parameter override (null = use scheme default)
+  // v1.2: per-case POS kernel parameter override (null = use brand default)
   kernel_params?: KernelParams | null;
 };
 
 export type HistorySummary = {
   run_id: string;
   kind: string;
-  scheme: string;
+  brand: string;
   mode: string;
   status: string;
   created_at: number;

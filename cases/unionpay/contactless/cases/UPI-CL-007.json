@@ -2,7 +2,7 @@
   "case_id": "UPI-CL-007",
   "title": "UnionPay contactless GPO 首次不响应后恢复正常（times=1）",
   "summary": "noResponseCommands=首次 GPO 无响应，重试后卡片正常应答，交易批准（档案随案例内嵌）",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "UPI-CL-007",

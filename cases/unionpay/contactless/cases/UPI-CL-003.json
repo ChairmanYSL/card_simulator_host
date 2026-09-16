@@ -2,7 +2,7 @@
   "case_id": "UPI-CL-003",
   "title": "UnionPay contactless online approved (ARQC/ARPC, test host)",
   "summary": "contactless transaction with ac_behavior=online_request",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "UPI-CL-003",

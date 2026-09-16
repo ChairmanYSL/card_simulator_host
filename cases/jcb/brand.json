@@ -1,7 +1,7 @@
 {
-  "scheme": "pure",
-  "display_name": "PURE",
-  "description": "PURE demo case library",
+  "brand": "jcb",
+  "display_name": "JCB",
+  "description": "JCB demo case library",
   "entry_modes": [
     "contactless"
   ],
@@ -10,48 +10,23 @@
     "retry_count": 1
   },
   "card_template": {
-    "id": "pure_card_template",
-    "name": "PURE 默认卡片",
-    "network": "PURE",
+    "id": "jcb_card_template",
+    "name": "JCB 默认卡片",
+    "network": "JCB",
     "isActive": true,
     "aids": [
       {
-        "aid": "D9999999991010",
-        "label": "PURE",
+        "aid": "A0000000651010",
+        "label": "JCB CREDIT",
         "priority": 0
-      },
-      {
-        "aid": "D9999999992020",
-        "label": "PURE",
-        "priority": 1
-      },
-      {
-        "aid": "D666666666",
-        "label": "PURE",
-        "priority": 2
-      },
-      {
-        "aid": "A0000002282010",
-        "label": "PURE",
-        "priority": 3
-      },
-      {
-        "aid": "A0000002802010",
-        "label": "PURE",
-        "priority": 4
-      },
-      {
-        "aid": "A0000007231010",
-        "label": "PURE",
-        "priority": 5
       }
     ],
-    "pan": "6280706258024090",
+    "pan": "3528000000000007",
     "panSequenceNumber": 1,
     "applicationExpirationDate": "281231",
-    "cardholderName": "PURE TEST CARD",
-    "track2EquivalentData": "6280706258024090D280460110889160",
-    "applicationLabel": "PURE",
+    "cardholderName": "JCB TEST CARD",
+    "track2EquivalentData": "333532383030303030303030303030373d32383132323031",
+    "applicationLabel": "JCB CREDIT",
     "applicationVersionNumber": "0001",
     "aip": "5800",
     "afl": "08010100",
@@ -70,8 +45,7 @@
         ]
       }
     ],
-    "acBehavior": "offline_approved",
-    "kernelId": "2D"
+    "acBehavior": "offline_approved"
   },
   "pos_params": [
     {

@@ -57,7 +57,7 @@ class RunStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     # -- run lifecycle ------------------------------------------------------
-    def new_run(self, scheme: str, mode: str, case_ids: list[str],
+    def new_run(self, brand: str, mode: str, case_ids: list[str],
                 kind: str) -> dict[str, Any]:
         run_id = f"{time.strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
         run_dir = self.root / time.strftime("%Y-%m-%d") / run_id
@@ -66,7 +66,7 @@ class RunStore:
         run = {
             "run_id": run_id,
             "kind": kind,  # full | selected | single | resume
-            "scheme": scheme,
+            "brand": brand,
             "mode": mode,
             "status": "PENDING",
             "created_at": time.time(),
@@ -195,7 +195,7 @@ class RunStore:
         return {
             "run_id": run.get("run_id"),
             "kind": run.get("kind"),
-            "scheme": run.get("scheme"),
+            "brand": run.get("brand"),
             "mode": run.get("mode"),
             "status": run.get("status"),
             "created_at": run.get("created_at"),

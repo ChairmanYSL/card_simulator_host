@@ -17,7 +17,7 @@ $redlines = @(
   'test_runner_timeout.py::test_pos_offline_fails_case_instead_of_warning',
   'test_runner_timeout.py::test_android_error_keeps_status_error_and_stops_run',
   'test_runner_timeout.py::test_kernel_config_is_pushed_before_pos_config',
-  'test_runner_timeout.py::test_case_level_kernel_params_override_scheme',
+  'test_runner_timeout.py::test_case_level_kernel_params_override_brand',
   'test_loader_store.py::test_duplicate_case_id_rejected_and_first_kept',
   'test_loader_store.py::test_case_id_colliding_with_group_id_is_an_error',
   'test_loader_store.py::test_atomic_write_leaves_no_tmp_and_reads_back',

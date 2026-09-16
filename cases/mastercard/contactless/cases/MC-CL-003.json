@@ -2,7 +2,7 @@
   "case_id": "MC-CL-003",
   "title": "Mastercard contactless online approved (ARQC/ARPC, test host)",
   "summary": "contactless transaction with ac_behavior=online_request",
-  "scheme": "mastercard",
+  "brand": "mastercard",
   "entry_mode": "contactless",
   "profile": {
     "id": "MC-CL-003",

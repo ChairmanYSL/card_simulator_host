@@ -62,14 +62,14 @@ class FakeProtocol:
 class FakeLibrary:
     def __init__(self, case: TestCase) -> None:
         self.case = case
-        self.schemes = {"visa": type("S", (), {
+        self.brands = {"visa": type("S", (), {
             "suite_policy": SuitePolicy(retry_count=0),
             "kernel_params": None})()}
 
-    def get_case(self, scheme, mode, case_id):  # noqa: ARG002
+    def get_case(self, brand, mode, case_id):  # noqa: ARG002
         return self.case if case_id == self.case.case_id else None
 
-    def kernel_params_for(self, scheme):  # noqa: ARG002
+    def kernel_params_for(self, brand):  # noqa: ARG002
         """Mirror CaseLibrary.kernel_params_for (the executor's lookup point)."""
         return None
 
@@ -83,7 +83,7 @@ class FailingStore(RunStore):
 
 def make_case() -> TestCase:
     return TestCase(
-        case_id=CASE_ID, title="offline approve", scheme="visa",
+        case_id=CASE_ID, title="offline approve", brand="visa",
         profile=CardProfile(id=CASE_ID),
         transaction=TransactionParams(
             operator_instructions=OperatorInstructions()),

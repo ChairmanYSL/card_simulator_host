@@ -2,7 +2,7 @@
   "case_id": "VISA-CL-004",
   "title": "Visa contactless transaction data tags present",
   "summary": "contactless transaction with ac_behavior=offline_approved",
-  "scheme": "visa",
+  "brand": "visa",
   "entry_mode": "contactless",
   "profile": {
     "id": "VISA-CL-004",

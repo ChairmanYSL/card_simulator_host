@@ -2,7 +2,7 @@
   "case_id": "QPB-B-002-01",
   "title": "状态检查请求（9F66 请求联机密文）",
   "summary": "金额 0.01（一个货币单位，低于各限额）；FCI 带 9F38 PDOL 请求 9F66；终端 TTQ 9F66=36804000（字节2位8='1'）请求联机密文并联机批准（档案随案例内嵌）",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "QPB-B-002-01",

@@ -4,15 +4,15 @@ The host currently runs **contactless (非接) tests only**.  The library layout
 (root = ``--cases`` dir) is::
 
     cases/
-      <scheme>/                 e.g. visa
-        scheme.json             scheme metadata + suite policy + card_template
+      <brand>/                 e.g. visa
+        brand.json             brand metadata + suite policy + card_template
         contactless/cases/<case_id>.json          (self-contained TestCase)
         contactless/cases/<group>/group.json      (总案例 description)
         contactless/cases/<group>/<group>-NN.json (子案例, self-contained)
 
 Profiles are **bound to cases**: every executable case embeds its full
 CardProfile (and optional KeysBundle) in its own JSON file; there is no
-scheme-level shared profile library.  A 总案例 (group) carries no profile —
+brand-level shared profile library.  A 总案例 (group) carries no profile —
 only its 子案例 do.
 """
 
@@ -213,13 +213,13 @@ class ExceptionFileParam(BaseModel):
 
 
 class KernelParams(BaseModel):
-    """POS kernel parameter set for one scheme (or a case-level override).
+    """POS kernel parameter set for one brand (or a case-level override).
 
     Every field is optional: an omitted/empty ``KernelParams`` means "do not
     push pos_kernel_config for this case" -- the POS keeps its built-in tables.
     Host-side data normally comes from the out-of-repo kernel params directory
-    (``<kernel-params-dir>/<scheme>.json`` or the named library
-    ``<kernel-params-dir>/<scheme>/<ref>.json``); see
+    (``<kernel-params-dir>/<brand>.json`` or the named library
+    ``<kernel-params-dir>/<brand>/<ref>.json``); see
     tools/export_kernel_params.py and tools/import_expresspay_xml.py.
     """
 
@@ -274,19 +274,19 @@ class KernelParams(BaseModel):
         }
 
 
-class SchemeDef(BaseModel):
-    scheme: str
+class BrandDef(BaseModel):
+    brand: str
     display_name: str
     description: str = ""
     entry_modes: list[EntryMode] = [EntryMode.CONTACTLESS, EntryMode.CONTACT]
     suite_policy: SuitePolicy = Field(default_factory=SuitePolicy)
-    # scheme-level default card (cloned by the add-case page) and the scheme's
-    # default POS transaction parameter template (per-scheme requirements)
+    # brand-level default card (cloned by the add-case page) and the brand's
+    # default POS transaction parameter template (per-brand requirements)
     card_template: CardProfile | None = None
     pos_params: list[PosParam] = Field(default_factory=list)
     # v1.2: POS kernel parameters (AID/CAPK/TERM) pushed per case, before
-    # pos_config.  Loaded from the gitignored local cases/<scheme>/kernel_params.json;
-    # a case-level KernelParams overrides this scheme default entirely.
+    # pos_config.  Loaded from the gitignored local cases/<brand>/kernel_params.json;
+    # a case-level KernelParams overrides this brand default entirely.
     kernel_params: KernelParams | None = None
     environment_assumptions: str = ""
 
@@ -492,7 +492,7 @@ class TestCase(BaseModel):
         description="unique case id; also used as the JSON file name")
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(default="", max_length=2000)
-    scheme: str = Field(min_length=1, max_length=64)
+    brand: str = Field(min_length=1, max_length=64)
     entry_mode: EntryMode = EntryMode.CONTACTLESS
     # profile is EMBEDDED (bound to this case) — no shared profile library.
     # profile.id may be omitted in the file and is auto-filled with case_id.
@@ -503,22 +503,22 @@ class TestCase(BaseModel):
                                  description="set by the loader when the case "
                                              "is a 子案例 inside a group dir")
     transaction: TransactionParams = Field(default_factory=TransactionParams)
-    # v1.2: case-level POS kernel parameter override; when None the scheme
+    # v1.2: case-level POS kernel parameter override; when None the brand
     # default applies, when empty the case pushes nothing (POS keeps its tables)
     kernel_params: KernelParams | None = None
     # v1.2.x: modular named POS configs, freely paired by the case.  Both are
     # resolved from the out-of-repo library
-    # (``<kernel-params-dir>/<scheme>/<ref>.json``) in memory only -- CAPK
+    # (``<kernel-params-dir>/<brand>/<ref>.json``) in memory only -- CAPK
     # moduli never enter the case file.  Both are mutually exclusive with an
     # inline ``kernel_params``.
     #: CONF module (AID/CAPK/DRL/ExceptionFile + TerminalParameter term)
     kernel_params_ref: str | None = Field(
         default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
-        description="CONF module id under <kernel-params-dir>/<scheme>/")
+        description="CONF module id under <kernel-params-dir>/<brand>/")
     #: Profile module (Profile tags as term); appended after the CONF term
     terminal_profile_ref: str | None = Field(
         default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
-        description="PROFILE module id under <kernel-params-dir>/<scheme>/")
+        description="PROFILE module id under <kernel-params-dir>/<brand>/")
     preconditions: list[str] = Field(default_factory=list, max_length=20)
     test_plan: list[TestPlanStep] = Field(default_factory=list, max_length=50)
     timeout_seconds: int = Field(default=180, ge=10, le=3600)
@@ -537,7 +537,7 @@ class GroupDef(BaseModel):
     summary: str = Field(default="", max_length=2000)
     purpose: str = Field(default="", max_length=2000)          # 测试目的
     test_conditions: str = Field(default="", max_length=2000)  # 测试条件
-    scheme: str = Field(min_length=1, max_length=64)
+    brand: str = Field(min_length=1, max_length=64)
     entry_mode: EntryMode = EntryMode.CONTACTLESS
     test_plan: list[TestPlanStep] = Field(default_factory=list, max_length=50)
     pass_criteria: list[str] = Field(default_factory=list, max_length=50)

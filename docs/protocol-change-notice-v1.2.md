@@ -1,5 +1,7 @@
 # POS 端 v1.2 协议变更通知
 
+> **术语更正（与 v1.2 同窗口）**：帧内的卡组字段由 `scheme` 更名为 **`brand`**（取值不变）。详见 `docs/protocol-change-notice-brand.md`。
+
 > **对象**：POS 应用（`com.zt.pos`，E:\Work\ZT\KS8226\L2-SELFTEST-APP）
 > **来源**：host 仓库 `E:\Work\ZT\card_simulator_host`
 > **日期**：2026-09-14
@@ -48,14 +50,14 @@ POS 端握手帧（示例）：
 （卡端就绪后）
 1. config_push{config_type:"pos_kernel_config", case_id, attempt_id, kernel_params}
 2. config_push{config_type:"pos_config",         case_id, attempt_id, pos_params}
-3. case_started{case_id, attempt_id, scheme, entry_mode, operator_instructions}
+3. case_started{case_id, attempt_id, brand, entry_mode, operator_instructions}
    ← 之后由 POS 操作员完成交易
 4. POS → host: transaction_result{case_id, attempt_id, result, device_id?}
 ```
 
 要点：
 
-* 第 1 步**可选**：host 只有在该 scheme 配了内核参数集时才发；没配就完全不发这一帧，
+* 第 1 步**可选**：host 只有在该 brand 配了内核参数集时才发；没配就完全不发这一帧，
   POS 应继续用自带表。负载里的 `aid`/`capk` 为空数组时同样视为「无可下发」。
 * 第 1 步始终在 `pos_config` **之前**。
 * 第 2 步在案例的 `pos_params` 非空时才发。
@@ -213,7 +215,7 @@ Expresspay 的 `TerminalConfig/*.xml` 每份还含 CRL（host 侧字段名 `drl`
 
 ```json
 {"v":1,"type":"case_started","msg_id":"...","ts":0,
- "case_id":"VISA-CL-001","attempt_id":"...","scheme":"visa",
+ "case_id":"VISA-CL-001","attempt_id":"...","brand":"visa",
  "entry_mode":"contactless","operator_instructions":{...}}
 ```
 
@@ -253,7 +255,7 @@ host 在**异常收尾**时向 POS 与卡端各发一次：
 
 ```json
 {"v":1,"type":"session_abort","msg_id":"...","ts":0,
- "run_id":"...","scheme":"visa","mode":"contactless",
+ "run_id":"...","brand":"visa","mode":"contactless",
  "case_id":"VISA-CL-001","attempt_id":"...",
  "reason":"case_failed|result_timeout|pos_disconnected|android_disconnected|manual_abort|...",
  "action":"stop"}
@@ -346,7 +348,7 @@ DF03 = 47E658CEAEE1FF313B755ADB4EBC98A5DC288937
 
 ```json
 {"v":1,"type":"session_abort","msg_id":"ab12","ts":0,"run_id":"20260914T204420_982800bd",
- "scheme":"visa","mode":"contactless","case_id":"VISA-CL-001","attempt_id":"15d6dc56...",
+ "brand":"visa","mode":"contactless","case_id":"VISA-CL-001","attempt_id":"15d6dc56...",
  "reason":"result_timeout","action":"stop"}
 ```
 

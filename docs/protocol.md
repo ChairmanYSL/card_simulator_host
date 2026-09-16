@@ -111,7 +111,7 @@
 | type | 字段 | 说明 |
 |---|---|---|
 | config_push（pos_config） | `config_type, case_id, attempt_id, pos_params[{tag,name,value}]` | **每用例、安卓 emulating 之后、case_started 之前**下发；POS 应用交易参数后必 ack；POS 离线仅 warn（操作员可在 POS 上手动输入） |
-| case_started | `case_id, attempt_id, scheme, entry_mode, operator_instructions` | 信息帧，人工操作提示 |
+| case_started | `case_id, attempt_id, brand, entry_mode, operator_instructions` | 信息帧，人工操作提示 |
 
 ### 6.4 status / trace（安卓状态机，N9 定稿时序）
 ```
@@ -164,8 +164,8 @@ host 侧：缺失这些字段不影响判定（仅影响报告与归因质量）
 **v2 案例库布局**（profiles 与案例绑定，无卡组级共享档案库）：:
 
     cases/
-      <scheme>/
-        scheme.json                      scheme metadata + suite policy
+      <brand>/
+        brand.json                      brand metadata + suite policy
                                          + card_template + pos_params 模板
         contactless/cases/<case_id>.json              独立可执行案例（自包含）
         contactless/cases/<group>/group.json          总案例（仅说明，无 profile）
@@ -177,8 +177,8 @@ host 侧：缺失这些字段不影响判定（仅影响报告与归因质量）
 * **总案例可经 UI/JSON 创建**（`POST /api/groups`，仅说明 + test plan，
   **无 profile/keys/交易参数/预期结果**）；携带 `group_id` 的可执行案例
   写入 `<group>/<case_id>.json` 目录（loader 按目录归属，文件内不落 group_id）；
-* `scheme.json.card_template`：该卡组默认卡片模板（新建案例时克隆）；
-* `scheme.json.pos_params`：该卡组默认 **POS 交易参数模板**（新建案例自动带出，
+* `brand.json.card_template`：该卡组默认卡片模板（新建案例时克隆）；
+* `brand.json.pos_params`：该卡组默认 **POS 交易参数模板**（新建案例自动带出，
   可增删改，tag 可自行设定）；
 * 案例内 `transaction.pos_params`：本次实际下发的 POS 参数（tag 列表）。
 
@@ -220,7 +220,7 @@ keys}` 下发安卓；**交易参数（pos_params，按 tag）只下发 POS**（
 ### 8.1 POS 交易参数（pos_params）
 
 ```jsonc
-// scheme.json 模板（每卡组要求不同）与案例内 transaction.pos_params 同构
+// brand.json 模板（每卡组要求不同）与案例内 transaction.pos_params 同构
 "pos_params": [
   {"tag": "9F02", "name": "amount", "value": "100.00"},   // 金额
   {"tag": "5F2A", "name": "currency", "value": "156"},    // 币种
@@ -264,7 +264,7 @@ keys}` 下发安卓；**交易参数（pos_params，按 tag）只下发 POS**（
 `6F20 840E 325041592E5359532E4444463031 A50E BF0C0B 6109 5004 56495341 870101`
 （generator 编程构造，长度由 loader 的 TLV 校验兜底）。
 
-host 加载校验（针对案例内嵌 profile / scheme.json card_template）：Luhn；
+host 加载校验（针对案例内嵌 profile / brand.json card_template）：Luhn；
 有效期 YYMMDD；hex 偶长；afl 4N+first≤last；records sfi∈[1,31]、无重复；
 aids hex；acBehavior 非法仅 warning；内嵌 keys 校验 base64 与 id 模式
 `^[A-Za-z0-9_-]{1,64}$`；pos_params tag 格式在模型层拦截、重复 tag 仅 warning。
@@ -452,15 +452,15 @@ ARQC→`80`）。
   `DF03 = SHA1(9F06‖9F22‖DF02‖DF04)`；
 * DF05 支持 `ascii8`（默认）|`bcd4`|`bcd3`|`raw`；
 * 同一 RID 内容不同时必须**真正覆盖**（DELETE-then-ADD），不得静默跳过；
-* 数据来自**仓库外**目录（`serve --kernel-params-dir`）：`<scheme>.json` 为卡组默认，
-  `<scheme>/<ref>.json` 为命名 POS 配置库，分 `CONF_*`（AID/CAPK/DRL/ExceptionFile +
+* 数据来自**仓库外**目录（`serve --kernel-params-dir`）：`<brand>.json` 为卡组默认，
+  `<brand>/<ref>.json` 为命名 POS 配置库，分 `CONF_*`（AID/CAPK/DRL/ExceptionFile +
   TerminalParameter）与 `PROFILE_*`（Profile tags）两类模块，case 自由配对；
   `tools/import_expresspay_xml.py` 从 Expresspay XML 生成（Amex `version:"4.2.0"`）。仓库内不含密钥材料。
 
 ### 12.5 `session_abort`
 
 ```json
-{"type":"session_abort","run_id":"...","scheme":"visa","mode":"contactless",
+{"type":"session_abort","run_id":"...","brand":"visa","mode":"contactless",
  "case_id":"...","attempt_id":"...","reason":"case_failed|result_timeout|...","action":"stop"}
 ```
 
@@ -528,10 +528,22 @@ ARQC→`80`）。
 |---|---|---|
 | `--card-ack-timeout` | 15 | 卡端 ack 预算（秒） |
 | `--pos-ack-timeout` | 15 | POS 端 ack 预算（秒） |
-| `--kernel-params-dir` | 无 | 仓库外内核参数目录（每 scheme 一个 `<scheme>.json`） |
+| `--kernel-params-dir` | 无 | 仓库外内核参数目录（每 brand 一个 `<brand>.json`） |
 
 ### 12.13 测试基线
 
 * host 侧 `cd backend && python -m pytest`：**182 passed**；
 * 测试方案与修订：`docs/test-plan-v1.2.md`（含 P-D1..P-D7 修订）；
 * L5/L6 真机联调**阻塞**：需两端升级到 1.2 并各自发 `[READY]`。
+
+---
+
+## 13. 术语：卡组字段统一为 `brand`
+
+> 影响：wire（POS/卡端）+ 仓库内代码/数据/文档。与 v1.2 **同窗口升级**，协议版本仍为 `1.2`。
+
+* `case_started`、`session_abort` 帧里的 `scheme` 字段更名为 **`brand`**；取值不变
+  （小写卡组 id：`visa`/`mastercard`/`unionpay`/`jcb`/`amex`/`discover`/`pure`）。
+* EMV/支付领域规范术语是 **card brand / payment brand**，故全面替换 `scheme`。
+* case JSON、`brand.json`、API 路径、前端与文档同步改名；**不提供 `scheme` 兼容别名**（硬切换）。
+* 对端改动详见 `docs/protocol-change-notice-brand.md`。

@@ -41,7 +41,7 @@
   方案 §4.1 要求手工 `Remove-Item`；**实际未手工删**——`appconfig.py:151-164` 的 `acquire_lock()` 对死 pid 锁会自动替换并打 warning。首轮 host 启动日志实测出现
   `removing stale lock from dead pid 60656`，锁随后换成新 pid，退出时被 `cli.py:265-269` 正常解除（`Test-Path runs\.host.lock` 在每轮结束后均为 `False`）。
 * 端口 8000/9100 执行前空闲；Python 依赖齐全（pytest/pydantic/fastapi/uvicorn/websockets/httpx 均可导入）。
-* `cases/` 冷加载：7 个 scheme、0 error、0 warning（见 L1-4）。
+* `cases/` 冷加载：7 个 brand、0 error、0 warning（见 L1-4）。
 
 ### 1.2 已获用户授权的范围（严格限定，未越界）
 
@@ -65,7 +65,7 @@
 | L1-1 | `python -m py_compile`（方案列出的 12 个模块，cwd=backend） | 无输出、退出码 0 | 退出码 0，无输出 | PASS |
 | L1-2 | 三次 `python -c`：导入装配、常量、AppConfig 默认值 | `1.2 session_abort pos_kernel_config`；`15.0 15.0 3.0 3.0` | 逐字一致 | PASS |
 | L1-3 | `--help` / `--version` / `run --help` / `status`（host 未起） | help 含两个 ack-timeout 且注明 default 15、不出现 `Uvicorn running`；version=`0.1.0`；run help 列 5 个开关；status 非零退出 | 全部一致；`--card-ack-timeout` 帮助文本为 `seconds to wait for a card-side ack (default 15)`；`Uvicorn running` 未出现；`status` 退出码 1、报 `cannot reach server at 127.0.0.1:8000` | PASS |
-| L1-4 | `load_library(<repo>/cases)` | 7 scheme、errors 为空、visa 含 `VISA-CL-001..004` 与 `OPBD-001-*` | `['amex','discover','jcb','mastercard','pure','unionpay','visa']`；`errors: []`；visa contactless 8 例（`OPBD-001-01..04` + `VISA-CL-001..004`）；**issues 全表为空（0 error / 0 warning）** | PASS |
+| L1-4 | `load_library(<repo>/cases)` | 7 brand、errors 为空、visa 含 `VISA-CL-001..004` 与 `OPBD-001-*` | `['amex','discover','jcb','mastercard','pure','unionpay','visa']`；`errors: []`；visa contactless 8 例（`OPBD-001-01..04` + `VISA-CL-001..004`）；**issues 全表为空（0 error / 0 warning）** | PASS |
 
 产物：`evidence/L1-1_py_compile.log`、`L1-2_imports.log`、`L1-3_*.txt`、`L1-4_*.log`。
 
@@ -102,9 +102,9 @@ PYTEST_EXIT=0
 * POS 离线 → `FAIL` + `pos_not_connected`（不再 warn）；
 * `status:error` → 案例 ERROR 且 `results[...].android_error == {code,message}`；
 * `pos_kernel_config` 早于 `pos_config`，且帧内 `kernel_params.aid[0]` 以 `9F06` 开头；
-* 案例级 `kernel_params` 完全覆盖 scheme；
+* 案例级 `kernel_params` 完全覆盖 brand；
 * 同号案例记 error 且保留独立文件那一份；`case_id` 与 `group_id` 互斥；
-* 原子写无 `*.tmp` 残留；`cases/<scheme>/kernel_params.json` 被加载且 0 error；
+* 原子写无 `*.tmp` 残留；`cases/<brand>/kernel_params.json` 被加载且 0 error；
 * `../` 路径 → HTTP 400 且提示「用例库之外」；总案例带 `kernel_params` → 校验失败；
 * `/ws?since=abc` → 仍先收到 `kind=snapshot`、`seq=0`；
 * `pid_alive`：本进程 pid 存活，死 pid 与 0/-1 为 False。

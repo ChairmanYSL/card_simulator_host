@@ -192,7 +192,7 @@ class RunExecutor:
         session.request_abort()
 
     # -- commands ---------------------------------------------------------------
-    async def start(self, scheme: str, mode: str, case_ids: list[str],
+    async def start(self, brand: str, mode: str, case_ids: list[str],
                     kind: str, resume_from: str | None = None,
                     overrides: dict[str, Any] | None = None) -> tuple[bool, str]:
         if self.busy:
@@ -200,27 +200,27 @@ class RunExecutor:
             logger.warning("start rejected: a run is already in progress (%s)",
                            detail)
             return False, f"a run is already in progress ({detail})"
-        if scheme not in self.library.schemes:
-            return False, f"unknown scheme {scheme!r}"
-        if mode not in self.library.entry_modes_for(scheme):
-            return False, f"unknown entry mode {mode!r} for scheme {scheme!r}"
-        available = self.library.all_case_ids(scheme, mode)
+        if brand not in self.library.brands:
+            return False, f"unknown brand {brand!r}"
+        if mode not in self.library.entry_modes_for(brand):
+            return False, f"unknown entry mode {mode!r} for brand {brand!r}"
+        available = self.library.all_case_ids(brand, mode)
         unknown = [c for c in case_ids if c not in available]
         if unknown:
             return False, f"unknown case ids: {unknown}"
         if not case_ids:
             return False, "no cases to run"
 
-        run = self.store.new_run(scheme, mode, case_ids, kind)
+        run = self.store.new_run(brand, mode, case_ids, kind)
         if resume_from:
             run["resumed_from"] = resume_from
             self.store.update_run(run)
-        session = RunSession(run, scheme, mode, case_ids)
+        session = RunSession(run, brand, mode, case_ids)
         session.policy_override = {k: v for k, v in (overrides or {}).items()
                                    if v is not None}
         self._session = session
         self._task = asyncio.create_task(self._run_loop(session))
-        await self.log("info", f"run {run['run_id']} queued: {scheme}/{mode} "
+        await self.log("info", f"run {run['run_id']} queued: {brand}/{mode} "
                                f"({len(case_ids)} cases, kind={kind})")
         return True, run["run_id"]
 
@@ -456,7 +456,7 @@ class RunExecutor:
             await self._ack(conn, msg_id, ok=True, detail="quarantined")
             return
 
-        case = self.library.get_case(session.scheme, session.mode, case_id)
+        case = self.library.get_case(session.brand, session.mode, case_id)
         if case is None:
             await self._quarantine(session, frame)
             await self._ack(conn, msg_id, ok=True, detail="quarantined")
@@ -553,7 +553,7 @@ class RunExecutor:
         run["started_at"] = time.time()
         self.store.update_run(run)
         await self.publish("run_status", self.snapshot()["session"])
-        await self.log("info", f"run {run['run_id']} started: {run['scheme']}/{run['mode']}")
+        await self.log("info", f"run {run['run_id']} started: {run['brand']}/{run['mode']}")
 
         stop_reason = ""
         failing_case_id = ""
@@ -563,7 +563,7 @@ class RunExecutor:
                 break
             if session.stop_requested:
                 break
-            case = self.library.get_case(session.scheme, session.mode, case_id)
+            case = self.library.get_case(session.brand, session.mode, case_id)
             if case is None:  # shouldn't happen (validated at start)
                 await self.log("error", f"case vanished from library: {case_id}")
                 continue
@@ -651,8 +651,8 @@ class RunExecutor:
         v1.2 D4/Q9: a FAIL is terminal for the whole run, so a failed case is
         never retried into a second attempt that would paper over it.
         """
-        scheme_def = self.library.schemes[session.scheme]
-        policy = scheme_def.suite_policy
+        brand_def = self.library.brands[session.brand]
+        policy = brand_def.suite_policy
         override = session.policy_override
         max_attempts = override.get("retry_count")
         if max_attempts is None:
@@ -695,11 +695,11 @@ class RunExecutor:
         return outcome, False
 
     def _kernel_params_for(self, session: RunSession, case: TestCase) -> KernelParams | None:
-        """Case-level kernel params override the scheme default entirely (R2)."""
+        """Case-level kernel params override the brand default entirely (R2)."""
         if case.kernel_params is not None:
             return case.kernel_params
         # single lookup point shared with the loader/API (C3 external dir aware)
-        return self.library.kernel_params_for(session.scheme)
+        return self.library.kernel_params_for(session.brand)
 
     async def _attempt(self, session: RunSession, case: TestCase,
                        attempt: int, attempt_id: str) -> str:
@@ -782,7 +782,7 @@ class RunExecutor:
             return "fail" if session.failure_reason else "aborted"
 
         # 2.5 push POS kernel parameters (AID/CAPK/TERM) BEFORE pos_config.
-        #     Whole set is per case (scheme default or case override); an empty
+        #     Whole set is per case (brand default or case override); an empty
         #     set means "do not touch the POS kernel tables".
         kernel = self._kernel_params_for(session, case)
         if kernel is not None and not kernel.empty:
@@ -867,7 +867,7 @@ class RunExecutor:
             MSG_CASE_STARTED,
             case_id=case.case_id,
             attempt_id=attempt_id,
-            scheme=case.scheme,
+            brand=case.brand,
             entry_mode=case.entry_mode.value,
             operator_instructions=instructions,
         )
@@ -1002,7 +1002,7 @@ class RunExecutor:
         frame = make_frame(
             MSG_SESSION_ABORT,
             run_id=session.run.get("run_id"),
-            scheme=session.scheme,
+            brand=session.brand,
             mode=session.mode,
             case_id=session.current_case_id,
             attempt_id=session.current_attempt_id,

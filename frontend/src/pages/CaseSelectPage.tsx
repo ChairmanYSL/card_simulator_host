@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import type { CaseDetail, GroupNode, SchemeCase, SchemeNode } from "../types";
+import type { CaseDetail, GroupNode, BrandCase, BrandNode } from "../types";
 
 type RunOptions = {
   retry_count: number;
@@ -11,12 +11,12 @@ type DetailState =
   | { kind: "group"; group: GroupNode };
 
 export function CaseSelectPage({
-  schemeNode,
+  brandNode,
   defaultMode,
   onBack,
   onStart,
 }: {
-  schemeNode: SchemeNode;
+  brandNode: BrandNode;
   defaultMode: string;
   onBack: () => void;
   onStart: (kind: string, caseIds: string[], options: RunOptions,
@@ -33,7 +33,7 @@ export function CaseSelectPage({
   });
   const [caseError, setCaseError] = useState<string | null>(null);
 
-  const modeNode = schemeNode.entry_modes.find((m) => m.mode === mode);
+  const modeNode = brandNode.entry_modes.find((m) => m.mode === mode);
   const caseIds = useMemo(() => (modeNode?.cases ?? []).map((c) => c.case_id), [modeNode]);
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export function CaseSelectPage({
   const openCaseDetail = async (caseId: string) => {
     setCaseError(null);
     try {
-      setDetail({ kind: "case", detail: await api.caseDetail(schemeNode.scheme, mode, caseId) });
+      setDetail({ kind: "case", detail: await api.caseDetail(brandNode.brand, mode, caseId) });
     } catch (e) {
       setCaseError(e instanceof Error ? e.message : String(e));
       setDetail(null);
@@ -81,7 +81,7 @@ export function CaseSelectPage({
             group.group_id);
   };
 
-  const renderLeafRow = (c: SchemeCase) => (
+  const renderLeafRow = (c: BrandCase) => (
     <tr key={c.case_id} className={`case-row ${selected.has(c.case_id) ? "selected" : ""}`}>
       <td>
         <input type="checkbox" style={{ accentColor: "var(--accent)" }}
@@ -97,12 +97,12 @@ export function CaseSelectPage({
       <div className="toolbar">
         <button className="btn" onClick={onBack}>← 返回卡组</button>
         <h3 className="section-title" style={{ margin: 0 }}>
-          <b>01 ▸</b> {schemeNode.display_name.toUpperCase()} / 选择用例
+          <b>01 ▸</b> {brandNode.display_name.toUpperCase()} / 选择用例
         </h3>
       </div>
 
       <div className="toolbar">
-        {schemeNode.entry_modes.map((m) => (
+        {brandNode.entry_modes.map((m) => (
           <button key={m.mode}
             className={`btn ${m.mode === mode ? "primary" : ""}`}
             onClick={() => setMode(m.mode)}>

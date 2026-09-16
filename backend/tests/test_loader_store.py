@@ -1,5 +1,5 @@
 """Library loader + store tests using a tiny generated library (v2 layout:
-profiles embedded in cases, scheme.json card_template + pos_params)."""
+profiles embedded in cases, brand.json card_template + pos_params)."""
 
 import json
 
@@ -13,8 +13,8 @@ def _write(path, obj):
     path.write_text(json.dumps(obj, indent=2), encoding="utf-8")
 
 
-SCHEME = {
-    "scheme": "visa",
+BRAND = {
+    "brand": "visa",
     "display_name": "Visa",
     "entry_modes": ["contactless", "contact"],
     "suite_policy": {"on_failure": "stop", "retry_count": 1},
@@ -57,7 +57,7 @@ CASE = {
     "case_id": "VIS-CL-001",
     "title": "contactless offline approved",
     "summary": "tap card, expect offline approval",
-    "scheme": "visa",
+    "brand": "visa",
     "entry_mode": "contactless",
     "profile": dict(PROFILE),
     "transaction": {
@@ -86,7 +86,7 @@ CASE = {
 
 def make_library(tmp_path):
     root = tmp_path / "cases"
-    _write(root / "visa" / "scheme.json", SCHEME)
+    _write(root / "visa" / "brand.json", BRAND)
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", CASE)
     _write(root / "visa" / "contact" / "cases" / "VIS-C-001.json",
            {**CASE, "case_id": "VIS-C-001", "entry_mode": "contact"})
@@ -100,18 +100,18 @@ def test_luhn():
 
 def test_load_library(tmp_path):
     library = load_library(make_library(tmp_path))
-    assert list(library.schemes) == ["visa"]
+    assert list(library.brands) == ["visa"]
     assert library.all_case_ids("visa", "contactless") == ["VIS-CL-001"]
     assert library.all_case_ids("visa", "contact") == ["VIS-C-001"]
     tree = library.tree()
-    assert tree[0]["scheme"] == "visa"
+    assert tree[0]["brand"] == "visa"
     assert tree[0]["case_count"] == 2
     assert not any(i.severity == "error" for i in library.issues)
-    # scheme defaults are indexed
-    scheme_def = library.schemes["visa"]
-    assert scheme_def.card_template is not None
-    assert scheme_def.card_template.id == "visa_card_template"
-    assert [p.tag for p in scheme_def.pos_params] == ["9F02"]
+    # brand defaults are indexed
+    brand_def = library.brands["visa"]
+    assert brand_def.card_template is not None
+    assert brand_def.card_template.id == "visa_card_template"
+    assert [p.tag for p in brand_def.pos_params] == ["9F02"]
 
 
 def test_profile_bound_to_case_id(tmp_path):
@@ -142,7 +142,7 @@ def test_missing_profile_is_error(tmp_path):
     library = load_library(root)
     assert any(i.severity == "error" and "内嵌" in i.message
                for i in library.issues)
-    assert library.scheme_cases("visa", "contactless") == {}
+    assert library.brand_cases("visa", "contactless") == {}
 
 
 def test_luhn_violation_caught(tmp_path):
@@ -225,7 +225,7 @@ def test_invalid_pos_tag_rejects_case(tmp_path):
     library = load_library(root)
     assert any(i.severity == "error" and "invalid case" in i.message
                for i in library.issues)
-    assert library.scheme_cases("visa", "contactless") == {}
+    assert library.brand_cases("visa", "contactless") == {}
 
 
 def test_run_store_round_trip(tmp_path):
@@ -282,7 +282,7 @@ GROUP = {
     "title": "PPSE directory selection",
     "purpose": "ensure PPSE directory selection",
     "test_conditions": "card answers SELECT PPSE with FCI and 9000",
-    "scheme": "visa",
+    "brand": "visa",
     "entry_mode": "contactless",
     "test_plan": [{"step": 1, "action": "preprocess", "expect": "ok"}],
     "pass_criteria": ["case 01 approves"],
@@ -291,7 +291,7 @@ GROUP = {
 SUB_CASE = {
     "case_id": "OPBD-001-01",
     "title": "normal FCI",
-    "scheme": "visa",
+    "brand": "visa",
     "entry_mode": "contactless",
     "profile": dict(PROFILE, ppseMode="auto"),
     "test_plan": [{"step": 1, "action": "a", "expect": "b"}],
@@ -318,7 +318,7 @@ def test_group_loaded_with_children(tmp_path):
     assert child.profile.id == "OPBD-001-01"  # bound to the sub-case
     assert "OPBD-001-01" in library.all_case_ids("visa", "contactless")
 
-    tree_mode = [s for s in library.tree() if s["scheme"] == "visa"][0]["entry_modes"][0]
+    tree_mode = [s for s in library.tree() if s["brand"] == "visa"][0]["entry_modes"][0]
     assert tree_mode["standalone"] == [{"case_id": "VIS-CL-001", "title": "contactless offline approved"}]
     assert tree_mode["groups"][0]["group_id"] == "OPBD-001"
     assert tree_mode["groups"][0]["children"][0]["case_id"] == "OPBD-001-01"
@@ -459,7 +459,7 @@ def test_duplicate_case_id_rejected_and_first_kept(tmp_path):
     group = cases / "OPBD-001"
     group.mkdir()
     _write(group / "group.json", {
-        "group_id": "OPBD-001", "title": "g", "scheme": "visa",
+        "group_id": "OPBD-001", "title": "g", "brand": "visa",
         "entry_mode": "contactless",
         "test_plan": [{"step": 1, "action": "a", "expect": "e"}]})
     duplicate = json.loads(json.dumps(CASE))
@@ -484,7 +484,7 @@ def test_case_id_colliding_with_group_id_is_an_error(tmp_path):
     group = cases / "OPBD-001"
     group.mkdir()
     _write(group / "group.json", {
-        "group_id": "OPBD-001", "title": "g", "scheme": "visa",
+        "group_id": "OPBD-001", "title": "g", "brand": "visa",
         "entry_mode": "contactless",
         "test_plan": [{"step": 1, "action": "a", "expect": "e"}]})
 
@@ -503,7 +503,7 @@ def test_duplicate_group_id_rejected(tmp_path):
         d = cases / name
         d.mkdir()
         _write(d / "group.json", {
-            "group_id": "OPBD-001", "title": f"g {name}", "scheme": "visa",
+            "group_id": "OPBD-001", "title": f"g {name}", "brand": "visa",
             "entry_mode": "contactless",
             "test_plan": [{"step": 1, "action": "a", "expect": "e"}]})
 
@@ -513,32 +513,32 @@ def test_duplicate_group_id_rejected(tmp_path):
         "g OPBD-001"
 
 
-def test_duplicate_scheme_directory_rejected(tmp_path):
+def test_duplicate_brand_directory_rejected(tmp_path):
     root = make_library(tmp_path)
     other = root / "visa-again"
     other.mkdir()
-    _write(other / "scheme.json", {**SCHEME, "display_name": "Visa clone"})
+    _write(other / "brand.json", {**BRAND, "display_name": "Visa clone"})
 
     library = load_library(root)
     assert any("重复定义" in i.message for i in _errors(library))
-    assert library.schemes["visa"].display_name == SCHEME["display_name"]
+    assert library.brands["visa"].display_name == BRAND["display_name"]
 
 
-def test_invalid_scheme_json_reported_not_raised(tmp_path):
-    """A broken scheme.json drops that scheme (with an error) but must not stop
-    the scan of the remaining schemes."""
+def test_invalid_brand_json_reported_not_raised(tmp_path):
+    """A broken brand.json drops that brand (with an error) but must not stop
+    the scan of the remaining brands."""
     root = make_library(tmp_path)
     other = root / "mastercard"
     other.mkdir()
-    _write(other / "scheme.json", {
-        "scheme": "mastercard", "display_name": "Mastercard",
+    _write(other / "brand.json", {
+        "brand": "mastercard", "display_name": "Mastercard",
         "entry_modes": ["contactless"]})
-    (root / "visa" / "scheme.json").write_text("{oops", encoding="utf-8")
+    (root / "visa" / "brand.json").write_text("{oops", encoding="utf-8")
 
     library = load_library(root)
-    assert "visa" not in library.schemes
-    assert "mastercard" in library.schemes
-    assert any("scheme.json" in i.path and i.severity == "error"
+    assert "visa" not in library.brands
+    assert "mastercard" in library.brands
+    assert any("brand.json" in i.path and i.severity == "error"
                for i in library.issues)
 
 
@@ -574,33 +574,33 @@ def test_local_kernel_params_are_loaded_only_when_opted_in(tmp_path):
 
     # default: not read at all
     default_library = load_library(root)
-    assert default_library.schemes["visa"].kernel_params is None
+    assert default_library.brands["visa"].kernel_params is None
     assert not _errors(default_library)
 
     # explicit opt-in: read and validated
     library = load_library(root, use_legacy_kernel_params=True)
-    params = library.schemes["visa"].kernel_params
+    params = library.brands["visa"].kernel_params
     assert params is not None
     assert len(params.aids) == 1 and len(params.caps) == 1
     assert params.term == _TERM
     assert not _errors(library)
 
 
-def test_absent_kernel_params_leave_scheme_default_none(tmp_path):
+def test_absent_kernel_params_leave_brand_default_none(tmp_path):
     root = make_library(tmp_path)
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", CASE)
     library = load_library(root)
-    assert library.schemes["visa"].kernel_params is None
+    assert library.brands["visa"].kernel_params is None
     assert not _errors(library)
 
 
-def test_broken_kernel_params_reported_and_scheme_still_loads(tmp_path):
+def test_broken_kernel_params_reported_and_brand_still_loads(tmp_path):
     root = make_library(tmp_path)
     _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", CASE)
     (root / "visa" / "kernel_params.json").write_text("{broken",
                                                       encoding="utf-8")
     library = load_library(root, use_legacy_kernel_params=True)
-    assert library.schemes["visa"].kernel_params is None
+    assert library.brands["visa"].kernel_params is None
     assert any("kernel_params.json" in i.path and i.severity == "error"
                for i in library.issues)
     assert library.get_case("visa", "contactless", "VIS-CL-001") is not None

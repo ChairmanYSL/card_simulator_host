@@ -2,7 +2,7 @@
   "case_id": "QPB-D-001-03",
   "title": "卡片返回的FCI信息中无61模板",
   "summary": "PPSE 子案例：PPSE 无 61 模板(empty)（档案随案例内嵌）",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "QPB-D-001-03",

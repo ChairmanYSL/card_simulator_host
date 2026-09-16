@@ -4,7 +4,7 @@
   "summary": "联机交易不能完成（如主机没有响应）时，读写器应拒绝交易并提示商户和持卡人交易被拒绝",
   "purpose": "在交易不能联机完成时，确保读写器拒绝交易并提示商户和持卡人交易被拒绝",
   "test_conditions": "读写器支持拒绝交易；读写器具有联机能力；联机交易不能完成（例如：主机没有响应）",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "test_plan": [
     {

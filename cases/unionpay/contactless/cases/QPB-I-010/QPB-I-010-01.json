@@ -2,7 +2,7 @@
   "case_id": "QPB-I-010-01",
   "title": "交易不能联机完成（读写器拒绝交易）",
   "summary": "GPO 响应含 9F10（第5字节第6-5位='10'）；联机主机无响应；读写器应拒绝交易（档案随案例内嵌）",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "QPB-I-010-01",

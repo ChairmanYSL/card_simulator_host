@@ -2,7 +2,7 @@
   "case_id": "MC-CL-002",
   "title": "Mastercard contactless offline declined (AAC)",
   "summary": "contactless transaction with ac_behavior=offline_declined",
-  "scheme": "mastercard",
+  "brand": "mastercard",
   "entry_mode": "contactless",
   "profile": {
     "id": "MC-CL-002",

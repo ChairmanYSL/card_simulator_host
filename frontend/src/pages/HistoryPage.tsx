@@ -54,7 +54,7 @@ export function HistoryPage() {
           <thead>
             <tr>
               <th>run id</th>
-              <th>scheme / mode</th>
+              <th>brand / mode</th>
               <th>kind</th>
               <th>status</th>
               <th>result</th>
@@ -66,7 +66,7 @@ export function HistoryPage() {
             {runs.map((r) => (
               <tr key={r.run_id} className="clickable" onClick={() => void open(r.run_id)}>
                 <td className="mono">{r.run_id}</td>
-                <td className="mono">{r.scheme}/{r.mode}</td>
+                <td className="mono">{r.brand}/{r.mode}</td>
                 <td className="muted">{r.kind}</td>
                 <td><Tag status={r.status} /></td>
                 <td>

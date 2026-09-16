@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { connectWs } from "./ws";
-import type { LogLine, OperatorInstructions, SchemeNode, SessionInfo, Snapshot, WsEvent } from "./types";
+import type { LogLine, OperatorInstructions, BrandNode, SessionInfo, Snapshot, WsEvent } from "./types";
 import { StatusBar } from "./components/StatusBar";
-import { SchemesPage } from "./pages/SchemesPage";
+import { BrandsPage } from "./pages/BrandsPage";
 import { CaseSelectPage } from "./pages/CaseSelectPage";
 import { AddCasePage } from "./pages/AddCasePage";
 import { RunPage } from "./pages/RunPage";
 import { HistoryPage } from "./pages/HistoryPage";
 
 type View =
-  | { name: "schemes" }
-  | { name: "select"; scheme: string; mode: string }
+  | { name: "brands" }
+  | { name: "select"; brand: string; mode: string }
   | { name: "add" }
   | { name: "run" }
   | { name: "history" };
@@ -19,13 +19,13 @@ type View =
 const EMPTY_SNAPSHOT: Snapshot = { devices: {}, session: null };
 
 export default function App() {
-  const [view, setView] = useState<View>({ name: "schemes" });
+  const [view, setView] = useState<View>({ name: "brands" });
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY_SNAPSHOT);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [instructions, setInstructions] = useState<Record<string, OperatorInstructions>>({});
   const [wsConnected, setWsConnected] = useState(false);
-  const [tree, setTree] = useState<{ schemes: SchemeNode[]; issues: { path: string; severity: string; message: string }[] }>(
-    { schemes: [], issues: [] },
+  const [tree, setTree] = useState<{ brands: BrandNode[]; issues: { path: string; severity: string; message: string }[] }>(
+    { brands: [], issues: [] },
   );
   const [startError, setStartError] = useState<string | null>(null);
   const snapshotRef = useRef(snapshot);
@@ -119,7 +119,7 @@ export default function App() {
     setStartError(null);
     try {
       await api.startRun({
-        scheme: view.scheme,
+        brand: view.brand,
         mode: view.mode,
         kind,
         case_ids: kind === "group" ? undefined : caseIds,
@@ -138,8 +138,8 @@ export default function App() {
 
   const nav = (name: View["name"]) => setView({ name } as View);
 
-  const schemeNode = view.name === "select"
-    ? tree.schemes.find((s) => s.scheme === view.scheme)
+  const brandNode = view.name === "select"
+    ? tree.brands.find((s) => s.brand === view.brand)
     : undefined;
 
   return (
@@ -149,8 +149,8 @@ export default function App() {
           EMV<span style={{ color: "var(--dim)" }}>//</span>HOST
           <small>auto test rig v0.1</small>
         </div>
-        <button className={`nav-item ${view.name === "schemes" ? "active" : ""}`}
-          onClick={() => nav("schemes")}>01 · 卡组入口</button>
+        <button className={`nav-item ${view.name === "brands" ? "active" : ""}`}
+          onClick={() => nav("brands")}>01 · 卡组入口</button>
         <button className={`nav-item ${view.name === "add" ? "active" : ""}`}
           onClick={() => nav("add")}>02 · 添加用例</button>
         <button className={`nav-item ${view.name === "run" ? "active" : ""}`}
@@ -170,26 +170,26 @@ export default function App() {
               start failed: {startError}
             </div>
           )}
-          {view.name === "schemes" && (
-            <SchemesPage
-              schemes={tree.schemes}
+          {view.name === "brands" && (
+            <BrandsPage
+              brands={tree.brands}
               issues={tree.issues}
-              onEnter={(scheme, mode) => setView({ name: "select", scheme, mode })}
+              onEnter={(brand, mode) => setView({ name: "select", brand, mode })}
             />
           )}
-          {view.name === "select" && schemeNode && (
+          {view.name === "select" && brandNode && (
             <CaseSelectPage
-              schemeNode={schemeNode}
+              brandNode={brandNode}
               defaultMode={view.mode}
-              onBack={() => setView({ name: "schemes" })}
+              onBack={() => setView({ name: "brands" })}
               onStart={onStart}
             />
           )}
           {view.name === "add" && (
             <AddCasePage
-              schemes={tree.schemes}
+              brands={tree.brands}
               onAdded={refreshTree}
-              onGoto={(scheme, mode) => setView({ name: "select", scheme, mode })}
+              onGoto={(brand, mode) => setView({ name: "select", brand, mode })}
             />
           )}
           {view.name === "run" && (

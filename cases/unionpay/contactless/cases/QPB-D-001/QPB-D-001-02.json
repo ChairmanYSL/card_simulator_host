@@ -2,7 +2,7 @@
   "case_id": "QPB-D-001-02",
   "title": "卡片返回的FCI信息中缺少AID信息",
   "summary": "PPSE 子案例：PPSE FCI 缺 AID(custom)（档案随案例内嵌）",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "QPB-D-001-02",

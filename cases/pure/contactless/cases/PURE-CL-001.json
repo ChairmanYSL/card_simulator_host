@@ -2,7 +2,7 @@
   "case_id": "PURE-CL-001",
   "title": "PURE contactless offline approved (TC) 冒烟用例",
   "summary": "contactless smoke case with ac_behavior=offline_approved （PURE：使用规范确认的 AID/PAN/track2/kernelId）",
-  "scheme": "pure",
+  "brand": "pure",
   "entry_mode": "contactless",
   "profile": {
     "id": "PURE-CL-001",

@@ -2,7 +2,7 @@
   "case_id": "UPI-CL-005",
   "title": "UnionPay contactless DEMO expected-failure (declined card, expect approve)",
   "summary": "contactless transaction with ac_behavior=offline_declined",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "UPI-CL-005",

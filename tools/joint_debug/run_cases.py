@@ -3,9 +3,9 @@
 Usage examples::
 
     # one case
-    python tools/joint_debug/run_cases.py --scheme visa --case VISA-CL-004
+    python tools/joint_debug/run_cases.py --brand visa --case VISA-CL-004
 
-    # every scheme, all cases, never stop on failure
+    # every brand, all cases, never stop on failure
     python tools/joint_debug/run_cases.py --all --on-failure continue --retry 0
 
 The script only uses the REST API (no imports from backend), waits for the run
@@ -31,8 +31,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 TERMINAL = {"FINISHED", "STOPPED", "ABORTED", "INTERRUPTED"}
-#: 已知长耗时用例（N12 静默让 POS 内核等满自身超时）：放到每个 scheme 的队尾，
-#: 避免它们迟到收尾时把下一个 scheme 的首例饿死（run #14 的 MC-CL-001 就是这样
+#: 已知长耗时用例（N12 静默让 POS 内核等满自身超时）：放到每个 brand 的队尾，
+#: 避免它们迟到收尾时把下一个 brand 的首例饿死（run #14 的 MC-CL-001 就是这样
 #: 被判 INCONCLUSIVE 的）。
 SLOW_CASES = {"UPI-CL-006", "UPI-CL-007"}
 
@@ -118,10 +118,10 @@ def api(base: str, path: str, method: str = "GET", payload: dict | None = None):
         return json.loads(response.read().decode("utf-8"))
 
 
-def start(base: str, scheme: str, mode: str, kind: str, case_ids: list[str],
+def start(base: str, brand: str, mode: str, kind: str, case_ids: list[str],
           on_failure: str, retry: int) -> str:
     body = {
-        "scheme": scheme, "mode": mode, "kind": kind, "case_ids": case_ids,
+        "brand": brand, "mode": mode, "kind": kind, "case_ids": case_ids,
         "on_failure": on_failure, "retry_count": retry,
     }
     result = api(base, "/api/run", "POST", body)
@@ -251,11 +251,11 @@ def preflight(base: str, expect: dict[str, str]) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://127.0.0.1:8000")
-    parser.add_argument("--scheme")
+    parser.add_argument("--brand")
     parser.add_argument("--mode", default="contactless")
     parser.add_argument("--case", action="append", default=[])
     parser.add_argument("--all", action="store_true",
-                        help="run every scheme/mode full")
+                        help="run every brand/mode full")
     parser.add_argument("--on-failure", default="stop",
                         choices=["stop", "continue"],
                         help="v1.2: the host always stops the run on the first "
@@ -264,7 +264,7 @@ def main() -> int:
     parser.add_argument("--retry", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--settle", type=float, default=15.0,
-                        help="每个 scheme 之间的静默等待秒数（等 POS 收尾上一笔）")
+                        help="每个 brand 之间的静默等待秒数（等 POS 收尾上一笔）")
     parser.add_argument("--out", default=None)
     parser.add_argument("--adb", default=DEFAULT_ADB)
     parser.add_argument("--serials", default=None,
@@ -284,12 +284,12 @@ def main() -> int:
 
     if args.all:
         tree = api(args.base, "/api/tree")
-        targets = [(s["scheme"], m["mode"])
-                   for s in tree["schemes"] for m in s["entry_modes"]]
-    elif args.scheme:
-        targets = [(args.scheme, args.mode)]
+        targets = [(s["brand"], m["mode"])
+                   for s in tree["brands"] for m in s["entry_modes"]]
+    elif args.brand:
+        targets = [(args.brand, args.mode)]
     else:
-        parser.error("need --scheme or --all")
+        parser.error("need --brand or --all")
 
     stamp = time.strftime("%Y%m%dT%H%M%S")
     out_path = Path(args.out) if args.out else (
@@ -304,23 +304,23 @@ def main() -> int:
 
     summaries = []
     try:
-        for scheme, mode in targets:
+        for brand, mode in targets:
             kind = "single" if len(args.case) == 1 else (
                 "selected" if args.case else "full")
             case_ids = list(args.case)
             if kind == "full":
                 # resolve ids via the tree so the run is deterministic
                 tree = api(args.base, "/api/tree")
-                node = next(s for s in tree["schemes"] if s["scheme"] == scheme)
+                node = next(s for s in tree["brands"] if s["brand"] == brand)
                 mode_node = next(m for m in node["entry_modes"] if m["mode"] == mode)
                 case_ids = [c["case_id"] for c in mode_node["cases"]]
             case_ids = order_cases(case_ids)
-            print(f"\n### {scheme}/{mode} kind={kind} cases={len(case_ids)}",
+            print(f"\n### {brand}/{mode} kind={kind} cases={len(case_ids)}",
                   flush=True)
             run_id = None
             for attempt in range(24):
                 try:
-                    run_id = start(args.base, scheme, mode, kind, case_ids,
+                    run_id = start(args.base, brand, mode, kind, case_ids,
                                    args.on_failure, args.retry)
                     break
                 except urllib.error.HTTPError as exc:
@@ -331,7 +331,7 @@ def main() -> int:
                         time.sleep(5)
                         continue
                     print(f"  start rejected: {exc.code} {detail}")
-                    summaries.append({"scheme": scheme, "mode": mode,
+                    summaries.append({"brand": brand, "mode": mode,
                                       "error": f"{exc.code}"})
                     break
             if run_id is None:
@@ -339,12 +339,12 @@ def main() -> int:
             wait_terminal(args.base, run_id, args.timeout)
             summaries.append(report(args.base, run_id))
             # Let the POS finish any in-flight transaction before the next
-            # scheme starts: a case that timed out on the host side may still
+            # brand starts: a case that timed out on the host side may still
             # be running on the POS, and the POS then ignores the next
             # case_started ("上一笔交易尚未结束"), which shows up as
             # INCONCLUSIVE on the following case.
             if args.settle > 0:
-                print(f"  settle {args.settle}s before the next scheme", flush=True)
+                print(f"  settle {args.settle}s before the next brand", flush=True)
                 time.sleep(args.settle)
     finally:
         if capture is not None:

@@ -1,11 +1,11 @@
-usage: card_simulator_host run [-h] [--port PORT] --scheme SCHEME --mode MODE
+usage: card_simulator_host run [-h] [--port PORT] --brand BRAND --mode MODE
                                [--all] [--case CASE] [--resume]
 
 options:
   -h, --help       show this help message and exit
   --port PORT      server web port
-  --scheme SCHEME
+  --brand BRAND
   --mode MODE
-  --all            run the whole scheme/mode
+  --all            run the whole brand/mode
   --case CASE      case id (repeatable; kind=selected)
-  --resume         resume from the latest run of this scheme/mode
+  --resume         resume from the latest run of this brand/mode

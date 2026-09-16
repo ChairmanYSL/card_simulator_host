@@ -12,7 +12,7 @@
         --out logs/joint_debug/full_run_9_report.md
 
 数据源（全部只读，不产生任何写操作）：
-  * ``--inputs``  本轮 run 汇总 JSON：``[{run:{run_id,scheme,mode,status,queue,results},
+  * ``--inputs``  本轮 run 汇总 JSON：``[{run:{run_id,brand,mode,status,queue,results},
     cases:[{case_id,status,note,failed_checks}]}]``（``logs/joint_debug/smoke_*.json``）
   * 逐用例原始结果：``<runs-root>/<YYYY-MM-DD>/<run_id>/results/<case_id>.json``
     （``raw_result.{resp_code,outcome,online,currency,tags}``、``verdict.status``、``verdict.rules[]``）
@@ -236,7 +236,7 @@ def load_case_library(cases_root: Path) -> Dict[str, Dict[str, Any]]:
             continue
         lib[str(case_id)] = {
             "title": obj.get("title") or "",
-            "scheme": obj.get("scheme") or "",
+            "brand": obj.get("brand") or "",
             "expected_results": obj.get("expected_results") or [],
             "ac_behavior": (obj.get("profile") or {}).get("acBehavior"),
             "path": str(path),
@@ -421,7 +421,7 @@ def build_entries(inputs: Sequence[Path], runs_root: Path, cases_root: Path) -> 
                 continue
             run = block.get("run") or {}
             run_id = str(run.get("run_id") or "")
-            scheme = str(run.get("scheme") or "")
+            brand = str(run.get("brand") or "")
             run_dir = find_run_dir(runs_root, run_id)
             run_finished_at = run.get("finished_at")
             cases = block.get("cases") or []
@@ -429,7 +429,7 @@ def build_entries(inputs: Sequence[Path], runs_root: Path, cases_root: Path) -> 
             run_infos.append(
                 {
                     "run_id": run_id,
-                    "scheme": scheme,
+                    "brand": brand,
                     "mode": run.get("mode"),
                     "status": run.get("status"),
                     "cases": len(cases),
@@ -449,7 +449,7 @@ def build_entries(inputs: Sequence[Path], runs_root: Path, cases_root: Path) -> 
                 entries.append(
                     {
                         "case_id": case_id,
-                        "scheme": scheme or meta.get("scheme") or "-",
+                        "brand": brand or meta.get("brand") or "-",
                         "run_id": run_id,
                         "status": status,
                         "note": case.get("note") or result.get("note") or "",
@@ -558,7 +558,7 @@ def render_report(
     add("| --- | --- | --- | --- | --- | --- |")
     for info in run_infos:
         add(
-            f"| {_cell(info['scheme'])} | `{_cell(info['run_id'])}` | {_cell(info['status'])} | "
+            f"| {_cell(info['brand'])} | `{_cell(info['run_id'])}` | {_cell(info['status'])} | "
             f"{info['cases']} | `{_cell(info['source'])}` | `{_cell(info['run_dir'])}` |"
         )
     add("")
@@ -589,17 +589,17 @@ def render_report(
     add("| 卡组 | 用例数 | PASS | FAIL | INCONCLUSIVE | 其中设计负例 | 通过率(含负例) | 通过率(不含负例) |")
     add("| --- | --- | --- | --- | --- | --- | --- | --- |")
 
-    scheme_order: List[str] = []
+    brand_order: List[str] = []
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for entry in entries:
-        if entry["scheme"] not in grouped:
-            grouped[entry["scheme"]] = []
-            scheme_order.append(entry["scheme"])
-        grouped[entry["scheme"]].append(entry)
+        if entry["brand"] not in grouped:
+            grouped[entry["brand"]] = []
+            brand_order.append(entry["brand"])
+        grouped[entry["brand"]].append(entry)
 
     totals = {"n": 0, "pass": 0, "fail": 0, "incon": 0, "neg": 0}
-    for scheme in scheme_order:
-        rows = grouped[scheme]
+    for brand in brand_order:
+        rows = grouped[brand]
         n = len(rows)
         n_pass = sum(1 for r in rows if r["status"] == "PASS")
         n_fail = sum(1 for r in rows if r["status"] == "FAIL")
@@ -611,7 +611,7 @@ def render_report(
         totals["incon"] += n_incon
         totals["neg"] += n_neg
         add(
-            f"| {_cell(scheme)} | {n} | {n_pass} | {n_fail} | {n_incon} | {n_neg} | "
+            f"| {_cell(brand)} | {n} | {n_pass} | {n_fail} | {n_incon} | {n_neg} | "
             f"{_pct(n_pass, n)} | {_pct(n_pass, n - n_neg)} |"
         )
     add(
@@ -652,7 +652,7 @@ def render_report(
                              result.get("kernel_stage"),
                              result.get("card_present_ms")) if v not in (None, "")) or "-"
         add(
-            f"| `{_cell(entry['case_id'])}` | {_cell(entry['scheme'])} | {_cell(entry['status'])} | "
+            f"| `{_cell(entry['case_id'])}` | {_cell(entry['brand'])} | {_cell(entry['status'])} | "
             f"{_cell(entry.get('failure_reason') or '-', 40)} | "
             f"{_cell(baseline_map.get(entry['case_id'], '—'))} | {_cell(roo)} | "
             f"{_cell(diagnostic, 80)} | {_cell(failed, 200)} | "
@@ -677,7 +677,7 @@ def render_report(
         add("- 本轮无非 PASS 用例。")
     for entry in detail_rows:
         result = entry["result"]
-        add(f"### {entry['case_id']}（{entry['scheme']} · 本轮 {entry['status']} · 基线 "
+        add(f"### {entry['case_id']}（{entry['brand']} · 本轮 {entry['status']} · 基线 "
             f"{baseline_map.get(entry['case_id'], '—')}）")
         add("")
         add(f"- **归因类别**：`{' + '.join(entry['categories'])}`")

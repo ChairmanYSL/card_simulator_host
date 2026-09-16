@@ -1,9 +1,9 @@
 """Import the Amex Expresspay 4.2.0 XML set into the host's named POS config
 library (out-of-repo) as **two independent module kinds**::
 
-    TerminalConfig/CONF_*.xml      -> <out>/<scheme>/CONF_XX.json
+    TerminalConfig/CONF_*.xml      -> <out>/<brand>/CONF_XX.json
         AID + CAPK + DRL(CRL) + ExceptionFile + TerminalParameter term
-    TerminalProfile/Profile_*.xml  -> <out>/<scheme>/PROFILE_XX.json
+    TerminalProfile/Profile_*.xml  -> <out>/<brand>/PROFILE_XX.json
         Profile tags as term
 
 A case pairs them freely at run time: ``kernel_params_ref`` selects a CONF
@@ -19,7 +19,7 @@ Usage::
         --config-dir "refernce/Expresspay 4.2.0/TerminalConfig" ^
         --profile-dir "refernce/Expresspay 4.2.0/TerminalProfile" ^
         --out-dir "E:\\Work\\ZT\\_secure\\card_simulator_host\\kernel_params" ^
-        --scheme amex
+        --brand amex
 
 Then start the host with::
 
@@ -265,19 +265,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile-dir", default="",
                         help="TerminalProfile dir (Profile_*.xml); optional")
     parser.add_argument("--out-dir", required=True,
-                        help="out-of-repo root; files go to <out>/<scheme>/")
-    parser.add_argument("--scheme", default="amex")
+                        help="out-of-repo root; files go to <out>/<brand>/")
+    parser.add_argument("--brand", default="amex")
     parser.add_argument("--version", default=DEFAULT_VERSION,
                         help=f"config revision stamped on every file "
                              f"(default {DEFAULT_VERSION})")
     parser.add_argument("--force", action="store_true",
-                        help="overwrite an existing non-empty <out>/<scheme>/")
+                        help="overwrite an existing non-empty <out>/<brand>/")
     args = parser.parse_args(argv)
 
     config_dir = Path(args.config_dir)
     profile_dir = Path(args.profile_dir) if args.profile_dir else None
     out_root = Path(args.out_dir)
-    out_dir = out_root / args.scheme
+    out_dir = out_root / args.brand
     if not config_dir.is_dir():
         print(f"error: config dir not found: {config_dir}", file=sys.stderr)
         return 2
@@ -331,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
                 "drl": 0, "exception_file": 0, "term": bool(config["term"]),
             })
         write_json(out_dir / "index.json", {
-            "scheme": args.scheme, "version": args.version,
+            "brand": args.brand, "version": args.version,
             "source_config_dir": str(config_dir),
             "source_profile_dir": str(profile_dir) if profile_dir else "",
             "configs": index_entries,

@@ -113,7 +113,7 @@ python -m emv_host --help
 
 预期：退出码 0；`--help` 里能看到 `--card-ack-timeout` 与 `--pos-ack-timeout`（默认 15）；不出现 `Uvicorn running`（即没有真的起服务）。
 
-实测（编写时）：`python -m emv_host --version` → `0.1.0`；`python -m emv_host run --help` → 列出 `--scheme/--mode/--all/--case/--resume`。
+实测（编写时）：`python -m emv_host --version` → `0.1.0`；`python -m emv_host run --help` → 列出 `--brand/--mode/--all/--case/--resume`。
 注意：host 未启动时 `python -m emv_host status` 会以 `cannot reach server at 127.0.0.1:8000` **非零退出**，属正常行为，不要当缺陷。
 
 仓库根目录下的 `card_simulator_host`（bash）、`card_simulator_host.bat`、`card_simulator_host.ps1` 是同一个入口的封装
@@ -129,13 +129,13 @@ cd E:\Work\ZT\card_simulator_host\backend
 python -c "
 from emv_host.cases import load_library
 lib = load_library(r'E:\Work\ZT\card_simulator_host\cases')
-print('schemes:', sorted(lib.schemes))
+print('brands:', sorted(lib.brands))
 print('errors:', [i.message for i in lib.issues if i.severity=='error'])
 print('visa cases:', lib.all_case_ids('visa','contactless'))
 "
 ```
 
-预期：7 个 scheme；**errors 为空列表**；visa 的案例号包含 `VISA-CL-001..004` 与 `OPBD-001-*`。
+预期：7 个 brand；**errors 为空列表**；visa 的案例号包含 `VISA-CL-001..004` 与 `OPBD-001-*`。
 > 若出现 error，先确认不是自己改坏了 `cases/`——本轮提交前后都应为 0 个 error。
 
 ---
@@ -174,7 +174,7 @@ python -m pytest -v --basetemp=E:\Work\ZT\card_simulator_host\tmp\pt_$(Get-Rando
 | `test_runner_timeout.py::test_pos_offline_fails_case_instead_of_warning` | POS 离线 → `FAIL` + `pos_not_connected`（不再是 warn） |
 | `test_runner_timeout.py::test_android_error_keeps_status_error_and_stops_run` | `status:error` → 案例 ERROR，`results[...].android_error == {code,message}` |
 | `test_runner_timeout.py::test_kernel_config_is_pushed_before_pos_config` | `pos_kernel_config` 在 `pos_config` **之前**；帧内 `kernel_params.aid[0]` 以 `9F06` 开头 |
-| `test_runner_timeout.py::test_case_level_kernel_params_override_scheme` | 案例级 `kernel_params` 完全覆盖 scheme 默认 |
+| `test_runner_timeout.py::test_case_level_kernel_params_override_brand` | 案例级 `kernel_params` 完全覆盖 brand 默认 |
 | `test_loader_store.py::test_duplicate_case_id_rejected_and_first_kept` | 同号案例记 error；保留**独立文件**（`cases/<ID>.json`）那一份 |
 | `test_loader_store.py::test_case_id_colliding_with_group_id_is_an_error` | `case_id` 与 `group_id` 互斥，报「互斥」 |
 | `test_loader_store.py::test_atomic_write_leaves_no_tmp_and_reads_back` | 无 `*.tmp` 残留；覆盖后内容完整 |
@@ -250,7 +250,7 @@ python tools\mock_clients\mock_pos.py --delay 2
 
 ```powershell
 cd E:\Work\ZT\card_simulator_host
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
 ```
 
 这是「离线批准」场景，与 mock POS 默认的 `--outcome approved_offline` 匹配。
@@ -297,7 +297,7 @@ python tools\mock_clients\mock_pos.py --delay 2 --outcome declined_offline
 跑 `VISA-CL-002`（期望 `resp_code=05 / declined / offline`）：
 
 ```powershell
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-002
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-002
 ```
 
 预期：案例 **PASS**（断言与 mock 的拒付响应一致），run `FINISHED`。
@@ -307,7 +307,7 @@ python -m emv_host run --scheme visa --mode contactless --case VISA-CL-002
 
 ```powershell
 python tools\mock_clients\mock_pos.py --delay 2 --outcome approved_online
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-003
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-003
 ```
 
 预期：`VISA-CL-003` PASS，`online=online` 断言满足。
@@ -318,7 +318,7 @@ python -m emv_host run --scheme visa --mode contactless --case VISA-CL-003
 
 ```powershell
 python tools\mock_clients\mock_pos.py --delay 2 --outcome declined_offline
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
 ```
 
 预期：
@@ -339,7 +339,7 @@ python -m emv_host serve --card-ack-timeout 2 --pos-ack-timeout 2 --log-level in
 卡端：**不启动** `mock_android.py`，直接跑 run：
 
 ```powershell
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
 ```
 
 预期：案例 `FAIL`，`failure_reason == "android_not_connected"`（设备未连接优先于 ack 超时）。
@@ -356,7 +356,7 @@ python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
 只启动卡端 mock，POS mock **不启动**：
 
 ```powershell
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
 ```
 
 预期：案例 `FAIL` + `failure_reason == "pos_not_connected"`；run `ABORTED` +
@@ -382,7 +382,7 @@ python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
 
 ```powershell
 python tools\mock_clients\mock_pos.py --delay 9999
-python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
+python -m emv_host run --brand visa --mode contactless --case VISA-CL-001
 ```
 
 `VISA-CL-001` 的 `timeout_seconds=180`，等待 180s（+ 余量）后：
@@ -398,7 +398,7 @@ python -m emv_host run --scheme visa --mode contactless --case VISA-CL-001
 
 ```powershell
 python tools\mock_clients\mock_pos.py --delay 2 --outcome declined_offline
-python -m emv_host run --scheme visa --mode contactless `
+python -m emv_host run --brand visa --mode contactless `
   --case VISA-CL-001 --case VISA-CL-002 --case VISA-CL-003
 ```
 预期：
@@ -417,7 +417,7 @@ python -m emv_host run --scheme visa --mode contactless `
 # 先看有哪些组
 python -m emv_host list | Select-String OPBD
 # 用 REST 开跑（PowerShell）
-$body = @{scheme='visa'; mode='contactless'; kind='group'; group_id='OPBD-001'} | ConvertTo-Json
+$body = @{brand='visa'; mode='contactless'; kind='group'; group_id='OPBD-001'} | ConvertTo-Json
 Invoke-RestMethod -Uri http://127.0.0.1:8000/api/run -Method Post -Body $body -ContentType 'application/json'
 ```
 
@@ -515,7 +515,7 @@ attrib +R "$run\results"
 
 ```powershell
 mkdir tmp\badlib\visa\contactless\cases
-Copy-Item cases\visa\scheme.json tmp\badlib\visa\scheme.json
+Copy-Item cases\visa\brand.json tmp\badlib\visa\brand.json
 Set-Content tmp\badlib\visa\contactless\cases\BROKEN-001.json '{ not json'
 Copy-Item cases\visa\contactless\cases\VISA-CL-001.json tmp\badlib\visa\contactless\cases\
 cd backend; python -c "
@@ -546,10 +546,10 @@ Get-ChildItem runs -Recurse -Filter *.tmp
 
 ## 6. T-D0：POS 内核参数数据准备与校验
 
-本轮 host 从**仓库外受控目录**读取内核参数（`--kernel-params-dir`，每 scheme 一个 `<scheme>.json`）。
-C3 之后**不再**从仓库内 `cases/<scheme>/kernel_params.json` 读取（该路径仅在显式开启兼容开关时才生效），
+本轮 host 从**仓库外受控目录**读取内核参数（`--kernel-params-dir`，每 brand 一个 `<brand>.json`）。
+C3 之后**不再**从仓库内 `cases/<brand>/kernel_params.json` 读取（该路径仅在显式开启兼容开关时才生效），
 因为文件含 CAPK 模数。数据可用 `tools/export_kernel_params.py` 从 POS 资产导出一份副本到该目录；
-未提供时该 scheme 不下发内核参数，POS 用自带表。
+未提供时该 brand 不下发内核参数，POS 用自带表。
 
 ### 6.1 数据来源
 
@@ -564,19 +564,19 @@ E:\Work\ZT\KS8226\L2-SELFTEST-APP\app\src\main\assets\emv\params
 ### 6.2 生成 kernel params 文件
 
 > **C3 修订（必读）**：该文件含 CAPK 模数（密钥材料），**不得放在仓库内**。正确位置是
-> **仓库外受控目录**，通过 `--kernel-params-dir` 加载，文件名按 scheme 命名为 `<scheme>.json`：
+> **仓库外受控目录**，通过 `--kernel-params-dir` 加载，文件名按 brand 命名为 `<brand>.json`：
 
 ```powershell
 # 受控目录（仓库外；路径由统筹指定，示例为当前使用值）
 $KP = "E:\Work\ZT\_secure\card_simulator_host\kernel_params"
 New-Item -ItemType Directory -Force -Path $KP | Out-Null
-# 之后把 <scheme>.json 写到这里，例如 $KP\visa.json
+# 之后把 <brand>.json 写到这里，例如 $KP\visa.json
 ```
 
-**不要**写进 `cases/<scheme>/kernel_params.json`：仓库内路径只在显式开启兼容开关时才会被读取
+**不要**写进 `cases/<brand>/kernel_params.json`：仓库内路径只在显式开启兼容开关时才会被读取
 （`load_library(use_legacy_kernel_params=True)`，默认关闭），生产环境一律用仓库外目录。
 
-`<scheme>.json` 结构：
+`<brand>.json` 结构：
 
 ```json
 {
@@ -657,7 +657,7 @@ git status --porcelain --untracked-files=all | Select-String -Pattern "kernel_pa
 
 ### 6.5 下发路径的端到端验证（走 L3）
 
-放好**仓库外**的 `<scheme>.json` 后（见 §6.2），带 `--kernel-params-dir` 启动 host，按 §4.3 跑一例：
+放好**仓库外**的 `<brand>.json` 后（见 §6.2），带 `--kernel-params-dir` 启动 host，按 §4.3 跑一例：
 
 ```powershell
 python -m emv_host serve --trace-enabled --log-level info `
@@ -728,7 +728,7 @@ python -m emv_host status
 | `UPI-CL-002` | 银联离线拒付基线 |
 | round#15 的 28/28 | 上一轮全量通过集合，须在新版本双端上重跑 |
 
-执行工具：`python tools\joint_debug\run_cases.py --scheme visa --mode contactless --case VISA-CL-001 ...`
+执行工具：`python tools\joint_debug\run_cases.py --brand visa --mode contactless --case VISA-CL-001 ...`
 > ⚠️ 该工具的 `--on-failure` 默认是 `continue`，而 v1.2 **一律停止**。报告时不要在归因里写
 > 「因为 on_failure=continue 所以继续跑」——v1.2 下 FAIL 必然停轮，剩余为 SKIPPED。
 > 该工具的 T20 适配（默认 `--expect-versions`、`failure_reason` 列）属 P2，本轮未做。

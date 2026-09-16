@@ -2,7 +2,7 @@
   "case_id": "AMEX-CL-001",
   "title": "American Express contactless offline approved (TC) 冒烟用例",
   "summary": "contactless smoke case with ac_behavior=offline_approved （AID/PAN 为演示占位数据，可在网页 AddCase 中改为真实值）",
-  "scheme": "amex",
+  "brand": "amex",
   "entry_mode": "contactless",
   "profile": {
     "id": "AMEX-CL-001",

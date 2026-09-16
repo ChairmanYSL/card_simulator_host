@@ -41,7 +41,7 @@ def make_case(case_id: str, *, timeout: int = 10,
     params = [PosParam(tag="9F02", name="amount", value="100.00")] \
         if pos_params else []
     return TestCase(
-        case_id=case_id, title=case_id, scheme="visa",
+        case_id=case_id, title=case_id, brand="visa",
         profile=CardProfile(id=case_id),
         transaction=TransactionParams(
             operator_instructions=OperatorInstructions(), pos_params=params),
@@ -53,14 +53,14 @@ class StubLibrary:
                  kernel: KernelParams | None = None):
         self.cases = cases
         self._kernel = kernel
-        self.schemes = {"visa": type("S", (), {
+        self.brands = {"visa": type("S", (), {
             "suite_policy": SuitePolicy(retry_count=0),
             "kernel_params": kernel})()}
 
-    def get_case(self, scheme, mode, case_id):  # noqa: ARG002
+    def get_case(self, brand, mode, case_id):  # noqa: ARG002
         return self.cases.get(case_id)
 
-    def kernel_params_for(self, scheme):  # noqa: ARG002
+    def kernel_params_for(self, brand):  # noqa: ARG002
         """Mirror CaseLibrary.kernel_params_for (the executor's lookup point)."""
         return self._kernel
 
@@ -397,8 +397,8 @@ async def test_no_kernel_params_means_no_push(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_case_level_kernel_params_override_scheme(tmp_path, monkeypatch):
-    scheme_kernel = KernelParams(
+async def test_case_level_kernel_params_override_brand(tmp_path, monkeypatch):
+    brand_kernel = KernelParams(
         aids=[AidKernelParam(aid="A0000000031010")],
         term="9F6604360000809F1A0201569F7A0101")
     case = make_case("C-01")
@@ -406,7 +406,7 @@ async def test_case_level_kernel_params_override_scheme(tmp_path, monkeypatch):
         aids=[AidKernelParam(aid="A0000000041010")],
         term="9F6604360000809F1A0201569F7A0101")
     pos = AckingConn("pos@stub")
-    executor = build(tmp_path, {"C-01": case}, pos=pos, kernel=scheme_kernel)
+    executor = build(tmp_path, {"C-01": case}, pos=pos, kernel=brand_kernel)
     await run_cases(executor, ["C-01"], monkeypatch)
 
     frame = next(f for f in pos.sent

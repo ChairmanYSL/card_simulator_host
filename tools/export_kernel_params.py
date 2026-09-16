@@ -1,7 +1,7 @@
 """Export POS kernel parameters (AID / CAPK / TERM) for the host.
 
-Reads the POS asset file **read-only** and writes one ``<scheme>.json`` per
-scheme into an out-of-repo directory that the host loads with
+Reads the POS asset file **read-only** and writes one ``<brand>.json`` per
+brand into an out-of-repo directory that the host loads with
 ``serve --kernel-params-dir``.  The output contains CAPK moduli (key material),
 so this tool refuses to write anywhere inside a repository working tree.
 
@@ -10,7 +10,7 @@ Usage::
     python tools/export_kernel_params.py \\
         --asset "E:\\Work\\ZT\\KS8226\\L2-SELFTEST-APP\\app\\src\\main\\assets\\emv\\params" \\
         --out-dir "E:\\Work\\ZT\\_secure\\card_simulator_host\\kernel_params" \\
-        --scheme visa
+        --brand visa
 
 The POS repo is never modified.  The asset format is the line-based
 ``AID=`` / ``CAPK=`` / ``TERM=`` text where every non-header line is
@@ -244,8 +244,8 @@ def main(argv: list[str] | None = None) -> int:
                              "app/src/main/assets/emv/params")
     parser.add_argument("--out-dir", required=True,
                         help="out-of-repo destination directory")
-    parser.add_argument("--scheme", default="visa",
-                        help="scheme name -> <out-dir>/<scheme>.json")
+    parser.add_argument("--brand", default="visa",
+                        help="brand name -> <out-dir>/<brand>.json")
     parser.add_argument("--df05", default="ascii8",
                         choices=["ascii8", "bcd4", "bcd3"],
                         help="DF05 encoding for date entries (default ascii8)")
@@ -254,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
                              f"{NON_DATE_ENTRY[0]}/{NON_DATE_ENTRY[1]} as "
                              f"expiry_encoding=raw (host will warn)")
     parser.add_argument("--force", action="store_true",
-                        help="overwrite an existing <scheme>.json")
+                        help="overwrite an existing <brand>.json")
     args = parser.parse_args(argv)
 
     asset = Path(args.asset)
@@ -262,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: asset not found: {asset}", file=sys.stderr)
         return 2
     out_dir = Path(args.out_dir)
-    out_path = out_dir / f"{args.scheme}.json"
+    out_path = out_dir / f"{args.brand}.json"
 
     try:
         ensure_outside_repo(out_dir, repo_root)

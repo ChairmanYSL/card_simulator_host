@@ -9,10 +9,10 @@ from typing import Any
 class RunSession:
     """State for a single run.  One executor owns at most one session."""
 
-    def __init__(self, run: dict[str, Any], scheme: str, mode: str,
+    def __init__(self, run: dict[str, Any], brand: str, mode: str,
                  case_ids: list[str]):
         self.run = run
-        self.scheme = scheme
+        self.brand = brand
         self.mode = mode
         self.queue = list(case_ids)
 
@@ -101,7 +101,7 @@ class RunSession:
     def snapshot(self) -> dict[str, Any]:
         return {
             "run_id": self.run.get("run_id"),
-            "scheme": self.scheme,
+            "brand": self.brand,
             "mode": self.mode,
             "run_status": self.run.get("status"),
             "stop_requested": self.stop_requested,

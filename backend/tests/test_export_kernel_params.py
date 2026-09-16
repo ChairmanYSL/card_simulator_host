@@ -71,7 +71,7 @@ def test_export_produces_host_loadable_json(tmp_path):
     out_dir = tmp_path / "secure" / "kp"
 
     rc = tool.main(["--asset", str(asset), "--out-dir", str(out_dir),
-                    "--scheme", "visa"])
+                    "--brand", "visa"])
     assert rc == 0
 
     data = json.loads((out_dir / "visa.json").read_text(encoding="utf-8"))
@@ -137,12 +137,12 @@ def test_non_date_df05_is_skipped_by_default_and_kept_as_raw(tmp_path):
     out_dir = tmp_path / "kp"
 
     assert tool.main(["--asset", str(asset), "--out-dir", str(out_dir),
-                      "--scheme", "default"]) == 0
+                      "--brand", "default"]) == 0
     default = json.loads((out_dir / "default.json").read_text(encoding="utf-8"))
     assert len(default["caps"]) == 1, "the non-date entry is excluded by default"
 
     assert tool.main(["--asset", str(asset), "--out-dir", str(out_dir),
-                      "--scheme", "raw", "--include-raw-expiry"]) == 0
+                      "--brand", "raw", "--include-raw-expiry"]) == 0
     kept = json.loads((out_dir / "raw.json").read_text(encoding="utf-8"))
     assert len(kept["caps"]) == 2
     entry = [c for c in kept["caps"] if c.get("expiry_encoding") == "raw"][0]
@@ -160,23 +160,23 @@ def test_non_date_df05_is_skipped_by_default_and_kept_as_raw(tmp_path):
 def test_df05_encoding_option_is_honoured(tmp_path):
     asset = write_asset(tmp_path, aids=[AID_LINE], caps=[capk_line()])
     out_dir = tmp_path / "kp"
-    for scheme, expected in (("a8", "ascii8"), ("b4", "bcd4"), ("b3", "bcd3")):
-        opt = {"a8": "ascii8", "b4": "bcd4", "b3": "bcd3"}[scheme]
+    for brand, expected in (("a8", "ascii8"), ("b4", "bcd4"), ("b3", "bcd3")):
+        opt = {"a8": "ascii8", "b4": "bcd4", "b3": "bcd3"}[brand]
         assert tool.main(["--asset", str(asset), "--out-dir", str(out_dir),
-                          "--scheme", scheme, "--df05", opt, "--force"]) == 0
-        data = json.loads((out_dir / f"{scheme}.json").read_text(encoding="utf-8"))
+                          "--brand", brand, "--df05", opt, "--force"]) == 0
+        data = json.loads((out_dir / f"{brand}.json").read_text(encoding="utf-8"))
         assert data["caps"][0]["expiry_encoding"] == expected
 
     # and the host re-encodes each into the documented DF05 bytes
     from emv_host.cases.models import KernelParams
     from emv_host.protocol.kernel_tlv import decode_tlv_map, encode_capk
     from emv_host.cases.models import CapkParam
-    for scheme, wire in (("a8", "3230343431323331"),
+    for brand, wire in (("a8", "3230343431323331"),
                          ("b4", "20441231"),
                          ("b3", "441231")):
-        data = json.loads((out_dir / f"{scheme}.json").read_text(encoding="utf-8"))
+        data = json.loads((out_dir / f"{brand}.json").read_text(encoding="utf-8"))
         entry = CapkParam.model_validate(data["caps"][0])
-        assert decode_tlv_map(encode_capk(entry))["DF05"] == wire, scheme
+        assert decode_tlv_map(encode_capk(entry))["DF05"] == wire, brand
 
 
 def test_missing_asset_is_reported(tmp_path):
@@ -201,20 +201,20 @@ def load_gen_cases():
     return module
 
 
-def test_gen_cases_ignores_manifest_entries_outside_the_scheme_dir(tmp_path):
+def test_gen_cases_ignores_manifest_entries_outside_the_brand_dir(tmp_path):
     """A corrupted manifest must not let a regeneration delete outside files."""
     gen = load_gen_cases()
 
     outside = tmp_path / "outside.json"
     outside.write_text("keep me", encoding="utf-8")
-    scheme_root = tmp_path / "cases" / "visa"
-    scheme_root.mkdir(parents=True)
-    victim = scheme_root / "generated.json"
+    brand_root = tmp_path / "cases" / "visa"
+    brand_root.mkdir(parents=True)
+    victim = brand_root / "generated.json"
     victim.write_text("{}", encoding="utf-8")
-    (scheme_root / ".gen_cases_manifest.json").write_text(json.dumps({
+    (brand_root / ".gen_cases_manifest.json").write_text(json.dumps({
         "files": ["generated.json", "../../outside.json"]}), encoding="utf-8")
 
-    gen._clean_previous_generated(scheme_root)
+    gen._clean_previous_generated(brand_root)
 
     assert not victim.exists(), "the in-tree generated file is still cleaned"
     assert outside.exists(), "an escaping entry must be skipped, not deleted"
@@ -222,15 +222,15 @@ def test_gen_cases_ignores_manifest_entries_outside_the_scheme_dir(tmp_path):
 
 def test_gen_cases_clean_is_bounded_to_the_manifest(tmp_path):
     gen = load_gen_cases()
-    scheme_root = tmp_path / "cases" / "visa"
-    cases = scheme_root / "contactless" / "cases"
+    brand_root = tmp_path / "cases" / "visa"
+    cases = brand_root / "contactless" / "cases"
     cases.mkdir(parents=True)
     (cases / "OPBD-001-01.json").write_text("{}", encoding="utf-8")  # hand-made
     (cases / "VISA-CL-001.json").write_text("{}", encoding="utf-8")  # generated
-    (scheme_root / ".gen_cases_manifest.json").write_text(json.dumps({
+    (brand_root / ".gen_cases_manifest.json").write_text(json.dumps({
         "files": ["contactless/cases/VISA-CL-001.json"]}), encoding="utf-8")
 
-    gen._clean_previous_generated(scheme_root)
+    gen._clean_previous_generated(brand_root)
 
     assert not (cases / "VISA-CL-001.json").exists()
     assert (cases / "OPBD-001-01.json").exists(), "hand-written cases are kept"

@@ -2,7 +2,7 @@
   "case_id": "UPI-CL-006",
   "title": "UnionPay contactless GPO 不响应（每次静默）",
   "summary": "noResponseCommands=卡片对 GPO 无响应（每次），终端超时中止交易（档案随案例内嵌）",
-  "scheme": "unionpay",
+  "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
     "id": "UPI-CL-006",

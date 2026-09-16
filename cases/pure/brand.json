@@ -1,7 +1,7 @@
 {
-  "scheme": "discover",
-  "display_name": "Discover",
-  "description": "Discover demo case library",
+  "brand": "pure",
+  "display_name": "PURE",
+  "description": "PURE demo case library",
   "entry_modes": [
     "contactless"
   ],
@@ -10,23 +10,48 @@
     "retry_count": 1
   },
   "card_template": {
-    "id": "discover_card_template",
-    "name": "Discover 默认卡片",
-    "network": "DISCOVER",
+    "id": "pure_card_template",
+    "name": "PURE 默认卡片",
+    "network": "PURE",
     "isActive": true,
     "aids": [
       {
-        "aid": "A0000003241010",
-        "label": "DISCOVER",
+        "aid": "D9999999991010",
+        "label": "PURE",
         "priority": 0
+      },
+      {
+        "aid": "D9999999992020",
+        "label": "PURE",
+        "priority": 1
+      },
+      {
+        "aid": "D666666666",
+        "label": "PURE",
+        "priority": 2
+      },
+      {
+        "aid": "A0000002282010",
+        "label": "PURE",
+        "priority": 3
+      },
+      {
+        "aid": "A0000002802010",
+        "label": "PURE",
+        "priority": 4
+      },
+      {
+        "aid": "A0000007231010",
+        "label": "PURE",
+        "priority": 5
       }
     ],
-    "pan": "6011000000000004",
+    "pan": "6280706258024090",
     "panSequenceNumber": 1,
     "applicationExpirationDate": "281231",
-    "cardholderName": "DISCOVER TEST CARD",
-    "track2EquivalentData": "363031313030303030303030303030343d32383132323031",
-    "applicationLabel": "DISCOVER",
+    "cardholderName": "PURE TEST CARD",
+    "track2EquivalentData": "6280706258024090D280460110889160",
+    "applicationLabel": "PURE",
     "applicationVersionNumber": "0001",
     "aip": "5800",
     "afl": "08010100",
@@ -45,7 +70,8 @@
         ]
       }
     ],
-    "acBehavior": "offline_approved"
+    "acBehavior": "offline_approved",
+    "kernelId": "2D"
   },
   "pos_params": [
     {

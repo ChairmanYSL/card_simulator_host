@@ -22,13 +22,31 @@
   - 文档同步 `protocol.md`/变更通知/`README.md`。
 - **验证**：按要求未跑 pytest；工具离线解析 32/32 CONF 通过、54/54 Profile 通过（合成后校验 0 error）。
 
+## 2026-09-15（术语统一：scheme -> brand，全量改名）
+
+### 重构：卡组字段全面更名为 brand
+- **背景**：`scheme` 不是卡组的规范术语，统一改为 **brand**（card brand）；取值保持小写 id 不变。
+- **改动**：
+  - **wire**：`case_started` / `session_abort` 的 `scheme` -> `brand`（硬切换，无兼容别名）。
+  - **数据**：case/group JSON 的 `"scheme"` -> `"brand"`；`cases/<b>/scheme.json` -> `brand.json`；
+    `.gen_cases_manifest.json` 同步。
+  - **代码**：`SchemeDef`->`BrandDef`、`scheme`->`brand`、`schemes`->`brands`、
+    `scheme_cases`->`brand_cases`、`SCHEMES`->`BRANDS`、API 路径参数 `{scheme}`->`{brand}`、
+    CLI `--scheme`->`--brand`（`import_expresspay_xml.py`/`export_kernel_params.py`）。
+  - **前端**：`SchemesPage.tsx`->`BrandsPage.tsx`，类型/字段/文案同步。
+  - **文档**：全部 living docs 同步；`docs/protocol.md` 增 13；新增
+    `docs/protocol-change-notice-brand.md`（对端收到 brand 字段）。
+  - 历史测试报告证据（`docs/test-report-v1.2/**`）也一并改为新术语以保持一致。
+- **验证**：代码/数据中无残留 `scheme`（仅改名说明文档保留旧词）；全部 .py AST、cases JSON 解析通过；`load_library('cases')` 7 卡组 0 error。按要求未跑 pytest/tsc。
+  7 卡组 0 error。按要求未跑 pytest/tsc。
+
 ## 2026-09-15（v1.2.x：kernel params dir 缺文件策略放宽为 (c)）
 
 ### 调整：目录只覆盖部分卡组不再报 error
-- **背景**：amex 命名库落地后，外部目录只有部分卡组有配置，原 C3「每 scheme 缺文件即 error」
+- **背景**：amex 命名库落地后，外部目录只有部分卡组有配置，原 C3「每 brand 缺文件即 error」
   会对 discover/jcb/mastercard/pure/unionpay 各报一条红色 error。
 - **改动**：`load_library` 改为仅当整个 `<kernel-params-dir>` 内**一个配置都没有**
-  （既无 `<scheme>.json` 也无 `<scheme>/<ref>.json`）时报 **一条** error；
+  （既无 `<brand>.json` 也无 `<brand>/<ref>.json`）时报 **一条** error；
   单个卡组缺配置是正常情况，静默使用自带表。
 - **验证**：空目录/不存在目录 = 1 error；仅有 `visa.json` = 0 error；仅有 `amex/` = 0 error。
   既有 `test_c3_missing_external_file_is_reported_not_silent`（空目录）仍成立。
@@ -47,7 +65,7 @@
     3 字节（`DF810x`）；BER 长度支持 `82 xx xx`。
   - `validation`：DRL/ExceptionFile 校验；`DF06/DF07` 允许 0；命名库配置以
     `trust_checksum=True` 校验（vendor 样例 DF03 不符只 warning，不阻断）。
-  - `loader`：新增仓库外命名 POS 配置库 `<kernel-params-dir>/<scheme>/<ref>.json` +
+  - `loader`：新增仓库外命名 POS 配置库 `<kernel-params-dir>/<brand>/<ref>.json` +
     `CaseLibrary.named_kernel_params`；case 增 `kernel_params_ref`（与内联
     `kernel_params` 互斥，仅内存解析，模数不写回案例文件）。
   - 工具 `tools/import_expresspay_xml.py`：把 CONF/Profile XML 转成命名配置
@@ -90,7 +108,7 @@
 - **类型**：安全/配置（含 CLI 新参数）
 - **改动**：`cases/visa/kernel_params.json`（含 CAPK 模数）移到仓库外
   `E:\Work\ZT\_secure\card_simulator_host\kernel_params\`；host 新增
-  `AppConfig.kernel_params_dir` + `serve --kernel-params-dir`，按 `<scheme>.json` 加载。
+  `AppConfig.kernel_params_dir` + `serve --kernel-params-dir`，按 `<brand>.json` 加载。
   仓库内旧路径仅在 `load_library(use_legacy_kernel_params=True)` 时读取，**默认关闭**。
   `logs/` 中三份含模数的会话 dump 已归档到 `_secure` 外置目录。
 - **验证**：仓库内（含 logs/、证据、快照）模数残留扫描 = 0；`git status` 不含任何内核参数文件。
@@ -132,7 +150,7 @@
 - **改动**：
   - **T7** `tools/gen_cases.py`：生成的每个案例显式带 `kernel_params: null`（6 处案例字典，
     精确锚定保证落在 `transaction` 内与 `pos_params` 同级）；
-    `_clean_previous_generated` 增加**清单路径逃逸防护**（解析后必须落在 scheme 目录内，否则跳过并告警）；
+    `_clean_previous_generated` 增加**清单路径逃逸防护**（解析后必须落在 brand 目录内，否则跳过并告警）；
     重新生成 7 卡组演示库 —— **自建用例 OPBD-001-* 与 OPBD-001 组全部保留**，`load_library` 0 error。
   - **T14** 前端类型/API：`KernelParams`/`CapkParam`/`AidKernelParam`/`TlvField`、
     `CaseDetail.kernel_params`、`failure_reason`（CaseRunResult/RunDetail/HistorySummary）、`attempt`；
@@ -278,7 +296,7 @@
   1) `runner/executor.py`：`case_started.operator_instructions.notes` 统一追加
      "贴卡后保持手机贴在读卡器上 ≥1 秒"（全局生效，不改逐用例文案）；
   2) `tools/joint_debug/run_cases.py`：长耗时用例（`UPI-CL-006/007`）自动排到
-     每个 scheme 队尾（`order_cases()`）；
+     每个 brand 队尾（`order_cases()`）；
   3) 用例 `VISA-CL-003` 补 `pos_params DF8101=01`（配合用户裁决：POS 在
      "在线无法完成" 且无该 tag 时回 declined）；出参 `transaction.pos_params`
      由 3 项变 4 项。
@@ -290,21 +308,21 @@
 - **报告**：`logs/joint_debug/full_run_14_report.md`（含 §6 人工核对）、
   `logs/joint_debug/round14_actions.md`（按端行动清单）。
 
-### 修复 N12 用例超时与跨 scheme 串扰（run #14 复盘）
+### 修复 N12 用例超时与跨 brand 串扰（run #14 复盘）
 - **类型**：用例库（超时）+ 工具（驱动）
 - **现象**：run #14 中 `UPI-CL-007` 与 `MC-CL-001` 判 INCONCLUSIVE。
 - **根因**：
   1) N12 静默让 POS 内核等满自身超时（实测 `UPI-CL-007` 结果在 case_started 后
      **约 185s** 才回传），而用例 `timeout_seconds=180` → 差 5s 判超时；
-  2) 该超时用例在 POS 侧仍在收尾，host 已切到下一个 scheme，POS 对新的
+  2) 该超时用例在 POS 侧仍在收尾，host 已切到下一个 brand，POS 对新的
      `case_started` 回"上一笔交易尚未结束，仅 ack 本用例并忽略" → 下一个用例
      （`MC-CL-001`）整轮空等到超时；迟到的 `UPI-CL-007` 结果被 host 归档
      （quarantined，不参与判定）。
 - **修复**：
   - `UPI-CL-006` / `UPI-CL-007` 的 `timeout_seconds` 180 → **300**（覆盖内核自身
     N12 超时），已 `POST /api/library/reload` 生效；
-  - `tools/joint_debug/run_cases.py` 新增 `--settle`（默认 **15s**）：每个 scheme
-    结束后静默等待，等 POS 收尾上一笔再开下一个 scheme（原为固定 2s）。
+  - `tools/joint_debug/run_cases.py` 新增 `--settle`（默认 **15s**）：每个 brand
+    结束后静默等待，等 POS 收尾上一笔再开下一个 brand（原为固定 2s）。
 - **验证**：`--help` 含 `--settle`；`/api/cases/unionpay/contactless/UPI-CL-007`
   返回 `timeout_seconds=300`；库重载 28 例 0 error。
 
@@ -312,7 +330,7 @@
 - **类型**：后端（工具/接口）+ 用例库 + 协议约定
 - **背景**：联调中手工改用例后必须重启后端才能生效，重启会断开双端连接
   （卡端上次重连耗时约 8 分钟）。新增 `POST /api/library/reload`：重读用例库，
-  返回各 scheme/mode 用例数与 error 列表，失败返回 400。
+  返回各 brand/mode 用例数与 error 列表，失败返回 400。
 - **用例**：`VISA-CL-001` 增加 `pos_params` `9F1B=FFFFFFFF`（终端 floor limit
   覆盖）——实测内核因 floor limit 判 `EMV_REQ_GO_ONLINE` 且
   `EMV_REQ_CONFIRM_FORCE_ONLINE` 不触发、`preprocess` 后 `setForceOnline(0)`
@@ -389,7 +407,7 @@
 
 ### 新增演示卡组 JCB / AMEX(ExpressPay) / Discover / PURE
 - **类型**：用例库 + 工具（tools/gen_cases.py）
-- **内容**：`SCHEMES` 增加 jcb/amex/discover/pure；每卡组生成 scheme.json（card_template + pos_params）+ 1 冒烟用例 `<PREFIX>-CL-001`（offline approved）；visa/mastercard/unionpay 原有完整演示不变；生成器保持清单式非破坏
+- **内容**：`BRANDS` 增加 jcb/amex/discover/pure；每卡组生成 brand.json（card_template + pos_params）+ 1 冒烟用例 `<PREFIX>-CL-001`（offline approved）；visa/mastercard/unionpay 原有完整演示不变；生成器保持清单式非破坏
   - JCB：AID `A0000000651010`、PAN 前缀 352800（占位）；AMEX：AID `A00000002501`（占位）；Discover：AID `A0000003241010`（占位）——占位数据可在网页 AddCase 修改为真实值
   - **PURE**（Gemalto，规范《PURE Contactless Reader v2.1.8》，PPSE=`2PAY.SYS.DDF01`）：AID 列表 `D9999999991010 / D9999999992020 / D666666666 / A0000002282010 / A0000002802010 / A0000007231010`；示例 PAN `6280706258024090`（Luhn 通过，tag57 track2 与之同源）；`kernelId:"2D"`（PPSE 目录项 9F2A，透传字段供安卓侧）
 - **文档落点**：README（卡组入口列表、演示库结构注记：新增卡组与 PURE 数据）
@@ -474,7 +492,7 @@
 
 ### v2：profile 与案例一对一绑定 + POS 交易参数
 - **类型**：协议/数据模型 + 前端 + Demo
-- **内容**：删除共享 profiles 库；`profile`/可选 `keys` 内嵌案例（profile.id 自动=case_id）；`SchemeDef.card_template`+`pos_params`（卡组模板）；`transaction.pos_params`（tag 列表，按卡组模板自动带出、可改 tag）；`config_push{pos_config}` 下发 POS（安卓不收）；AddCase「卡片档案」页签（克隆模板编辑）
+- **内容**：删除共享 profiles 库；`profile`/可选 `keys` 内嵌案例（profile.id 自动=case_id）；`BrandDef.card_template`+`pos_params`（卡组模板）；`transaction.pos_params`（tag 列表，按卡组模板自动带出、可改 tag）；`config_push{pos_config}` 下发 POS（安卓不收）；AddCase「卡片档案」页签（克隆模板编辑）
 - **文档落点**：protocol.md §8（布局/字段/pos_params/keys/分工边界）；README §用例库/02
 - **验证**：端到端 pos_config 下发 + 判定
 

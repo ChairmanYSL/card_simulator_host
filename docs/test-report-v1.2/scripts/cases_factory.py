@@ -28,16 +28,16 @@ def fresh(name: str) -> Path:
     return dst
 
 
-def drop_kernel_params(root: Path, scheme: str = "visa") -> bool:
-    p = root / scheme / "kernel_params.json"
+def drop_kernel_params(root: Path, brand: str = "visa") -> bool:
+    p = root / brand / "kernel_params.json"
     if p.is_file():
         p.unlink()
         return True
     return False
 
 
-def patch_kernel_params(root: Path, scheme: str = "visa", **changes) -> dict:
-    p = root / scheme / "kernel_params.json"
+def patch_kernel_params(root: Path, brand: str = "visa", **changes) -> dict:
+    p = root / brand / "kernel_params.json"
     data = json.loads(p.read_text(encoding="utf-8"))
     data.update(changes)
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",

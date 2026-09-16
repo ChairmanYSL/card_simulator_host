@@ -48,7 +48,7 @@ export function RunPage({
   return (
     <div>
       <h3 className="section-title">
-        <b>03</b> / run view · {session.scheme.toUpperCase()} / {session.mode.toUpperCase()}
+        <b>03</b> / run view · {session.brand.toUpperCase()} / {session.mode.toUpperCase()}
       </h3>
 
       {error && <div className="panel" style={{ borderColor: "var(--red)", color: "var(--red)" }}>{error}</div>}

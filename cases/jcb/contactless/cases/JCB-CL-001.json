@@ -2,7 +2,7 @@
   "case_id": "JCB-CL-001",
   "title": "JCB contactless offline approved (TC) 冒烟用例",
   "summary": "contactless smoke case with ac_behavior=offline_approved （AID/PAN 为演示占位数据，可在网页 AddCase 中改为真实值）",
-  "scheme": "jcb",
+  "brand": "jcb",
   "entry_mode": "contactless",
   "profile": {
     "id": "JCB-CL-001",

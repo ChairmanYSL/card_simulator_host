@@ -452,10 +452,13 @@ ARQC→`80`）。
   `DF03 = SHA1(9F06‖9F22‖DF02‖DF04)`；
 * DF05 支持 `ascii8`（默认）|`bcd4`|`bcd3`|`raw`；
 * 同一 RID 内容不同时必须**真正覆盖**（DELETE-then-ADD），不得静默跳过；
-* 数据来自**仓库外**目录（`serve --kernel-params-dir`）：`<brand>.json` 为卡组默认，
-  `<brand>/<ref>.json` 为命名 POS 配置库，分 `CONF_*`（AID/CAPK/DRL/ExceptionFile +
+* 命名 POS 配置库默认在**仓库内** `cases/<brand>/pos_configs/`（`<ref>.json` 一个模块，
+  `default.json` 为 brand 级默认集），分 `CONF_*`（AID/CAPK/DRL/ExceptionFile +
   TerminalParameter）与 `PROFILE_*`（Profile tags）两类模块，case 自由配对；
-  `tools/import_expresspay_xml.py` 从 Expresspay XML 生成（Amex `version:"4.2.0"`）。仓库内不含密钥材料。
+* `serve --kernel-params-dir` 为**外部覆盖**（`<dir>/<brand>.json`、
+  `<dir>/<brand>/<ref>.json`，外部优先于仓库内）；
+* `tools/import_expresspay_xml.py` 从 Expresspay XML 生成仓库内命名库（Amex 测试 CAPK，
+  `version:"4.2.0"`）。
 
 ### 12.5 `session_abort`
 

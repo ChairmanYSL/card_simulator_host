@@ -1,5 +1,5 @@
 """Import the Amex Expresspay 4.2.0 XML set into the host's named POS config
-library (out-of-repo) as **two independent module kinds**::
+library as **two independent module kinds**::
 
     TerminalConfig/CONF_*.xml      -> <out>/<brand>/CONF_XX.json
         AID + CAPK + DRL(CRL) + ExceptionFile + TerminalParameter term
@@ -10,20 +10,20 @@ A case pairs them freely at run time: ``kernel_params_ref`` selects a CONF
 module, ``terminal_profile_ref`` selects a Profile module; the loader composes
 ``term = conf.term + profile.term``.  There is no same-number binding.
 
-The output contains CAPK moduli, so -- like export_kernel_params.py -- this tool
-refuses to write inside a repository working tree.
+By default modules go to ``<out-dir>/<brand>/``; pass ``--flat`` to write them
+directly into ``--out-dir`` (used for the git-tracked in-repo library
+``cases/<brand>/pos_configs/``).  The files carry CAPK moduli (Amex test keys).
 
 Usage::
 
     python tools/import_expresspay_xml.py ^
         --config-dir "refernce/Expresspay 4.2.0/TerminalConfig" ^
         --profile-dir "refernce/Expresspay 4.2.0/TerminalProfile" ^
-        --out-dir "E:\\Work\\ZT\\_secure\\card_simulator_host\\kernel_params" ^
-        --brand amex
+        --out-dir "cases/amex/pos_configs" --brand amex --flat --force
 
-Then start the host with::
-
-    python -m emv_host serve --kernel-params-dir "<out-dir>"
+For an external ops override, drop ``--flat`` and point ``--out-dir`` at the
+``<kernel-params-dir>`` root (modules land in ``<out-dir>/<brand>/``); start
+the host with ``--kernel-params-dir "<that root>"``.
 
 Reference data is authoritative for the field set/order; the host model
 (backend/emv_host/cases/models.py) is authoritative for the JSON shape.
@@ -226,28 +226,6 @@ def build_profile(profile_path: Path, version: str) -> dict:
 
 # -- destination guard / output ----------------------------------------------
 
-def _looks_like_repo(path: Path) -> bool:
-    for candidate in (path, *path.parents):
-        if (candidate / ".git").exists() or (candidate / ".gitignore").is_file():
-            return True
-    return False
-
-
-def ensure_outside_repo(out_dir: Path, repo_root: Path) -> None:
-    try:
-        out_dir.resolve().relative_to(repo_root.resolve())
-    except ValueError:
-        pass
-    else:
-        raise ImportError_(
-            f"refusing to write kernel params inside the repository ({out_dir} "
-            f"is under {repo_root}); pass an out-of-repo --out-dir")
-    if _looks_like_repo(out_dir.resolve()):
-        raise ImportError_(
-            f"refusing to write kernel params into a repository working tree: "
-            f"{out_dir}")
-
-
 def write_json(path: Path, data: dict) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
@@ -256,35 +234,33 @@ def write_json(path: Path, data: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    repo_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
         description="Import the Expresspay XML set as modular named POS configs "
-                    "(CONF_* + PROFILE_*; out-of-repo; contains CAPK moduli).")
+                    "(CONF_* + PROFILE_*).")
     parser.add_argument("--config-dir", required=True,
                         help="TerminalConfig dir (CONF_*.xml)")
     parser.add_argument("--profile-dir", default="",
                         help="TerminalProfile dir (Profile_*.xml); optional")
     parser.add_argument("--out-dir", required=True,
-                        help="out-of-repo root; files go to <out>/<brand>/")
+                        help="output root; <out>/<brand>/ (or --out-dir itself "
+                             "with --flat)")
+    parser.add_argument("--flat", action="store_true",
+                        help="write <ref>.json directly into --out-dir instead "
+                             "of <out-dir>/<brand>/")
     parser.add_argument("--brand", default="amex")
     parser.add_argument("--version", default=DEFAULT_VERSION,
                         help=f"config revision stamped on every file "
                              f"(default {DEFAULT_VERSION})")
     parser.add_argument("--force", action="store_true",
-                        help="overwrite an existing non-empty <out>/<brand>/")
+                        help="overwrite an existing non-empty output dir")
     args = parser.parse_args(argv)
 
     config_dir = Path(args.config_dir)
     profile_dir = Path(args.profile_dir) if args.profile_dir else None
     out_root = Path(args.out_dir)
-    out_dir = out_root / args.brand
+    out_dir = out_root if args.flat else out_root / args.brand
     if not config_dir.is_dir():
         print(f"error: config dir not found: {config_dir}", file=sys.stderr)
-        return 2
-    try:
-        ensure_outside_repo(out_root, repo_root)
-    except ImportError_ as exc:
-        print(f"error: {exc}", file=sys.stderr)
         return 2
     if out_dir.exists() and any(out_dir.iterdir()) and not args.force:
         print(f"error: {out_dir} is not empty; pass --force to overwrite",
@@ -348,8 +324,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{len(errors)} source file(s) skipped:", file=sys.stderr)
         for line in errors:
             print(f"  {line}", file=sys.stderr)
-    print("start the host with:")
-    print(f'  python -m emv_host serve --kernel-params-dir "{out_root}"')
+    if args.flat:
+        print("in-repo library: the host reads it automatically "
+              "(no --kernel-params-dir needed)")
+    else:
+        print("start the host with:")
+        print(f'  python -m emv_host serve --kernel-params-dir "{out_root}"')
     return 1 if errors else 0
 
 

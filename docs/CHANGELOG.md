@@ -22,6 +22,23 @@
   - 文档同步 `protocol.md`/变更通知/`README.md`。
 - **验证**：按要求未跑 pytest；工具离线解析 32/32 CONF 通过、54/54 Profile 通过（合成后校验 0 error）。
 
+## 2026-09-15（amex POS 配置入库 + 外部覆盖）
+
+### 调整：命名 POS 配置库默认放仓库内并 git 追踪
+- **背景**：用户裁决 cos 测试 CAPK 可入库；amex 的 86 个模块（32 CONF + 54 PROFILE + index）
+  从 `_secure/.../kernel_params/amex/` 迁入 `cases/amex/pos_configs/`（7 卡组的按 brand 结构）。
+- **改动**：
+  - loader 命名库优先级：外部 `<kernel-params-dir>/<brand>/` > 仓库内
+    `cases/<brand>/pos_configs/`（二者取第一个存在的，整体生效）。
+  - brand 级默认集优先级：外部 `<dir>/<brand>.json` > 仓库内
+    `cases/<brand>/pos_configs/default.json` > 旧 `kernel_params.json`（opt-in）。
+  - `tools/import_expresspay_xml.py` 增 `--flat`（直接写入 `--out-dir`），并取消"拒绝写入仓库"
+    限制（现在是仓库内生成为主）。
+  - `.gitignore` 仅保留旧单文件 `cases/*/kernel_params.json` 忽略；`pos_configs/` 正常追踪。
+  - README/protocol.md 同步；`refernce/` 仍本地保留。
+- **验证**：无外部目录时 loader 从仓库内加载 amex **86 模块 / 0 error**；带外部目录时外部优先，
+  visa 默认集正常加载。按要求未跑 pytest/tsc。
+
 ## 2026-09-15（术语统一：scheme -> brand，全量改名）
 
 ### 重构：卡组字段全面更名为 brand

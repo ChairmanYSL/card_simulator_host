@@ -197,29 +197,41 @@ cd frontend && npm run dev     # http://localhost:5173, 自动代理 /api 与 /w
 
 ### 内核参数（POS AID/CAPK/TERM/DRL/ExceptionFile）
 
-内核参数含 **CAPK 模数（密钥材料）**，因此**不放仓库**：
+**默认：仓库内、git 追踪**  `cases/<brand>/pos_configs/`，每个 `<ref>.json` 一个模块
+（`index.json` 是清单）。分两类模块，case 自由配对：
+
+* `CONF_*`：AID + CAPK + DRL(CRL) + ExceptionFile + TerminalParameter term；
+* `PROFILE_*`：Profile tags term；合成 `term = CONF + PROFILE`。
+
+case 用 `kernel_params_ref` 选 CONF、`terminal_profile_ref` 选 PROFILE。
+brand 级默认集放在同目录的 `pos_configs/default.json`（case 不填 ref 时使用）。
+> 该目录含 CAPK 模数（Amex Expresspay 测试密钥）；经用户裁决允许入库并 git 追踪。
+
+**可选：外部覆盖**  `--kernel-params-dir <dir>` 优先于仓库内：
+
+* `<dir>/<brand>.json` = brand 级默认集；`<dir>/<brand>/<ref>.json` = 命名库覆盖；
+* 目录只覆盖部分 brand 不算错误；整个目录没有任何配置才报 error（v1.2.x）。
+
+**生成 / 更新**
 
 ```bash
-# 1) 从 POS 资产导出到仓库外的受控目录（只读 POS 仓库）
+# Amex Expresspay XML -> 仓库内命名库（--flat 表示直接写进 --out-dir）
+python tools/import_expresspay_xml.py \
+  --config-dir "refernce/Expresspay 4.2.0/TerminalConfig" \
+  --profile-dir "refernce/Expresspay 4.2.0/TerminalProfile" \
+  --out-dir "cases/amex/pos_configs" --brand amex --flat --force
+
+# 从 POS 资产导出 brand 默认集（当前仍写仓库外；visa 后续也会迁入）
 python tools/export_kernel_params.py \
   --asset "E:\Work\ZT\KS8226\L2-SELFTEST-APP\app\src\main\assets\emv\params" \
   --out-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params" --brand visa
-# 2) 启动时指向该目录（每 brand 一个 <brand>.json）
-card_simulator_host --kernel-params-dir "E:\Work\ZT\_secure\card_simulator_host\kernel_params"
 ```
 
-* 该工具**拒绝**写入仓库内路径，也拒绝在无 `--force` 时覆盖；
-* 默认排除资产里 `DF05=PHWWIPQI` 的那条（不是日期），导出 **AID 19 / CAPK 28 / TERM 1**；
-  确需下发用 `--include-raw-expiry`（host 只报 warning）；
-* DF05 支持 `ascii8`（默认）/`bcd4`/`bcd3`/`raw`；`DF03 = SHA1(9F06‖9F22‖DF02‖DF04)` 与 DF05 编码无关；
-* 未提供目录时该 brand **不下发**内核参数，POS 用自带表；目录只覆盖部分卡组不算错误，只有整个目录没有任何配置时才报 error（v1.2.x）；
-* 仓库内的 `cases/<brand>/kernel_params.json` 仅在显式开启兼容开关时才读取（默认关闭）。
-* 命名 POS 配置库（v1.2.x）：仓库外 `<kernel-params-dir>/<brand>/<ref>.json`，分两类模块
-  `CONF_*`（AID/CAPK/DRL/ExceptionFile + TerminalParameter）与 `PROFILE_*`（Profile tags）；
-  case 用 `kernel_params_ref` 选 CONF、`terminal_profile_ref` 选 PROFILE，自由配对，合成
-  `term = CONF + PROFILE`。loader 仅在内存中解析，模数不写回案例文件。
-* Amex Expresspay 4.2.0 由 `tools/import_expresspay_xml.py` 生成（host 侧 `version:"4.2.0"`）。
-  参考 XML 目录 `refernce/` 已加入 `.gitignore`（含模数），只在本地保留。
+* `export_kernel_params.py` 默认排除 `DF05=PHWWIPQI` 那条（导出 AID 19 / CAPK 28 / TERM 1），
+  确需下发用 `--include-raw-expiry`；
+* DF05 支持 `ascii8`（默认）/`bcd4`/`bcd3`/`raw`；`DF03 = SHA1(9F06+9F22+DF02+DF04)` 与 DF05 编码无关；
+* 旧单文件 `cases/<brand>/kernel_params.json` 仅在显式开启兼容开关时才读（默认关闭且被 .gitignore）；
+* 参考 XML 目录 `refernce/` 仅本地保留（.gitignore）。
 
 ## 测试与工具
 

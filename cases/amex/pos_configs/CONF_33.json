@@ -1,0 +1,291 @@
+{
+  "aids": [
+    {
+      "aid": "A00000002501",
+      "fields": [
+        {
+          "tag": "9F09",
+          "value": "0001"
+        },
+        {
+          "tag": "9F1B",
+          "value": "00002710"
+        },
+        {
+          "tag": "DF20",
+          "value": "000000015000"
+        },
+        {
+          "tag": "DF19",
+          "value": "000000010000"
+        },
+        {
+          "tag": "DF21",
+          "value": "000000005000"
+        },
+        {
+          "tag": "DF11",
+          "value": "0000000000"
+        },
+        {
+          "tag": "DF13",
+          "value": "0000000000"
+        },
+        {
+          "tag": "DF12",
+          "value": "0000000000"
+        }
+      ]
+    }
+  ],
+  "caps": [
+    {
+      "rid": "A000000025",
+      "key_index": "01",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "A20DAAD5D5F62E40852521DC9D5AB9F87C610888A32367601E27311D6D3DFB5BB6142DB4004651A09C8B3ED229A97200B383689AFB2E55A3F0C16D033A60A1438C7C5D08E4967D2953301D32DFE07999039FFE12202491CEEFCC4D014AF2A385B3EAE2ADA0134A7642B513A7330879F46035E20F27578D233ECF35E6CE9B17D9",
+      "exponent": "03",
+      "checksum": "4C3681CD1D207B2BDC6E4DD5E33657F356496994",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    },
+    {
+      "rid": "A000000025",
+      "key_index": "02",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "94EA62F6D58320E354C022ADDCF0559D8CF206CD92E869564905CE21D720F971B7AEA374830EBE1757115A85E088D41C6B77CF5EC821F30B1D890417BF2FA31E5908DED5FA677F8C7B184AD09028FDDE96B6A6109850AA800175EABCDBBB684A96C2EB6379DFEA08D32FE2331FE103233AD58DCDB1E6E077CB9F24EAEC5C25AF",
+      "exponent": "010001",
+      "checksum": "AECCAD45A2E189E30CB3CAE8FFEEB3432C23D5AC",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    },
+    {
+      "rid": "A000000025",
+      "key_index": "03",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "9C6BE5ADB10B4BE3DCE2099B4B210672B89656EBA091204F613ECC623BEDC9C6D77B660E8BAEEA7F7CE30F1B153879A4E36459343D1FE47ACDBD41FCD710030C2BA1D9461597982C6E1BDD08554B726F5EFF7913CE59E79E357295C321E26D0B8BE270A9442345C753E2AA2ACFC9D30850602FE6CAC00C6DDF6B8D9D9B4879B2826B042A07F0E5AE526A3D3C4D22C72B9EAA52EED8893866F866387AC05A1399",
+      "exponent": "03",
+      "checksum": "5479CA9E9A89EB4815F348C487553C1F45AB7AC1",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    },
+    {
+      "rid": "A000000025",
+      "key_index": "04",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "A99A6D3E071889ED9E3A0C391C69B0B804FC160B2B4BDD570C92DD5A0F45F53E8621F7C96C40224266735E1EE1B3C06238AE35046320FD8E81F8CEB3F8B4C97B940930A3AC5E790086DAD41A6A4F5117BA1CE2438A51AC053EB002AED866D2C458FD73359021A12029A0C043045C11664FE0219EC63C10BF2155BB2784609A106421D45163799738C1C30909BB6C6FE52BBB76397B9740CE064A613FF8411185F08842A423EAD20EDFFBFF1CD6C3FE0C9821479199C26D8572CC8AFFF087A9C3",
+      "exponent": "03",
+      "checksum": "A8E8D35474958BB57CD9E0DCEEFF381F0B7E0AB3",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    },
+    {
+      "rid": "A000000025",
+      "key_index": "05",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "A25A6BD783A5EF6B8FB6F83055C260F5F99EA16678F3B9053E0F6498E82C3F5D1E8C38F13588017E2B12B3D8FF6F50167F46442910729E9E4D1B3739E5067C0AC7A1F4487E35F675BC16E233315165CB142BFDB25E301A632A54A3371EBAB6572DEEBAF370F337F057EE73B4AE46D1A8BC4DA853EC3CC12C8CBC2DA18322D68530C70B22BDAC351DD36068AE321E11ABF264F4D3569BB71214545005558DE26083C735DB776368172FE8C2F5C85E8B5B890CC682911D2DE71FA626B8817FCCC08922B703869F3BAEAC1459D77CD85376BC36182F4238314D6C4212FBDD7F23D3",
+      "exponent": "03",
+      "checksum": "B43A837DD523785CEA963195CA8A58D1FD70D32D",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    },
+    {
+      "rid": "A000000025",
+      "key_index": "06",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "A191CB87473F29349B5D60A88B3EAEE0973AA6F1A082F358D849FDDFF9C091F899EDA9792CAF09EF28F5D22404B88A2293EEBBC1949C43BEA4D60CFD879A1539544E09E0F09F60F065B2BF2A13ECC705F3D468B9D33AE77AD9D3F19CA40F23DCF5EB7C04DC8F69EBA565B1EBCB4686CD274785530FF6F6E9EE43AA43FDB02CE00DAEC15C7B8FD6A9B394BABA419D3F6DC85E16569BE8E76989688EFEA2DF22FF7D35C043338DEAA982A02B866DE5328519EBBCD6F03CDD686673847F84DB651AB86C28CF1462562C577B853564A290C8556D818531268D25CC98A4CC6A0BDFFFDA2DCCA3A94C998559E307FDDF915006D9A987B07DDAEB3B",
+      "exponent": "03",
+      "checksum": "5EDE89510DED5FCC1824A08438327066B519FCF3",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    },
+    {
+      "rid": "A000000025",
+      "key_index": "07",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "A20DAAD5D5F62E40852521DC9D5AB9F87C610888A32367601E27311D6D3DFB5BB6142DB4004651A09C8B3ED229A97200B383689AFB2E55A3F0C16D033A60A1438C7C5D08E4967D2953301D32DFE07999039FFE12202491CEEFCC4D014AF2A385B3EAE2ADA0134A7642B513A7330879F46035E20F27578D233ECF35E6CE9B",
+      "exponent": "03",
+      "checksum": "4C3681CD1D207B2BDC6E4DD5E33657F356496994",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    },
+    {
+      "rid": "A000000025",
+      "key_index": "09",
+      "hash_alg": 1,
+      "key_alg": 0,
+      "modulus": "A3834CB1D190545D22F0EBE2FFF75E5BE5755A169A7FE42D0A2EC166965A27B04378CEA5A3839A4327B5E68F23DD98E9497BC8DBADC04E7F86E8FF1C2313D70947BEB7AB7C9FC44FD6AF43272F29B90D658C0F77273A20E70CD857E7684596D5694CA7BA50DBAAF40CB4BB39FE0EA0C9441399D72A351F38801074866F37D48A4F156F9CAD6F10DD644649A20DBF5923743F578F146AF8C4BA2FBBD41FAA0486A559E07DF5D3A4BF85F55459986FC345",
+      "exponent": "03",
+      "checksum": "79896BD7B076C4F94AFF0B063A73861A593413F5",
+      "expiry": "20301231",
+      "expiry_encoding": "bcd3"
+    }
+  ],
+  "drl": [
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001000"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "110001"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "000010"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "000011"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "000101"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "000110"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "000111"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001001"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001010"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001011"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001100"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001101"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001110"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "001111"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "010000"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "010001"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "010010"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "010011"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "010100"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "010101"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "010111"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011000"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011001"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011010"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011011"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011100"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011101"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011110"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "011111"
+    },
+    {
+      "rid": "A000000025",
+      "index": "01",
+      "serial": "100000"
+    }
+  ],
+  "exception_file": [
+    {
+      "pan": "373737345678904F",
+      "pan_sequence": "00"
+    }
+  ],
+  "term": "9F01060123456789019F15009F160F4D65726368616E74303030303030319F4E009F1C085465726D6C3030319F1A0206205F2A0209785F3601029F2A0104",
+  "version": "4.2.0"
+}

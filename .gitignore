@@ -22,9 +22,10 @@ logs/
 # see tmp/README.md — nothing in here is a product artifact
 tmp/
 
-# local-only POS kernel parameter sets (AID/CAPK/TERM).
-# Generated from the POS assets by tools/export_kernel_params.py; contains CAPK
-# moduli (key material) and must never be committed.
+# POS kernel parameter configs.
+# Supported in-repo library: cases/<brand>/pos_configs/ (git-tracked; holds
+# CAPK moduli -- Amex Expresspay test keys).  The legacy single-file fallback
+# below stays ignored so a stray copy is never committed by accident.
 cases/*/kernel_params.json
 
 # editor / os

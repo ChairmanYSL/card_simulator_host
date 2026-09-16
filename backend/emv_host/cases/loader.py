@@ -287,10 +287,9 @@ def load_library(root: str | Path,
             continue
         library.brands[brand] = brand_def
 
-        # C3: brand-level kernel parameters.  The external directory (out of
-        # repo) wins; the legacy in-repo file is a compatibility fallback.  The
-        # data is never in the committed brand.json because it carries CAPK
-        # moduli (key material).
+        # Brand-level POS kernel parameter *default* set.  Precedence:
+        # external <dir>/<brand>.json (ops override) >
+        # in-repo <brand_dir>/pos_configs/default.json > legacy file.
         params, params_path = _load_brand_kernel_params(
             brand_dir, brand, library)
         brand_def.kernel_params = params
@@ -312,8 +311,9 @@ def load_library(root: str | Path,
                     str(params_path), issue.severity,
                     f"[{brand}] {issue.message}"))
 
-        # v1.2.x named POS config library (out-of-repo, per brand dir)
-        _load_named_kernel_params(brand, library)
+        # v1.2.x named POS config library: external <dir>/<brand>/ wins,
+        # else the git-tracked in-repo <brand_dir>/pos_configs/.
+        _load_named_kernel_params(brand, brand_dir, library)
 
         # cases under each entry-mode dir: flat *.json (standalone) plus
         # sub-directories holding a group (group.json + 子案例 *.json files)
@@ -573,40 +573,34 @@ def _external_has_any_config(external: Path) -> bool:
 def _load_brand_kernel_params(brand_dir: Path, brand: str,
                                library: CaseLibrary
                                ) -> tuple[KernelParams | None, Path | None]:
-    """Load one brand's POS kernel parameter set (C3).
+    """Load one brand's POS kernel parameter *default* set.
 
-    Precedence:
+    Precedence (highest first):
 
-    1. ``<kernel_params_dir>/<brand>.json`` — the external, out-of-repo
-       location (the supported production form; it holds CAPK moduli);
-    2. ``<brand_dir>/kernel_params.json`` — legacy in-repo fallback.
+    1. ``<kernel_params_dir>/<brand>.json`` -- external ops override;
+    2. ``<brand_dir>/pos_configs/default.json`` -- git-tracked in-repo default;
+    3. ``<brand_dir>/kernel_params.json`` -- legacy fallback (opt-in only).
 
     Returns ``(params, path)``.  A missing file yields ``(None, None)``: the
     brand then pushes nothing and the POS keeps its built-in tables.  An
-    unreadable/invalid file yields an error issue and ``(None, path)`` — never a
-    crash.
-
-    The two locations are NOT merged, and the legacy in-repo file is read only
-    when explicitly opted into (``use_legacy_kernel_params``).  Default-off is
-    deliberate (C3): the file carries CAPK moduli, so a misconfigured path must
-    surface as an error rather than silently falling back to key material that
-    is supposed to have left the workspace.  A directory that covers only some
-    brands is not an error; only a completely empty/nonexistent dir is
-    reported, once, by ``load_library`` (v1.2.x, option c).
+    unreadable/invalid file yields an error issue and ``(None, path)`` -- never a
+    crash.  Locations are NOT merged.
     """
     external = library.kernel_params_dir
+    path: Path | None = None
     if external is not None:
-        path = external / f"{brand}{EXTERNAL_KERNEL_PARAMS_SUFFIX}"
-        if not path.is_file():
-            # (c) Per-brand absence is normal: the dir may hold configs for
-            # only some brands and/or a named library <dir>/<brand>/.  A
-            # completely empty dir is reported once in load_library().
-            return None, None
-    elif library.use_legacy_kernel_params:
-        path = brand_dir / KERNEL_PARAMS_FILE
-        if not path.is_file():
-            return None, None
-    else:
+        candidate = external / f"{brand}{EXTERNAL_KERNEL_PARAMS_SUFFIX}"
+        if candidate.is_file():
+            path = candidate
+    if path is None:
+        candidate = brand_dir / "pos_configs" / "default.json"
+        if candidate.is_file():
+            path = candidate
+    if path is None and library.use_legacy_kernel_params:
+        candidate = brand_dir / KERNEL_PARAMS_FILE
+        if candidate.is_file():
+            path = candidate
+    if path is None:
         return None, None
     raw = _safe_read_json(path)
     if raw is None:
@@ -650,21 +644,31 @@ def _compose_kernel_params(conf: KernelParams | None,
     )
 
 
-def _load_named_kernel_params(brand: str, library: CaseLibrary) -> None:
+def _load_named_kernel_params(brand: str, brand_dir: Path,
+                              library: CaseLibrary) -> None:
     """Load one brand's named POS config library (v1.2.x).
 
-    Layout: <kernel_params_dir>/<brand>/<ref>.json -- each file is a
-    KernelParams document; index.json (metadata manifest) is ignored.
+    Precedence (highest first):
+
+    1. ``<kernel_params_dir>/<brand>/`` -- external ops override (out-of-repo);
+    2. ``<brand_dir>/pos_configs/`` -- the git-tracked in-repo library.
+
+    The first existing dir wins entirely.  Each ``<ref>.json`` is a
+    ``KernelParams`` document; ``index.json`` (metadata manifest) is ignored.
     Named configs are vendor test vectors, so their CAPK DF03 is trusted
-    verbatim (trust_checksum=True: a mismatch warns instead of blocking).
+    verbatim (``trust_checksum=True``: a mismatch warns, never blocks).
     """
+    candidates: list[Path] = []
     external = library.kernel_params_dir
-    if external is None:
+    if external is not None and (external / brand).is_dir():
+        candidates.append(external / brand)
+    in_repo = brand_dir / "pos_configs"
+    if in_repo.is_dir():
+        candidates.append(in_repo)
+    if not candidates:
         return
-    brand_dir = external / brand
-    if not brand_dir.is_dir():
-        return
-    for path in sorted(brand_dir.glob("*.json")):
+    lib_dir = candidates[0]
+    for path in sorted(lib_dir.glob("*.json")):
         if path.name == "index.json":
             continue
         raw = _safe_read_json(path)

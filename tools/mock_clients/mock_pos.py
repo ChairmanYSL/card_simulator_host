@@ -1,17 +1,13 @@
-"""Mock POS transaction app: operator-driven, reports results (protocol v1.2).
+"""Mock POS transaction app (protocol v2, Mastercard CTEL2 TEI).
 
-The mock simulates the *manual* POS: on ``case_started`` it prints the
-operator instructions, then after ``--delay`` seconds reports a
-``transaction_result`` for that attempt (as if the operator had finished the
-transaction on the real POS).  With ``--interactive`` it waits for Enter
-instead of using a timer.
+On ``test_info`` / ``config`` / ``act`` it replies the matching ``*_ack`` with
+``ResponseCode=YES`` (as the real POS must).  After ``act`` it waits ``--delay``
+seconds (or Enter with ``--interactive``) and reports the transaction outcome as
+``msg`` (optional UIRD) + ``out`` (OPS + DataRecord + DiscData), as if the
+operator had completed the transaction.
 
-v1.2 behavior:
-* ``pos_kernel_config`` (AID/CAPK/TERM) -> ack; the mock reports how many
-  entries it saw but does NOT touch a kernel (it has none);
-* ``case_started`` -> ack (mandatory now: a missing ack fails the case);
-* ``transaction_result`` -> waits for the host's ack, which means "persisted";
-* ``session_abort`` -> ack.
+v2 removed all v1.2 POS frames: ``pos_config`` / ``pos_kernel_config`` /
+``case_started`` / ``transaction_result`` / ``session_abort``.
 """
 
 from __future__ import annotations
@@ -21,135 +17,114 @@ import asyncio
 from mock_common import MockClient, common_args, main_async  # noqa: E402  (adds backend to path)
 
 from emv_host.protocol.messages import (  # noqa: E402
-    MSG_CASE_STARTED,
-    MSG_CONFIG_PUSH,
-    MSG_SESSION_ABORT,
-    MSG_TRANSACTION_RESULT,
+    MSG_ACT,
+    MSG_ACT_ACK,
+    MSG_CONFIG,
+    MSG_CONFIG_ACK,
+    MSG_MSG,
+    MSG_OUT,
+    MSG_TEST_INFO,
+    MSG_TEST_INFO_ACK,
+    RESP_YES,
     make_frame,
 )
 
+# OPS byte layout (see docs/protocol-v2-design.md section 6.1):
+#   byte1 b8-5 status (0001 approved / 0010 declined), byte5 b6=DataRecord,
+#   b5=DiscData, byte6 AIP=N/A, byte7 FieldOff=N/A.
+OPS_APPROVED = "1000F00030F0FF00"
+OPS_DECLINED = "20F0F00030F0FF00"
+
 OUTCOMES = {
     "approved_offline": {
-        "resp_code": "00", "outcome": "approved", "online": "offline",
-        "approval_code": "112233", "cvm": "no_cvm",
-        "tags": {
-            "gpo": {"82": "5800", "94": "18010000", "9F36": "0001"},
-            "read_record": {"5F20": "5649534120544553542043415244", "5F24": "281231"},
-            "gen_ac": {
-                "9F26": "AABBCCDDEEFF0011",
-                "9F27": "8000000000",
-                "9F10": "060A03A00000",
-                "9F36": "0001",
-                "5F2A": "0156",
-            },
-        },
+        "ops": OPS_APPROVED,
+        "datarecord": ("8A0230309F2701409F2608AABBCCDDEEFF0011"
+                       "9F360200019F1007060A03A000005F2A020156"),
+        "discdata": "DF81150600000000000F",
     },
     "declined_offline": {
-        "resp_code": "05", "outcome": "declined", "online": "offline",
-        "approval_code": "", "cvm": "no_cvm",
-        "tags": {
-            "gpo": {"82": "5800", "9F36": "0002"},
-            "gen_ac": {
-                "9F26": "BBCCDDEEFF001122",
-                "9F27": "4000000000",
-                "9F10": "060A03A00000",
-                "9F36": "0002",
-                "5F2A": "0156",
-            },
-        },
+        "ops": OPS_DECLINED,
+        "datarecord": ("8A0230359F2701009F2608BBCCDDEEFF001122"
+                       "9F360200029F1007060A03A000005F2A020156"),
+        "discdata": "",
     },
     "approved_online": {
-        "resp_code": "00", "outcome": "approved", "online": "online",
-        "approval_code": "445566", "cvm": "no_cvm",
-        "tags": {
-            "gpo": {"82": "5800", "9F36": "0003"},
-            "gen_ac": {
-                "8A": "30",
-                "91": "1122334455667788",
-                "9F26": "AABBCCDDEEFF0011",
-                "9F27": "8000000000",
-                "9F10": "060A03A00000",
-                "9F36": "0003",
-                "5F2A": "0156",
-            },
-        },
+        "ops": OPS_APPROVED,
+        "datarecord": ("8A0230309F2701809F2608AABBCCDDEEFF0011"
+                       "9F360200039F1007060A03A000005F2A020156"
+                       "91101122334455667788"),
+        "discdata": "",
     },
 }
 
 
+def _ack(signal: str, frame: dict, code: str = RESP_YES) -> dict:
+    return make_frame(signal, ref_msg_id=frame.get("msg_id"),
+                      signalData=[{"id": "ResponseCode", "value": code}])
+
+
+def _signal_counts(signal_data) -> str:
+    counts: dict[str, int] = {}
+    for item in signal_data or []:
+        if isinstance(item, dict):
+            counts[str(item.get("id"))] = counts.get(str(item.get("id")), 0) + 1
+    return " ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+
+
 async def on_message(client: MockClient, frame: dict) -> None:
     msg_type = frame.get("type")
-    if msg_type == MSG_CONFIG_PUSH and frame.get("config_type") == "pos_config":
-        # POS-side transaction parameters (tag list) — ack and remember
-        await client.send_ack(frame.get("msg_id", ""))
-        params = frame.get("pos_params") or []
-        client.pos_params = params
-        client.log(f"pos_config applied: {len(params)} tag 参数")
-        for p in params:
-            client.log(f"  {p.get('tag')} {p.get('name', '')} = {p.get('value', '')}")
-        return
-    if msg_type == MSG_CONFIG_PUSH and \
-            frame.get("config_type") == "pos_kernel_config":
-        # v1.2: AID/CAPK/TERM for the kernel.  The mock has no kernel, so it
-        # only reports the payload shape; the real POS calls
-        # updateAidParam/updateCAPKParam/setTerminalParam (add-only, idempotent)
-        # and must DELETE-then-ADD a managed AID whose body differs.
-        params = frame.get("kernel_params") or {}
-        client.log(f"pos_kernel_config: aid={len(params.get('aid') or [])} "
-                   f"capk={len(params.get('capk') or [])} "
-                   f"term={'yes' if params.get('term') else 'no'}")
-        for entry in (params.get("aid") or [])[:3]:
-            client.log(f"  aid  {entry[:24]}…")
-        await client.send_ack(frame.get("msg_id", ""))
-        return
-    if msg_type == MSG_SESSION_ABORT:
-        await client.send_ack(frame.get("msg_id", ""))
-        client.log(f"session_abort reason={frame.get('reason')} "
-                   f"case={frame.get('case_id')} -> ack")
-        return
-    if msg_type != MSG_CASE_STARTED:
-        client.log("ignored frame type:", msg_type)
-        return
-    await client.send_ack(frame.get("msg_id", ""))
 
-    case_id = frame.get("case_id")
-    attempt_id = frame.get("attempt_id")
-    instructions = frame.get("operator_instructions", {})
-    client.log("=" * 60)
-    client.log(f"case_started  case={case_id} attempt={attempt_id}")
-    params = getattr(client, "pos_params", None)
-    client.log(f"  pos_params: {params if params else '(none)'}")
-    client.log(f"  OPERATOR: amount={instructions.get('amount')} "
-               f"{instructions.get('currency')} "
-               f"entry={instructions.get('entry_mode')} "
-               f"pin={instructions.get('pin_hint')}")
-    client.log(f"  NOTES: {instructions.get('notes', '')}")
-    client.log("  (simulating the manual POS transaction...)")
-    client.log("=" * 60)
+    if msg_type == MSG_TEST_INFO:
+        await client.send(_ack(MSG_TEST_INFO_ACK, frame))
+        client.log(f"test_info -> ack (TestId={_signal_item(frame, 'TestId')})")
+        return
 
-    if client.interactive:
-        await asyncio.get_running_loop().run_in_executor(
-            None, input, "  press Enter to report the transaction result > ")
-    else:
-        await asyncio.sleep(client.delay)
+    if msg_type == MSG_CONFIG:
+        await client.send(_ack(MSG_CONFIG_ACK, frame))
+        client.config = frame.get("signalData")
+        client.log(f"config -> ack ({_signal_counts(client.config)})")
+        return
 
-    result = dict(OUTCOMES[client.outcome])
-    result["amount"] = instructions.get("amount", "100.00")
-    result["currency"] = "156"
-    result["entry_mode"] = instructions.get("entry_mode", "contactless")
-    # v1.2 D2: the host acks this only after the verdict is persisted, so the
-    # mock waits for that ack ("persisted" = safe to consider the case reported)
-    ack = await client.send_and_wait_ack(make_frame(
-        MSG_TRANSACTION_RESULT,
-        case_id=case_id,
-        attempt_id=attempt_id,
-        device_id=client.device_id,
-        result=result,
-    ))
-    if ack is None:
-        client.log("WARNING: no ack for transaction_result (not persisted?)")
-    client.log(f"transaction_result reported: resp={result['resp_code']} "
-               f"{result['outcome']} ({result['online']})")
+    if msg_type == MSG_ACT:
+        await client.send(_ack(MSG_ACT_ACK, frame))
+        client.act = frame.get("signalData")
+        client.log(f"act -> ack (n={len(client.act or [])})")
+        client.log("  (simulating the manual POS transaction...)")
+        if client.interactive:
+            await asyncio.get_running_loop().run_in_executor(
+                None, input, "  press Enter to report the outcome > ")
+        else:
+            await asyncio.sleep(client.delay)
+        await _report_outcome(client)
+        return
+
+    client.log("ignored frame type:", msg_type)
+
+
+def _signal_item(frame: dict, item_id: str):
+    for item in frame.get("signalData") or []:
+        if isinstance(item, dict) and str(item.get("id")) == item_id:
+            return item.get("value")
+    return None
+
+
+async def _report_outcome(client: MockClient) -> None:
+    spec = OUTCOMES[client.outcome]
+    uird = "1E040000000000000000000000"
+    if client.uird:
+        await client.send(make_frame(
+            MSG_MSG, signalData=[{"id": "UIRD", "value": uird}]))
+        client.log(f"msg UIRD={uird}")
+    signal = [{"id": "OPS", "value": spec["ops"]}]
+    if spec.get("datarecord"):
+        signal.append({"id": "DataRecord", "value": spec["datarecord"]})
+    if spec.get("discdata"):
+        signal.append({"id": "DiscData", "value": spec["discdata"]})
+    signal.append({"id": "UIRD", "value": uird if client.uird else None})
+    out = await client.send_and_wait_ack(make_frame(MSG_OUT, signalData=signal))
+    if out is None:
+        client.log("WARNING: no ack for out (not persisted?)")
+    client.log(f"out reported: OPS={spec['ops']} ({client.outcome})")
 
 
 def make_client(args) -> MockClient:
@@ -162,16 +137,20 @@ def make_client(args) -> MockClient:
     client.outcome = args.outcome
     client.delay = args.delay
     client.interactive = args.interactive
-    client.pos_params = None
+    client.uird = args.uird
+    client.config = None
+    client.act = None
     return client
 
 
 if __name__ == "__main__":
-    parser = common_args("mock POS transaction app (protocol v1.2)")
+    parser = common_args("mock POS transaction app (protocol v2 / CTEL2)")
     parser.add_argument("--outcome", default="approved_offline",
                         choices=sorted(OUTCOMES))
     parser.add_argument("--delay", type=float, default=2.0,
-                        help="seconds between case_started and result report")
+                        help="seconds between act_ack and the OUT report")
     parser.add_argument("--interactive", action="store_true",
                         help="wait for Enter instead of a timer")
+    parser.add_argument("--uird", action="store_true",
+                        help="also send one MSG (UIRD) before OUT")
     main_async(parser, make_client)

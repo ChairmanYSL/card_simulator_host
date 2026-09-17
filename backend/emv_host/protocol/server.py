@@ -145,6 +145,15 @@ class ProtocolServer:
             return None
         return await conn.send_and_wait_ack(frame, timeout=timeout)
 
+    async def send_to_and_ack_signal(self, client_type: str, frame: dict[str, Any],
+                                     expect_type: str, timeout: float = 15.0
+                                     ) -> dict[str, Any] | None:
+        """Send a CTEL2 request to one client and wait for its ACK signal type."""
+        conn = self.get_client(client_type)
+        if conn is None:
+            return None
+        return await conn.send_and_wait_signal(frame, expect_type, timeout=timeout)
+
     # -- heartbeat ----------------------------------------------------------
     async def _heartbeat_loop(self) -> None:
         while True:

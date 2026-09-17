@@ -1,27 +1,16 @@
 """Message vocabulary shared by host, Android card simulator and POS app.
 
-Every frame is a JSON object and carries at minimum:
+Protocol v2 (2026-09-15):
+* host <-> POS restructured to the Mastercard CTEL2 TEI signal set
+  (``test_info`` / ``config`` / ``act`` + ACKs; POS -> host ``msg`` / ``out``);
+* host <-> android (card link) keeps ``config_push{card_config}`` /
+  ``start_emulation`` / ``stop_emulation`` / ``status`` / ``log``; the APDU
+  trace channel becomes always-on and judgeable;
+* v1.2 POS frames (``pos_config`` / ``pos_kernel_config`` / ``case_started`` /
+  ``transaction_result`` / ``session_abort`` / ``device_config``) are REMOVED.
 
-    {"v": 1, "type": "<message type>", "msg_id": "<uuid>", "ts": 1730000000.0}
-
-The token is used **only** inside the handshake; afterwards the connection
-itself is the session (``session_id`` granted by the server).
-
-Attempt/session attribution: the server stamps ``run_id``, ``case_id`` and
-``attempt_id`` on ``case_started``; the POS app MUST echo ``case_id`` +
-``attempt_id`` in ``transaction_result``.  Results with an unknown or stale
-attempt id go to quarantine, never to judgment.
-
-Protocol level history:
-
-* v1.1 — card_config carries the full profile; keys travel beside it; host
-  pushes ``device_config`` once per connection (heartbeat/log/trace/ack
-  settings); POS receives ``pos_config`` (tag list).
-* v1.2 — HARD switch.  ``device_config`` is deleted (both sides use hardcoded
-  defaults: heartbeat 10s / warn 30s / ack timeout 15s); the card side reads
-  ``trace_enabled`` from each ``card_config`` instead; ``pos_kernel_config``
-  (AID/CAPK/TERM) is added for the POS; ``session_abort`` notifies both sides
-  of an abnormal stop and requires an ack.
+Every frame is a JSON object carrying at minimum:
+    {"v": 2, "type": "<message type>", "msg_id": "<uuid>", "ts": 1730000000.0}
 """
 
 from __future__ import annotations
@@ -30,18 +19,18 @@ import time
 import uuid
 from typing import Any
 
-PROTOCOL_VERSION = 1  # envelope "v" field (wire version, stays 1)
+PROTOCOL_VERSION = 2  # envelope "v" field (protocol v2)
 
-# negotiated protocol level carried in the handshake.  v1.2 is a HARD switch:
-# a client that omits protocol_version or advertises anything below 1.2 is
+# negotiated protocol level carried in the handshake.  v2 is a HARD switch:
+# a client that omits protocol_version or advertises anything below 2.0 is
 # rejected with protocol_mismatch and disconnected (no compatibility mode).
-PROTOCOL_VERSION_STRING = "1.2"
+PROTOCOL_VERSION_STRING = "2.0"
 
 CLIENT_ANDROID = "android"
 CLIENT_POS = "pos"
 CLIENT_TYPES = (CLIENT_ANDROID, CLIENT_POS)
 
-# --- message types ---------------------------------------------------------
+# --- transport / card link -------------------------------------------------
 MSG_HANDSHAKE = "handshake"
 MSG_HANDSHAKE_ACK = "handshake_ack"
 MSG_HEARTBEAT = "heartbeat"
@@ -49,30 +38,42 @@ MSG_HEARTBEAT_ACK = "heartbeat_ack"
 MSG_ACK = "ack"
 MSG_ERROR = "error"
 
-# host -> android / pos
-MSG_CONFIG_PUSH = "config_push"          # card_config / pos_config / pos_kernel_config
+# host -> android
+MSG_CONFIG_PUSH = "config_push"          # card_config
 MSG_START_EMULATION = "start_emulation"
 MSG_STOP_EMULATION = "stop_emulation"
-# host -> both: abnormal-stop notice (v1.2); each side must ack it
-MSG_SESSION_ABORT = "session_abort"
 
-# config_push payload discriminators (v1.2)
-#   card_config       -> android: profile + keys + timeout_seconds + trace_enabled
-#   pos_config        -> pos:     pos_params (tag list, unchanged since v1.1)
-#   pos_kernel_config -> pos:     kernel_params {aid[], capk[], term}
-# ``device_config`` is GONE in v1.2: both sides use hardcoded defaults
-# (heartbeat 10s / warn 30s / ack timeout 15s).
+# config_push payload discriminator (card link only in v2)
 CONFIG_TYPE_CARD = "card_config"
-CONFIG_TYPE_POS = "pos_config"
-CONFIG_TYPE_POS_KERNEL = "pos_kernel_config"
 
-# host -> pos (informational, NOT a command; POS is operated manually)
-MSG_CASE_STARTED = "case_started"
-
+# --- host <-> POS v2 (Mastercard CTEL2 TEI) --------------------------------
+# host -> pos
+MSG_TEST_INFO = "test_info"
+MSG_CONFIG = "config"
+MSG_ACT = "act"
 # pos -> host
-MSG_TRANSACTION_RESULT = "transaction_result"
+MSG_TEST_INFO_ACK = "test_info_ack"
+MSG_CONFIG_ACK = "config_ack"
+MSG_ACT_ACK = "act_ack"
+MSG_MSG = "msg"                          # user interface request data (UIRD)
+MSG_OUT = "out"                          # outcome (OPS/DataRecord/DiscData)
 
-# any client -> host
+# config.signalData ids (host-defined; CTEL2 native is CONF_NAME only, we embed
+# the full config -- see docs/protocol-v2-design.md section 4)
+CONFIG_ID_NAME = "CONF_NAME"
+CONFIG_ID_AID = "AID"
+CONFIG_ID_CAPK = "CAPK"
+CONFIG_ID_DRL = "DRL"
+CONFIG_ID_EXCEPTION_FILE = "EXCEPTION_FILE"
+CONFIG_ID_TERM = "TERM"
+CONFIG_ID_VERSION = "VERSION"
+
+# response codes used by the CTEL2 *_ACK signals
+RESP_YES = "YES"
+RESP_NO = "NO"
+RESP_NOTSUPPORTED = "NOTSUPPORTED"
+
+# android -> host
 MSG_STATUS = "status"
 MSG_LOG = "log"
 

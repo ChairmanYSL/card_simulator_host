@@ -34,21 +34,33 @@ from typing import Any, Awaitable, Callable
 from ..cases import CaseLibrary, TestCase
 from ..cases.models import KernelParams
 from ..judge.asserter import assert_result
+from ..judge.outcome import build_result
 from ..protocol.messages import (
     CLIENT_ANDROID,
     CLIENT_POS,
+    CONFIG_ID_AID,
+    CONFIG_ID_CAPK,
+    CONFIG_ID_DRL,
+    CONFIG_ID_EXCEPTION_FILE,
+    CONFIG_ID_NAME,
+    CONFIG_ID_TERM,
+    CONFIG_ID_VERSION,
     CONFIG_TYPE_CARD,
-    CONFIG_TYPE_POS,
-    CONFIG_TYPE_POS_KERNEL,
+    MSG_ACT,
+    MSG_ACT_ACK,
     MSG_ACK,
-    MSG_CASE_STARTED,
+    MSG_CONFIG,
+    MSG_CONFIG_ACK,
     MSG_CONFIG_PUSH,
     MSG_LOG,
-    MSG_SESSION_ABORT,
+    MSG_MSG,
+    MSG_OUT,
     MSG_START_EMULATION,
     MSG_STATUS,
     MSG_STOP_EMULATION,
-    MSG_TRANSACTION_RESULT,
+    MSG_TEST_INFO,
+    MSG_TEST_INFO_ACK,
+    RESP_NOTSUPPORTED,
     make_frame,
     new_msg_id,
 )
@@ -332,11 +344,15 @@ class RunExecutor:
                 await self.log(level, f"[{conn.client_type}] {frame.get('message', '')}")
             return
 
-        if msg_type == MSG_TRANSACTION_RESULT:
-            # v1.2 D2 (option A): judge + persist HERE, then ack.  The ack means
-            # "the result is on disk", so a retransmission cannot slip through
-            # the window between delivery and judgment.
-            await self._on_transaction_result(conn, frame)
+        if msg_type == MSG_MSG:
+            await self._ack(conn, msg_id)
+            await self._on_pos_msg(conn, frame)
+            return
+
+        if msg_type == MSG_OUT:
+            # v2: judge + persist HERE, then ack (the ack means "on disk", so a
+            # retransmission cannot slip through the delivery/judgment window).
+            await self._on_out(conn, frame)
             return
 
     async def _ack(self, conn: Any, ack_msg_id: str, ok: bool = True,
@@ -422,59 +438,50 @@ class RunExecutor:
             "at": time.time(), "message": message,
         })
 
-    async def _on_transaction_result(self, conn: Any, frame: dict[str, Any]) -> None:
-        """Judge + persist one transaction_result, then ack it (v1.2 D2, option A).
+    async def _on_pos_msg(self, conn: Any, frame: dict[str, Any]) -> None:
+        """CTEL2 MSG (UIRD): the POS display request; kept for the report."""
+        uird = None
+        for item in frame.get("signalData") or []:
+            if isinstance(item, dict) and str(item.get("id", "")).upper() == "UIRD":
+                uird = item.get("value")
+        session = self._session
+        if session is not None and session.current_attempt_id:
+            session.pos_msgs.append({"at": time.time(), "uird": uird})
+        await self.log("info", f"[pos] MSG UIRD={uird}")
 
-        The POS ack now means "the verdict is on disk", so:
+    async def _on_out(self, conn: Any, frame: dict[str, Any]) -> None:
+        """CTEL2 OUT: build the judgeable result, judge + persist it, then ack.
 
-        * an already-judged ``msg_id`` is acked ``detail="duplicate"`` and never
-          re-judged (or quarantined);
-        * a result that does not belong to the current attempt is quarantined as
-          before and acked ``detail="quarantined"`` (the POS must not retry it
-          forever);
-        * when persistence itself fails the ack is ``ok=false`` and the waiter is
-          deliberately NOT resolved, so the run keeps waiting for a usable
-          result instead of judging from a frame that was never stored.
+        OUT carries no case/attempt id (CTEL2 answers an ACT on the same
+        connection), so it is attributed to the current in-flight attempt.
         """
         msg_id = frame.get("msg_id")
-        attempt_id = frame.get("attempt_id")
-        case_id = frame.get("case_id")
         session = self._session
-
-        if session is not None and msg_id and msg_id in session.judged_msg_ids:
-            await self._ack(conn, msg_id, ok=True, detail="duplicate")
-            await self.log("warn", f"duplicate transaction_result ignored "
-                                   f"(msg_id={msg_id}, case={case_id})")
-            return
-
-        attributed = (session is not None and attempt_id
-                      and session.current_attempt_id == attempt_id
-                      and session.current_case_id == case_id
-                      and session.is_waiting_result(attempt_id))
+        attributed = (session is not None
+                      and session.current_attempt_id is not None
+                      and session.is_waiting_result(session.current_attempt_id))
         if not attributed:
             await self._quarantine(session, frame)
             await self._ack(conn, msg_id, ok=True, detail="quarantined")
             return
-
-        case = self.library.get_case(session.brand, session.mode, case_id)
+        case = self.library.get_case(session.brand, session.mode,
+                                     session.current_case_id)
         if case is None:
             await self._quarantine(session, frame)
             await self._ack(conn, msg_id, ok=True, detail="quarantined")
             return
-
         try:
-            outcome, detail = self._judge(session, case, frame)
+            outcome, detail = self._judge(session, case, frame.get("signalData"),
+                                          frame)
         except Exception as exc:  # noqa: BLE001 - persistence must be loud
-            logger.exception("failed to persist transaction_result for %s", case_id)
-            await self.log("error", f"[{case_id}] 结果落盘失败，未 ack 成功：{exc}")
+            logger.exception("failed to persist OUT for %s", case.case_id)
+            await self.log("error", f"[{case.case_id}] OUT 落盘失败，未 ack 成功：{exc}")
             await self._ack(conn, msg_id, ok=False, detail="persist_failed")
             return
-
         if msg_id:
             session.judged_msg_ids.add(msg_id)
         session.deliver_result(outcome)
-        await self.log("info", f"transaction result received for {case_id} "
-                               f"attempt {attempt_id} -> {outcome}")
+        await self.log("info", f"OUT received for {case.case_id} -> {outcome}")
         await self._ack(conn, msg_id, ok=True, detail=detail)
 
     async def _quarantine(self, session: RunSession | None,
@@ -544,8 +551,7 @@ class RunExecutor:
         self.store.write_checkpoint(run, None, "", "done")
         await self.publish("run_status", session.snapshot())
         await self.log("error", f"run {run['run_id']} ended: ABORTED ({reason})")
-        # v1.2 T10: even a crashed run tells both sides to stand down
-        await self._broadcast_session_abort(session, "run_crashed")
+        # v2: session_abort was removed (CTEL2 has no equivalent signal).
 
     async def _run_loop_body(self, session: RunSession) -> None:
         run = session.run
@@ -606,26 +612,6 @@ class RunExecutor:
         await self.log("info", f"run {run['run_id']} ended: {run['status']} "
                                f"({run.get('abort_reason') or 'completed'})")
 
-        # v1.2 T10: notify BOTH sides whenever the run did not finish normally
-        if run["status"] in ("ABORTED", "STOPPED", "INTERRUPTED", "ERROR"):
-            await self._broadcast_session_abort(session, self._abort_notice_reason(
-                run, stop_reason))
-
-    @staticmethod
-    def _abort_notice_reason(run: dict[str, Any], stop_reason: str) -> str:
-        """Map the run-level abort cause onto a session_abort reason string."""
-        if stop_reason:
-            return stop_reason
-        abort_reason = run.get("abort_reason") or ""
-        if abort_reason == "manual abort":
-            return "manual_abort"
-        if abort_reason == "manual stop":
-            return "manual_stop"
-        if abort_reason == "server_shutdown":
-            return "server_shutdown"
-        if abort_reason.startswith("case_failed"):
-            return abort_reason.rsplit(":", 1)[-1] or "case_failed"
-        return abort_reason or "case_failed"
 
     async def _mark_remaining_skipped(self, session: RunSession, index: int,
                                       failed_case_id: str) -> None:
@@ -781,115 +767,49 @@ class RunExecutor:
             # status:error while we waited (that path sets failure_reason)
             return "fail" if session.failure_reason else "aborted"
 
-        # 2.5 push POS kernel parameters (AID/CAPK/TERM) BEFORE pos_config.
-        #     Whole set is per case (brand default or case override); an empty
-        #     set means "do not touch the POS kernel tables".
+        # 3. CTEL2 (protocol v2): TEST_INFO -> CONFIG -> ACT, each acked, then
+        #    wait for the POS OUT.  The POS link no longer uses pos_config /
+        #    pos_kernel_config / case_started / transaction_result.
+        session.current_state = "POS_CONFIG"
+        self.store.write_checkpoint(session.run, case.case_id, attempt_id,
+                                    "pos_config")
+        if not await self._pos_signal(session, case, make_frame(
+                MSG_TEST_INFO,
+                signalData=[
+                    {"id": "TestId", "value": case.case_id},
+                    {"id": "InterfaceVersion", "value": "20250617"},
+                    {"id": "SessionId", "value": session.run.get("run_id")},
+                    {"id": "DekDetId", "value": None},
+                ]), "test_info", MSG_TEST_INFO_ACK):
+            return "fail"
+
         kernel = self._kernel_params_for(session, case)
         if kernel is not None and not kernel.empty:
-            payload = kernel.payload()
-            kernel_frame = make_frame(
-                MSG_CONFIG_PUSH,
-                config_type=CONFIG_TYPE_POS_KERNEL,
-                case_id=case.case_id,
-                attempt_id=attempt_id,
-                kernel_params=payload,
-            )
-            try:
-                ack = await self.protocol.send_to_and_ack(
-                    CLIENT_POS, kernel_frame, timeout=self.pos_ack_timeout)
-            except Exception as exc:
-                await self.log("error", f"[{case.case_id}] pos_kernel_config push "
-                                        f"failed: {exc}")
-                self._fail(session, "pos_kernel_config_ack_timeout")
+            if not await self._pos_signal(session, case,
+                                          self._config_frame(case, kernel),
+                                          "config", MSG_CONFIG_ACK):
                 return "fail"
-            if ack is None:
-                await self.log("error", f"[{case.case_id}] POS not connected; "
-                                        f"pos_kernel_config 无法下发")
-                self._fail(session, "pos_not_connected")
-                return "fail"
-            if ack.get("ok") is False:
-                await self.log("error", f"[{case.case_id}] POS rejected "
-                                        f"pos_kernel_config: {ack.get('detail', '')}")
-                self._fail(session, "pos_kernel_config_apply_failed")
-                return "fail"
-            await self.log("info", f"[{case.case_id}] pos_kernel_config applied "
-                                   f"(AID {len(payload['aid'])} 条 / CAPK "
-                                   f"{len(payload['capk'])} 条)")
 
-        # 3. push POS-side transaction parameters (per-case tag list) — the
-        #    config goes to the POS app only; the Android side never sees it.
-        #    v1.2 D4: an offline POS or a missing ack is a case FAIL, not a
-        #    warning (Q8: nothing can be asserted without the result channel).
-        pos_params = [p.model_dump() for p in case.transaction.pos_params]
-        if pos_params:
-            pos_frame = make_frame(
-                MSG_CONFIG_PUSH,
-                config_type=CONFIG_TYPE_POS,
-                case_id=case.case_id,
-                attempt_id=attempt_id,
-                pos_params=pos_params,
-            )
-            try:
-                ack = await self.protocol.send_to_and_ack(
-                    CLIENT_POS, pos_frame, timeout=self.pos_ack_timeout)
-            except Exception as exc:  # ConnectionClosed / ack timeout
-                await self.log("error", f"[{case.case_id}] pos_config push failed: {exc}")
-                self._fail(session, "pos_config_ack_timeout")
-                return "fail"
-            if ack is None:
-                await self.log("error", f"[{case.case_id}] POS not connected; "
-                                        f"pos_params ({len(pos_params)} 项) 未下发")
-                self._fail(session, "pos_not_connected")
-                return "fail"
-            if ack.get("ok") is False:
-                await self.log("error", f"[{case.case_id}] POS rejected pos_config: "
-                                        f"{ack.get('detail', '')}")
-                self._fail(session, "pos_config_rejected")
-                return "fail"
-            await self.log("info", f"[{case.case_id}] pos_config applied "
-                                   f"({len(pos_params)} 项 tag 参数)")
+        act = make_frame(MSG_ACT, signalData=[
+            p.model_dump() for p in case.transaction.act])
+        if not await self._pos_signal(session, case, act, "act", MSG_ACT_ACK):
+            return "fail"
 
-        # 4. wait for the result FIRST, then tell the POS to start: the waiter
-        #    must exist before the operator can possibly produce a result (v1.2:
-        #    the ack for case_started is mandatory).
-        session.current_state = "WAIT_RESULT"
+        # 4. wait for OUT FIRST, then let the operator tap: the waiter must
+        #    exist before the POS can produce the outcome.
+        session.current_state = "WAIT_OUT"
         self.store.write_checkpoint(session.run, case.case_id, attempt_id,
-                                    "waiting_result")
+                                    "waiting_out")
         session._result_waiter = asyncio.get_running_loop().create_future()
         instructions = self._operator_instructions(case)
         await self.publish("case_status", {
             "case_id": case.case_id, "status": "RUNNING",
             "attempt": attempt, "attempt_id": attempt_id,
-            "state": "WAIT_RESULT",
+            "state": "WAIT_OUT",
             "operator_instructions": instructions,
         })
-        case_started = make_frame(
-            MSG_CASE_STARTED,
-            case_id=case.case_id,
-            attempt_id=attempt_id,
-            brand=case.brand,
-            entry_mode=case.entry_mode.value,
-            operator_instructions=instructions,
-        )
-        try:
-            ack = await self.protocol.send_to_and_ack(
-                CLIENT_POS, case_started, timeout=self.pos_ack_timeout)
-        except Exception as exc:
-            await self.log("error", f"[{case.case_id}] case_started ack failed: {exc}")
-            self._fail(session, "pos_case_started_ack_timeout")
-            return "fail"
-        if ack is None:
-            await self.log("error", f"[{case.case_id}] POS not connected; "
-                                    f"case_started 未确认")
-            self._fail(session, "pos_not_connected")
-            return "fail"
-        if ack.get("ok") is False:
-            await self.log("error", f"[{case.case_id}] POS rejected case_started: "
-                                    f"{ack.get('detail', '')}")
-            self._fail(session, "pos_case_started_rejected")
-            return "fail"
 
-        # 5. wait for the (already judged, D2) result / abort / skip / timeout
+        # 5. wait for OUT / abort / skip / timeout
         abort_wait = asyncio.create_task(session.abort_event.wait())
         skip_wait = asyncio.create_task(session.skip_event.wait())
         try:
@@ -902,27 +822,20 @@ class RunExecutor:
                 task.cancel()
             if session._result_waiter in done and session._result_waiter.done() \
                     and not session._result_waiter.cancelled():
-                # outcome was decided (and persisted) by _on_transaction_result
                 outcome = session._result_waiter.result()
                 if outcome == "fail":
-                    # F2: the assertion FAIL must also set fatal_reason, so the
-                    # run's abort_reason carries the case id and the session_abort
-                    # notice reads assertion_failed (not result_timeout).  _fail
-                    # is a no-op when the reason is already set.
                     self._fail(session, session.failure_reason or "assertion_failed")
                 return outcome
             if session.abort_event.is_set():
-                # abort wins over skip: the run was stopped for a reason (a
-                # failure, a device loss or an explicit abort)
                 if session.failure_reason:
                     return "fail"
                 return "aborted"
             if session.skip_event.is_set():
                 return "skipped"
-            await self.log("error", f"[{case.case_id}] no transaction result within "
+            await self.log("error", f"[{case.case_id}] no OUT within "
                                     f"{case.timeout_seconds}s")
-            session.failure_reason = session.failure_reason or "result_timeout"
-            self._fail(session, "result_timeout")
+            session.failure_reason = session.failure_reason or "out_timeout"
+            self._fail(session, "out_timeout")
             return "fail"
         finally:
             session._result_waiter = None
@@ -931,8 +844,62 @@ class RunExecutor:
             session.skip_event.clear()
             # NOTE: the card is parked by _run_case's finally
             # (_stop_card_if_started), which also covers the earlier failure
-            # paths (TS-5/H2).  Do not stop here as well, or a case would emit
-            # two stop_emulation frames.
+            # paths (TS-5/H2).  Do not stop here as well.
+
+    async def _pos_signal(self, session: RunSession, case: TestCase,
+                          frame: dict[str, Any], name: str,
+                          expect_type: str) -> bool:
+        """Send one CTEL2 signal and require a YES ack.  False on failure."""
+        try:
+            ack = await self.protocol.send_to_and_ack_signal(
+                CLIENT_POS, frame, expect_type, timeout=self.pos_ack_timeout)
+        except Exception as exc:  # ConnectionClosed / ack timeout
+            await self.log("error", f"[{case.case_id}] {name} ack failed: {exc}")
+            self._fail(session, f"{name}_ack_timeout")
+            return False
+        if ack is None:
+            await self.log("error", f"[{case.case_id}] POS not connected; "
+                                    f"{name} 未确认")
+            self._fail(session, "pos_not_connected")
+            return False
+        code = self._response_code(ack)
+        if code != "YES":
+            await self.log("error", f"[{case.case_id}] POS rejected {name}: {code}")
+            self._fail(session, "act_not_supported"
+                       if name == "act" and code == RESP_NOTSUPPORTED
+                       else f"{name}_rejected")
+            return False
+        return True
+
+    @staticmethod
+    def _response_code(ack: dict[str, Any]) -> str:
+        for item in ack.get("signalData") or []:
+            if isinstance(item, dict) \
+                    and str(item.get("id", "")).upper() == "RESPONSECODE":
+                return str(item.get("value", "")).upper()
+        return ""
+
+    @staticmethod
+    def _config_frame(case: TestCase, kernel: KernelParams) -> dict[str, Any]:
+        """CTEL2 CONFIG with the full config embedded (R2=b, design section 4)."""
+        payload = kernel.payload()
+        signal: list[dict[str, Any]] = [
+            {"id": CONFIG_ID_NAME,
+             "value": case.kernel_params_ref or case.case_id},
+        ]
+        for tlv in payload["aid"]:
+            signal.append({"id": CONFIG_ID_AID, "value": tlv})
+        for tlv in payload["capk"]:
+            signal.append({"id": CONFIG_ID_CAPK, "value": tlv})
+        for tlv in payload["drl"]:
+            signal.append({"id": CONFIG_ID_DRL, "value": tlv})
+        for tlv in payload["exception_file"]:
+            signal.append({"id": CONFIG_ID_EXCEPTION_FILE, "value": tlv})
+        if kernel.term:
+            signal.append({"id": CONFIG_ID_TERM, "value": kernel.term})
+        if kernel.version:
+            signal.append({"id": CONFIG_ID_VERSION, "value": kernel.version})
+        return make_frame(MSG_CONFIG, signalData=signal)
 
     async def _stop_card_if_started(self, session: RunSession, case_id: str,
                                     attempt_id: str) -> None:
@@ -975,71 +942,25 @@ class RunExecutor:
         except Exception as exc:  # noqa: BLE001 - best effort on abort paths
             await self.log("debug", f"stop_emulation ack not received: {exc}")
 
-    async def _broadcast_session_abort(self, session: RunSession, reason: str,
-                                       action: str = "stop") -> None:
-        """Best-effort wrapper: notifying the peers must never break the run
-        loop (this is also called from the crash finaliser)."""
-        try:
-            await self._send_session_abort(session, reason, action)
-        except Exception:  # noqa: BLE001 - notification only
-            logger.exception("session_abort broadcast failed (reason=%s)", reason)
-
-    async def _send_session_abort(self, session: RunSession, reason: str,
-                                  action: str = "stop") -> None:
-        """Tell BOTH sides the session is over (v1.2 T10 / §1.6).
-
-        Each side is acked with a short budget and a missing ack is only
-        logged, so a dead peer can never stall run finalisation.  Sent once per
-        attempt (the run loop and the crash finaliser may both call it).
-        """
-        key = f"{session.run.get('run_id')}:{session.current_attempt_id}:{reason}"
-        # setdefault keeps half-constructed executors (tests, crash recovery)
-        # from tripping over the de-duplication set
-        sent: set[str] = self.__dict__.setdefault("_session_abort_sent", set())
-        if key in sent:
-            return
-        sent.add(key)
-        frame = make_frame(
-            MSG_SESSION_ABORT,
-            run_id=session.run.get("run_id"),
-            brand=session.brand,
-            mode=session.mode,
-            case_id=session.current_case_id,
-            attempt_id=session.current_attempt_id,
-            reason=reason,
-            action=action,
-        )
-        for client_type in (CLIENT_ANDROID, CLIENT_POS):
-            try:
-                ack = await self.protocol.send_to_and_ack(
-                    client_type, frame, timeout=self.abort_ack_timeout)
-            except Exception as exc:  # noqa: BLE001 - notification only
-                await self.log("warn", f"session_abort to {client_type} not acked: {exc}")
-                continue
-            if ack is None:
-                await self.log("debug", f"session_abort: {client_type} not connected")
-        await self.log("warn", f"session_abort broadcast (reason={reason}, "
-                               f"case={session.current_case_id})")
-
     def _judge(self, session: RunSession, case: TestCase,
-               frame: dict[str, Any]) -> tuple[str, str]:
-        """Judge one attributed result and PERSIST it (v1.2 D2).
+               signal_data: Any, frame: dict[str, Any]) -> tuple[str, str]:
+        """Build the v2 result from one OUT and judge + PERSIST it.
 
-        Returns ``(outcome, ack_detail)``.  Persistence happens here, before the
-        POS ack, so an ack failure can be reported as ``ok=false`` instead of
-        silently losing the verdict.
+        The result carries ``out.ops`` / ``out.datarecord`` / ``out.discdata``
+        plus the derived ``outcome`` / ``online`` / ``resp_code``; ``card`` is
+        filled by the APDU judge (P2).
         """
-        result = frame.get("result")
-        if not isinstance(result, dict):
+        try:
+            result = build_result(signal_data if isinstance(signal_data, list)
+                                  else [], card=session.card_apdus or None)
+        except ValueError as exc:
             self.store.write_quarantine(session.run, {
-                "at": time.time(), "reason": "result missing result object",
-                "frame": frame})
-            return "fail", "result_invalid"
+                "at": time.time(), "reason": str(exc), "frame": frame})
+            return "fail", "out_invalid"
         record = {
             "case_id": case.case_id,
-            # F3: both write paths emit BOTH keys — attempt is 0-based (which try
-            # it was), attempts is the 1-based count.  Consumers (HistoryPage)
-            # read `attempts`, which used to be missing on this path.
+            # F3: both write paths emit BOTH keys  attempt is 0-based (which try
+            # it was), attempts is the 1-based count.
             "attempt": session.current_attempt,
             "attempts": session.current_attempt + 1,
             "attempt_id": session.current_attempt_id,
@@ -1053,8 +974,6 @@ class RunExecutor:
         record["status"] = verdict.status
         record["finished_at"] = time.time()
         if verdict.status == "FAIL":
-            # record why the case failed, for the run-level abort_reason and the
-            # web UI (v1.2 D4)
             record["failure_reason"] = "assertion_failed"
         self.store.write_case_result(session.run, case.case_id, record)
         session.run.setdefault("results", {})[case.case_id] = {

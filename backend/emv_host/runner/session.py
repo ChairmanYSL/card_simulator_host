@@ -41,6 +41,12 @@ class RunSession:
         # otherwise the HCE session can leak into the next case.
         self.card_emulating: bool = False
 
+        # v2: CTEL2 MSG (UIRD) frames collected for the current attempt
+        self.pos_msgs: list[dict[str, Any]] = []
+        # v2 P2: card APDU stream collected for the current attempt
+        # (``card.gpo.pdol.*`` / ``card.gac.cdol*.*`` assertion source)
+        self.card_apdus: dict[str, Any] = {}
+
         # in-flight waits, keyed by attempt_id
         self._result_waiter: asyncio.Future | None = None
         self._emulation_waiter: asyncio.Future | None = None
@@ -64,6 +70,8 @@ class RunSession:
         self.failure_reason = None
         self.judged_msg_ids = set()
         self.card_emulating = False
+        self.pos_msgs = []
+        self.card_apdus = {}
         self._result_waiter = None
         self._emulation_waiter = None
 
@@ -71,6 +79,8 @@ class RunSession:
         self.current_state = "IDLE"
         self.current_attempt_id = None
         self.card_emulating = False
+        self.pos_msgs = []
+        self.card_apdus = {}
         self._result_waiter = None
         self._emulation_waiter = None
 

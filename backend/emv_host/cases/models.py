@@ -439,11 +439,40 @@ class ExpectedValues(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+class ActParam(BaseModel):
+    """One CTEL2 ``ACT`` signalData item (transaction data object).
+
+    ``id`` is an EMV tag (e.g. 9F02) or a proprietary id; ``value`` is an
+    uppercase hex string, ``""`` for a zero-length tag, or ``None`` when the
+    tag is NOT present.  See docs/protocol-v2-design.md section 5.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str = Field(min_length=1, max_length=32)
+    value: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _normalize_id(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("value")
+    @classmethod
+    def _normalize_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip().upper().replace(" ", "")
+
+
 class TransactionParams(BaseModel):
     operator_instructions: OperatorInstructions = Field(default_factory=OperatorInstructions)
     expected_values: ExpectedValues = Field(default_factory=ExpectedValues)
-    # POS-side transaction parameters (per-case, tag list).  Pushed to the POS
-    # app (config_push pos_config), never to the Android card side.
+    # v2: CTEL2 ACT transaction data (id/value hex), the only POS transaction
+    # parameters.  ``pos_params`` is retained for legacy case data but is NOT
+    # sent to the POS any more (v2 refactor, no coexistence).
+    act: list[ActParam] = Field(default_factory=list)
+    # POS-side transaction parameters (legacy v1.2 tag list; no longer pushed)
     pos_params: list[PosParam] = Field(default_factory=list)
 
 

@@ -11,10 +11,13 @@ from .frame import MAX_BAD_FRAMES, FrameDecodeError, ProtocolError, encode_frame
 from .messages import (
     ERR_PROTOCOL_MISMATCH,
     MSG_ACK,
+    MSG_ACT_ACK,
+    MSG_CONFIG_ACK,
     MSG_HANDSHAKE,
     MSG_HANDSHAKE_ACK,
     MSG_HEARTBEAT,
     MSG_HEARTBEAT_ACK,
+    MSG_TEST_INFO_ACK,
     PROTOCOL_VERSION_STRING,
     make_ack,
     make_frame,
@@ -25,6 +28,11 @@ logger = logging.getLogger("emv_host.protocol")
 
 HANDSHAKE_TIMEOUT = 10.0
 ACK_TIMEOUT = 15.0
+
+#: CTEL2 POS ack signals (protocol v2).  Unlike the generic ``ack`` frame they
+#: carry no ``ack_msg_id``; correlation is by the expected frame type (only one
+#: signal is in flight per connection at a time).
+CTEL2_ACK_TYPES = frozenset({MSG_TEST_INFO_ACK, MSG_CONFIG_ACK, MSG_ACT_ACK})
 
 
 class ConnectionClosed(Exception):
@@ -58,6 +66,7 @@ class ClientConnection:
         self._bad_frames = 0
         self._closed = False
         self._pending_acks: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._pending_signals: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._replacing: "ClientConnection | None" = None
 
     # -- identity -----------------------------------------------------------
@@ -95,6 +104,26 @@ class ClientConnection:
 
     def _on_ack(self, frame: dict[str, Any]) -> None:
         fut = self._pending_acks.pop(frame.get("ack_msg_id"), None)
+        if fut is not None and not fut.done():
+            fut.set_result(frame)
+
+    async def send_and_wait_signal(self, frame: dict[str, Any],
+                                   expect_type: str,
+                                   timeout: float = ACK_TIMEOUT) -> dict[str, Any]:
+        """Send a CTEL2 request and wait for its ACK signal (by frame type)."""
+        fut: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._pending_signals[expect_type] = fut
+        try:
+            await self.send(frame)
+            return await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError:
+            raise ConnectionClosed(
+                f"{self.label}: {expect_type} timeout for {frame['msg_id']}")
+        finally:
+            self._pending_signals.pop(expect_type, None)
+
+    def _on_signal(self, frame: dict[str, Any]) -> None:
+        fut = self._pending_signals.pop(frame.get("type"), None)
         if fut is not None and not fut.done():
             fut.set_result(frame)
 
@@ -222,6 +251,9 @@ class ClientConnection:
             if msg_type == MSG_ACK:
                 self._on_ack(frame)
                 continue
+            if msg_type in CTEL2_ACK_TYPES:
+                self._on_signal(frame)
+                continue
             await self.server.emit("message", self, frame)
 
     def close(self) -> None:
@@ -239,6 +271,11 @@ class ClientConnection:
                 fut.set_exception(ConnectionClosed(
                     f"{self.label}: connection closed before ack {msg_id}"))
         self._pending_acks.clear()
+        for fut in list(self._pending_signals.values()):
+            if not fut.done():
+                fut.set_exception(ConnectionClosed(
+                    f"{self.label}: connection closed before signal ack"))
+        self._pending_signals.clear()
         logger.debug("%s: close failed %d pending ack(s) with ConnectionClosed",
                      self.label, len(pending))
         try:

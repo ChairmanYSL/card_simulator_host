@@ -10,7 +10,6 @@ Behavior:
   "trace") while trace_enabled from card_config;
 * stop_emulation -> ack + status "stopped" (AID registrations/profile kept,
   kernel reset only - v1.1 H9);
-* session_abort -> ack (v1.2: host tells both sides the run ended abnormally).
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ from mock_common import MockClient, common_args, main_async  # noqa: E402 (adds 
 from emv_host.protocol.messages import (  # noqa: E402
     MSG_CONFIG_PUSH,
     MSG_LOG,
-    MSG_SESSION_ABORT,
     MSG_START_EMULATION,
     MSG_STATUS,
     MSG_STOP_EMULATION,
@@ -69,9 +67,9 @@ async def on_message(client: MockClient, frame: dict) -> None:
         await client.send_ack(msg_id)
         config_type = frame.get("config_type")
         if config_type == "card_config":
-            # v1.2 R1: the trace switch comes from card_config, not from a
-            # separate device_config push (that frame is gone in v1.2)
-            client.trace_enabled = bool(frame.get("trace_enabled"))
+            # v2: the APDU trace is the judging source, so it is always on
+            # (card_config no longer carries trace_enabled).
+            client.trace_enabled = True
             profile = frame.get("profile") or {}
             keys = frame.get("keys")
             has_keys = bool(keys and (keys.get("symmetric_keys") or
@@ -110,11 +108,6 @@ async def on_message(client: MockClient, frame: dict) -> None:
         await _status(client, "stopped", case_id, attempt_id,
                       {"profile_id": getattr(client, "_current_profile", None)})
         client.log(f"status: stopped (case={case_id})")
-    elif msg_type == MSG_SESSION_ABORT:
-        # v1.2: abnormal-stop notice; ack only, the card is already parked
-        await client.send_ack(msg_id)
-        client.log(f"session_abort reason={frame.get('reason')} "
-                   f"case={case_id} -> ack")
     else:
         client.log("ignored frame type:", msg_type)
 

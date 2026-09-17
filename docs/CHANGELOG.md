@@ -39,6 +39,18 @@
 - **验证**：无外部目录时 loader 从仓库内加载 amex **86 模块 / 0 error**；带外部目录时外部优先，
   visa 默认集正常加载。按要求未跑 pytest/tsc。
 
+## 2026-09-15（协议 v2 P0：Mastercard CTEL2 设计冻结）
+
+### 设计：host-POS 报文重构为 CTEL2 TEI（P0，仅文档）
+- **新增** docs/protocol-v2-design.md：TEST_INFO/CONFIG/ACT + ACK、MSG、OUT(OPS/DataRecord/DiscData)；
+  CONFIG 内嵌完整配置（R2=b）；卡端全量 APDU 作为判定源（R3/R4）；断言路径 card.* / out.*（R5）；
+  OPS（DF8129，8B）位表（R6）；删除 v1.2 POS 报文、不与旧版并存（R7）。
+- **新增** docs/change-notice-v2-pos.md（POS 端实现通知）；
+  **新增** docs/change-notice-v2-card.md（卡端通知：APDU 恒开/按案例/可判定 + token 白名单扩展）。
+- **裁决记录**：R1=b 保持 TCP 角色；R2=b CONFIG 内嵌完整配置；R3 卡端链路保留不动；
+  R4=a 复用 trace 且恒开可判定；R5 接受 card.*/out.*；R6 OPS 两张图；R7 先 P0、不并存。
+- **代码未改**：P0 仅文档，P1 起实施（host CTEL2 层、卡端 APDU、用例、Mastercard 配置/CAPK）。
+
 ## 2026-09-15（术语统一：scheme -> brand，全量改名）
 
 ### 重构：卡组字段全面更名为 brand

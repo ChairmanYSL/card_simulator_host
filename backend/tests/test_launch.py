@@ -119,18 +119,23 @@ def test_serve_from_backend_dir_uses_repo_defaults(tmp_path):
         pytest.skip("CTRL_BREAK_EVENT delivery is Windows-specific")
     web, device = _free_ports(2)
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    # F3: the server logs ~29 KB before binding the port; an undrained PIPE
+    # fills the ~4 KB Windows pipe buffer and blocks the child before the
+    # health endpoint is up.  Redirect to a file instead (diagnostics kept).
+    log_path = tmp_path / "server.log"
+    log = open(log_path, "wb")
     proc = subprocess.Popen(
         [sys.executable, "-m", "emv_host", "serve",
          "--port", str(web), "--device-port", str(device),
          "--runs", str(tmp_path / "runs"),
          "--log-dir", str(tmp_path / "logs")],
         cwd=str(REPO_ROOT / "backend"), env=_clean_env(),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags,
+        stdout=log, stderr=subprocess.STDOUT, creationflags=flags,
     )
     try:
         for _ in range(120):
             if proc.poll() is not None:
-                out = proc.stdout.read().decode(errors="replace")
+                out = log_path.read_bytes().decode(errors="replace")
                 pytest.fail(f"server died early (exit {proc.returncode}):\n{out[-2000:]}")
             try:
                 with urllib.request.urlopen(
@@ -143,11 +148,12 @@ def test_serve_from_backend_dir_uses_repo_defaults(tmp_path):
             pytest.fail("server did not start (default path resolution broken?)")
 
         os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
-        out, _ = proc.communicate(timeout=20)
-        text = out.decode(errors="replace")
+        proc.wait(timeout=20)
+        text = log_path.read_bytes().decode(errors="replace")
         assert proc.returncode == 0, f"exit {proc.returncode}:\n{text[-2000:]}"
         assert "Traceback" not in text
     finally:
+        log.close()
         if proc.poll() is None:
             proc.kill()
 

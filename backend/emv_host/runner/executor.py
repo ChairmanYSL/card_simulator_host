@@ -35,6 +35,7 @@ from ..cases import CaseLibrary, TestCase
 from ..cases.models import KernelParams
 from ..judge.asserter import assert_result
 from ..judge.outcome import build_result
+from ..protocol.connection import ConnectionClosed
 from ..protocol.messages import (
     CLIENT_ANDROID,
     CLIENT_POS,
@@ -857,9 +858,14 @@ class RunExecutor:
         try:
             ack = await self.protocol.send_to_and_ack_signal(
                 CLIENT_POS, frame, expect_type, timeout=self.pos_ack_timeout)
-        except Exception as exc:  # ConnectionClosed / ack timeout
-            await self.log("error", f"[{case.case_id}] {name} ack failed: {exc}")
+        except ConnectionClosed as exc:
+            # peer did not answer within the budget (or the link dropped)
+            await self.log("error", f"[{case.case_id}] {name} ack timeout: {exc}")
             self._fail(session, f"{name}_ack_timeout")
+            return False
+        except Exception as exc:  # local/programming/transport error
+            await self.log("error", f"[{case.case_id}] {name} signal error: {exc}")
+            self._fail(session, f"{name}_error")
             return False
         if ack is None:
             await self.log("error", f"[{case.case_id}] POS not connected; "

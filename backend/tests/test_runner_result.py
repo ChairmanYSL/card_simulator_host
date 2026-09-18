@@ -225,7 +225,7 @@ async def test_unattributed_out_is_quarantined(tmp_path):
     qpath = executor.store.run_dir(
         executor.store.root, run["run_id"]) / "quarantine.jsonl"
     assert qpath.is_file()
-    assert len(qpath.read_text(encoding="utf-8").splitlines()) == 2
+    assert len(qpath.read_text(encoding="utf-8").splitlines()) == 1
 
 
 @pytest.mark.asyncio

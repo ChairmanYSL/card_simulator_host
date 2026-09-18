@@ -66,3 +66,14 @@ async def test_non_object_payload_rejected():
     _feed(reader, len(body).to_bytes(4, "big") + body)
     with pytest.raises(FrameDecodeError):
         await read_frame(reader)
+
+
+def test_make_frame_envelope_is_v2():
+    """Protocol v2: every outbound frame carries envelope v=2 + a msg_id."""
+    from emv_host.protocol.messages import PROTOCOL_VERSION, make_frame
+
+    frame = make_frame("x")
+    assert PROTOCOL_VERSION == 2
+    assert frame["v"] == 2
+    assert frame["type"] == "x"
+    assert frame["msg_id"]

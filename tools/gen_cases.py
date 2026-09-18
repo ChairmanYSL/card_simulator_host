@@ -274,30 +274,30 @@ MODES = {
 }
 
 
-def embedded_profile(brand: dict, brand: str, case_id: str, title: str,
+def embedded_profile(brand_conf: dict, brand: str, case_id: str, title: str,
                      ac_behavior: str, pan_key: int,
                      extra: dict | None = None) -> dict:
     """One case-bound CardProfile (id = case_id, unique PAN per case)."""
     network_name = {"visa": "VISA", "mastercard": "MASTERCARD",
                     "unionpay": "UNIONPAY"}.get(brand, brand.upper())
     # multi-AID brands (PURE) vs single-AID demo brands
-    aids_list = brand.get("aids_list") or [brand.get("aid")]
-    aids = [{"aid": aid, "label": brand["label"], "priority": i}
+    aids_list = brand_conf.get("aids_list") or [brand_conf.get("aid")]
+    aids = [{"aid": aid, "label": brand_conf["label"], "priority": i}
             for i, aid in enumerate(aids_list) if aid]
-    pan = brand.get("fixed_pan") or luhn_digit(f"{brand['pan_prefix']}{pan_key:02d}")
-    track2 = brand.get("fixed_track2") or f"{pan}=2812201".encode("ascii").hex()
+    pan = brand_conf.get("fixed_pan") or luhn_digit(f"{brand_conf['pan_prefix']}{pan_key:02d}")
+    track2 = brand_conf.get("fixed_track2") or f"{pan}=2812201".encode("ascii").hex()
     profile = {
         "id": case_id,  # bound: profile id == case id
-        "name": f"{brand['display_name']} {title}",
+        "name": f"{brand_conf['display_name']} {title}",
         "network": network_name,
         "isActive": True,
         "aids": aids,
         "pan": pan,
         "panSequenceNumber": 1,
         "applicationExpirationDate": "281231",
-        "cardholderName": brand["holder"],
+        "cardholderName": brand_conf["holder"],
         "track2EquivalentData": track2,
-        "applicationLabel": brand["label"],
+        "applicationLabel": brand_conf["label"],
         "applicationVersionNumber": "0001",
         "aip": "5800",
         "afl": "08010100",
@@ -311,32 +311,32 @@ def embedded_profile(brand: dict, brand: str, case_id: str, title: str,
         # (8x0xFA, ac_crypto:"fake") per v1.1 O4/N8
         "acBehavior": ac_behavior,
     }
-    if brand.get("kernel_id"):
+    if brand_conf.get("kernel_id"):
         # PURE: PPSE 目录项 9F2A Kernel Identifier（透传字段供安卓侧使用）
-        profile["kernelId"] = brand["kernel_id"]
+        profile["kernelId"] = brand_conf["kernel_id"]
     if extra:
         profile.update(extra)
     return profile
 
 
-def card_template(brand: dict, brand: str) -> dict:
+def card_template(brand_conf: dict, brand: str) -> dict:
     """brand.json card_template: default card cloned by the add-case page."""
-    return embedded_profile(brand, brand, f"{brand}_card_template",
+    return embedded_profile(brand_conf, brand, f"{brand}_card_template",
                             "默认卡片模板", "offline_approved", pan_key=0,
-                            extra={"name": f"{brand['display_name']} 默认卡片"})
+                            extra={"name": f"{brand_conf['display_name']} 默认卡片"})
 
 
-def gen_case(brand_key: str, brand: dict, mode: str, spec: dict,
+def gen_case(brand_key: str, brand_conf: dict, mode: str, spec: dict,
              brand: str, case_prefix: str, pos_params: list[dict]) -> dict:
     case_id = f"{case_prefix}-CL-{spec['suffix']}"
     pin = MODES[mode]["pin_hint"]
     return {
         "case_id": case_id,
-        "title": f"{brand['display_name']} {mode} {spec['title']}",
+        "title": f"{brand_conf['display_name']} {mode} {spec['title']}",
         "summary": f"{mode} transaction with ac_behavior={spec['behavior']}",
         "brand": brand_key,
         "entry_mode": mode,
-        "profile": embedded_profile(brand, brand, case_id, spec["title"],
+        "profile": embedded_profile(brand_conf, brand, case_id, spec["title"],
                                     spec["behavior"], int(spec["suffix"])),
         "transaction": {
             "operator_instructions": {
@@ -440,7 +440,7 @@ def main(root: str) -> None:
     print(f"case library generated under {root}")
 
 
-def _gen_smoke_case(brand_root: Path, brand: dict, brand: str,
+def _gen_smoke_case(brand_root: Path, brand_conf: dict, brand: str,
                     case_prefix: str, pos_params: list[dict]) -> None:
     """新增卡组（JCB/AMEX/DISCOVER/PURE）：仅生成 1 个冒烟用例（offline approved）。
 
@@ -449,15 +449,15 @@ def _gen_smoke_case(brand_root: Path, brand: dict, brand: str,
     mode = "contactless"
     case_id = f"{case_prefix}-CL-001"
     placeholder_note = ("（AID/PAN 为演示占位数据，可在网页 AddCase 中改为真实值）"
-                        if not brand.get("aids_list")
+                        if not brand_conf.get("aids_list")
                         else "（PURE：使用规范确认的 AID/PAN/track2/kernelId）")
     write(brand_root / mode / "cases" / f"{case_id}.json", {
         "case_id": case_id,
-        "title": f"{brand['display_name']} contactless offline approved (TC) 冒烟用例",
+        "title": f"{brand_conf['display_name']} contactless offline approved (TC) 冒烟用例",
         "summary": f"{mode} smoke case with ac_behavior=offline_approved {placeholder_note}",
         "brand": brand,
         "entry_mode": mode,
-        "profile": embedded_profile(brand, brand, case_id,
+        "profile": embedded_profile(brand_conf, brand, case_id,
                                     "offline approved (TC)", "offline_approved",
                                     pan_key=1),
         "transaction": {
@@ -491,7 +491,7 @@ def _gen_smoke_case(brand_root: Path, brand: dict, brand: str,
     })
 
 
-def _gen_no_response_cases(brand_root: Path, brand: dict, brand: str,
+def _gen_no_response_cases(brand_root: Path, brand_conf: dict, brand: str,
                            pos_params: list[dict]) -> None:
     """UnionPay 演示：GPO 不响应（每次静默 / 仅首次 N 次静默）。"""
     cases_dir = brand_root / "contactless" / "cases"
@@ -501,11 +501,11 @@ def _gen_no_response_cases(brand_root: Path, brand: dict, brand: str,
         mode = "contactless"
         write(cases_dir / f"{case_id}.json", {
             "case_id": case_id,
-            "title": f"{brand['display_name']} contactless {title}",
+            "title": f"{brand_conf['display_name']} contactless {title}",
             "summary": f"noResponseCommands={behavior}（档案随案例内嵌）",
             "brand": brand,
             "entry_mode": mode,
-            "profile": embedded_profile(brand, brand, case_id, title,
+            "profile": embedded_profile(brand_conf, brand, case_id, title,
                                         "offline_approved",
                                         int(case_id.rsplit("-", 1)[1]),
                                         extra={"noResponseCommands": no_resp}),
@@ -551,7 +551,7 @@ def _gen_no_response_cases(brand_root: Path, brand: dict, brand: str,
                 {"path": "outcome", "op": "eq", "expect": "approved"}])
 
 
-def _gen_qpb_i_010_group(brand_root: Path, brand: dict, brand: str,
+def _gen_qpb_i_010_group(brand_root: Path, brand_conf: dict, brand: str,
                          pos_params: list[dict]) -> None:
     """UnionPay QPB.I.010.00「交易不能联机完成」分组演示（QPB-I-010）。
 
@@ -610,7 +610,7 @@ def _gen_qpb_i_010_group(brand_root: Path, brand: dict, brand: str,
                    "读写器应拒绝交易（档案随案例内嵌）",
         "brand": brand,
         "entry_mode": "contactless",
-        "profile": embedded_profile(brand, brand, case_id,
+        "profile": embedded_profile(brand_conf, brand, case_id,
                                     "交易不能联机完成（拒绝交易）",
                                     "online_request", 8,
                                     extra={"issuerApplicationData": iad_9f10}),
@@ -651,7 +651,7 @@ def _gen_qpb_i_010_group(brand_root: Path, brand: dict, brand: str,
     })
 
 
-def _gen_qpb_b_002_group(brand_root: Path, brand: dict, brand: str,
+def _gen_qpb_b_002_group(brand_root: Path, brand_conf: dict, brand: str,
                          pos_params: list[dict]) -> None:
     """UnionPay QPB.B.002.00「状态检查请求（Status Check Requested）」分组演示。
 
@@ -716,7 +716,7 @@ def _gen_qpb_b_002_group(brand_root: Path, brand: dict, brand: str,
                    "批准（档案随案例内嵌）",
         "brand": brand,
         "entry_mode": "contactless",
-        "profile": embedded_profile(brand, brand, case_id,
+        "profile": embedded_profile(brand_conf, brand, case_id,
                                     "状态检查请求（9F66 请求联机密文）",
                                     "online_request", 9,
                                     extra={"pdol": pdol_9f66}),
@@ -771,7 +771,7 @@ def _gen_qpb_b_002_group(brand_root: Path, brand: dict, brand: str,
     })
 
 
-def _gen_qpb_d_001_group(brand_root: Path, brand: dict, brand: str,
+def _gen_qpb_d_001_group(brand_root: Path, brand_conf: dict, brand: str,
                          pos_params: list[dict]) -> None:
     """UnionPay QPB.D.001.00「使用 PPSE 目录选择方式」分组演示。
 
@@ -791,7 +791,7 @@ def _gen_qpb_d_001_group(brand_root: Path, brand: dict, brand: str,
 
     def missing_aid_fci() -> str:
         """PPSE FCI：目录条目(61)带 50 label + 87 priority，但无 4F=AID。"""
-        label_hex = brand["label"].encode().hex()  # UNIONPAY
+        label_hex = brand_conf["label"].encode().hex()  # UNIONPAY
         entry61 = _tlv("61", _tlv("50", label_hex) + "870101")
         fci = _tlv("6F", _tlv("84", "2PAY.SYS.DDF01".encode().hex())
                    + _tlv("A5", _tlv("BF0C", entry61)))
@@ -859,7 +859,7 @@ def _gen_qpb_d_001_group(brand_root: Path, brand: dict, brand: str,
             "summary": f"PPSE 子案例：{ppse_name}（档案随案例内嵌）",
             "brand": brand,
             "entry_mode": "contactless",
-            "profile": embedded_profile(brand, brand, case_id, ppse_name,
+            "profile": embedded_profile(brand_conf, brand, case_id, ppse_name,
                                         behavior, pan_key, extra=ppse_extra),
             "transaction": {
                 "operator_instructions": {
@@ -909,7 +909,7 @@ def _ppse_missing_aid_fci() -> str:
     return fci.upper()
 
 
-def _gen_ppse_group(brand_root: Path, brand: dict, brand: str,
+def _gen_ppse_group(brand_root: Path, brand_conf: dict, brand: str,
                     pos_params: list[dict]) -> None:
     cases_dir = brand_root / "contactless" / "cases"
 
@@ -971,7 +971,7 @@ def _gen_ppse_group(brand_root: Path, brand: dict, brand: str,
             "summary": f"PPSE 子案例：{ppse_name}（档案随案例内嵌）",
             "brand": brand,
             "entry_mode": "contactless",
-            "profile": embedded_profile(brand, brand, case_id, ppse_name,
+            "profile": embedded_profile(brand_conf, brand, case_id, ppse_name,
                                         behavior, pan_key, extra=ppse_extra),
             "transaction": {
                 "operator_instructions": {

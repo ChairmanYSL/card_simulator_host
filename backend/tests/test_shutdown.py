@@ -266,6 +266,10 @@ def _run_subprocess_exit_probe(tmp_path) -> Exception | None:
     web_port, device_port = _free_ports(2)
     env = dict(os.environ, PYTHONPATH=str(REPO_ROOT / "backend"))
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    # F3: file redirection avoids the ~4 KB Windows pipe buffer blocking the
+    # server's ~29 KB startup log before it can bind the port.
+    log_path = tmp_path / "shutdown-server.log"
+    log = open(log_path, "wb")
     proc = subprocess.Popen(
         [sys.executable, "-m", "emv_host", "serve",
          "--host", "127.0.0.1", "--port", str(web_port),
@@ -276,13 +280,13 @@ def _run_subprocess_exit_probe(tmp_path) -> Exception | None:
          "--static", str(REPO_ROOT / "frontend/dist"),
          "--log-level", "info"],
         cwd=str(REPO_ROOT), env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdout=log, stderr=subprocess.STDOUT,
         creationflags=flags,
     )
     try:
         for _ in range(120):
             if proc.poll() is not None:
-                out = proc.stdout.read().decode(errors="replace")
+                out = log_path.read_bytes().decode(errors="replace")
                 return AssertionError(
                     f"server died early (exit {proc.returncode}):\n{out[-2000:]}")
             try:
@@ -298,12 +302,12 @@ def _run_subprocess_exit_probe(tmp_path) -> Exception | None:
         started = time.monotonic()
         try:
             os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
-        except OSError as exc:
+        except OSError:
             proc.kill()
             return None  # cannot deliver in this environment; treat as pass
-        out, _ = proc.communicate(timeout=20)
+        proc.wait(timeout=20)
         elapsed = time.monotonic() - started
-        text = out.decode(errors="replace")
+        text = log_path.read_bytes().decode(errors="replace")
         if proc.returncode != 0:
             return AssertionError(
                 f"exit code {proc.returncode} after {elapsed:.1f}s:\n{text[-2500:]}")
@@ -313,5 +317,6 @@ def _run_subprocess_exit_probe(tmp_path) -> Exception | None:
             return AssertionError(f"missing 'bye' on exit:\n{text[-2500:]}")
         return None
     finally:
+        log.close()
         if proc.poll() is None:
             proc.kill()

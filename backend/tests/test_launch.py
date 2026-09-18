@@ -93,7 +93,7 @@ def test_v12_hardcoded_protocol_defaults():
     from emv_host.protocol.messages import PROTOCOL_VERSION_STRING
 
     config = AppConfig()
-    assert PROTOCOL_VERSION_STRING == "1.2"
+    assert PROTOCOL_VERSION_STRING == "2.0"
     assert config.heartbeat_interval == 10.0
     assert config.heartbeat_warn == 30.0
     assert config.card_ack_timeout == 15.0

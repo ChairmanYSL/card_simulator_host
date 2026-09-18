@@ -121,7 +121,7 @@
       "expect": "online"
     },
     {
-      "path": "tags.gpo.9F66",
+      "path": "out.datarecord.9F66",
       "op": "eq",
       "expect": "36804000"
     }

@@ -457,6 +457,10 @@ class RunExecutor:
         """
         msg_id = frame.get("msg_id")
         session = self._session
+        if session is not None and msg_id and msg_id in session.judged_msg_ids:
+            await self._ack(conn, msg_id, ok=True, detail="duplicate")
+            await self.log("warn", f"duplicate out ignored (msg_id={msg_id})")
+            return
         attributed = (session is not None
                       and session.current_attempt_id is not None
                       and session.is_waiting_result(session.current_attempt_id))

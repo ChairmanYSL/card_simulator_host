@@ -152,7 +152,7 @@ async def test_newer_protocol_version_accepted(unused_tcp_port):
     server = await _server(unused_tcp_port, sink)
     try:
         _, writer, ack = await connect_client(
-            unused_tcp_port, "pos", "secret-p", protocol_version="1.3")
+            unused_tcp_port, "pos", "secret-p", protocol_version="2.1")
         assert ack["type"] == MSG_HANDSHAKE_ACK
         assert ack.get("protocol_version") == PROTOCOL_VERSION_STRING
         writer.close()

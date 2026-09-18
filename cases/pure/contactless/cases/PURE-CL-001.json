@@ -140,7 +140,7 @@
       "expect": "offline"
     },
     {
-      "path": "tags.gen_ac.9F26",
+      "path": "out.datarecord.9F26",
       "op": "present"
     }
   ]

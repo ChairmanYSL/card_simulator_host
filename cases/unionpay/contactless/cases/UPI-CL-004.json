@@ -109,15 +109,15 @@
       "expect": "00"
     },
     {
-      "path": "tags.gen_ac.9F26",
+      "path": "out.datarecord.9F26",
       "op": "present"
     },
     {
-      "path": "tags.gen_ac.9F10",
+      "path": "out.datarecord.9F10",
       "op": "present"
     },
     {
-      "path": "tags.gen_ac.5F2A",
+      "path": "out.datarecord.5F2A",
       "op": "eq",
       "expect": "0156"
     },

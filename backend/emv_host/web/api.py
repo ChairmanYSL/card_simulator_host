@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ..cases import CaseLibrary, EntryMode, GroupDef, TestCase
 from ..cases.loader import CaseLibraryError, _compose_kernel_params
 from ..cases.validation import (
+    validate_act,
     validate_kernel_params,
     validate_keys,
     validate_pos_params,
@@ -169,7 +170,10 @@ def create_app(ctx: AppContext) -> FastAPI:
     async def brand_template(brand: str) -> dict[str, Any]:
         """Brand-level defaults for the add-case page: the default card
         template (cloned into a new case's embedded profile) and the brand's
-        default POS transaction parameter template (auto-added per case)."""
+        legacy POS transaction parameter template.  v2 replaced the latter with
+        ``transaction.act`` (docs/protocol.md §8.1), so the add-case page only
+        displays it read-only: it is not copied into new cases and never
+        reaches the POS."""
         brand_def = ctx.library.brands.get(brand)
         if brand_def is None:
             raise HTTPException(404, f"brand {brand!r} not found")
@@ -239,6 +243,11 @@ def create_app(ctx: AppContext) -> FastAPI:
                 case.transaction.pos_params, case.case_id).issues:
             if issue.severity == "error":
                 errors.append(f"pos_params: {issue.message}")
+        # v2: ACT transaction data is the wire path (docs/protocol.md §8.1) —
+        # errors here would otherwise reach the POS verbatim.
+        for issue in validate_act(case.transaction.act, case.case_id).issues:
+            if issue.severity == "error":
+                errors.append(f"act: {issue.message}")
         # v1.2: case-level POS kernel parameters (AID/CAPK/TERM) + free pairing
         refs = [("kernel_params_ref", case.kernel_params_ref),
                 ("terminal_profile_ref", case.terminal_profile_ref)]

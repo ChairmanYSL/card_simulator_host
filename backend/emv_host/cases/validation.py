@@ -14,7 +14,10 @@ Host-consumed subset checks:
   flagged as a warning;
 * embedded keys bundle (in a case JSON): key values must be valid base64;
 * pos_params (brand template & per-case): tag format is enforced by the
-  PosParam model itself; duplicate tags are flagged here as a warning.
+  PosParam model itself; duplicate tags are flagged here as a warning;
+* act (v2 CTEL2 transaction data, the replacement for pos_params): id is an
+  EMV tag or a proprietary id, value is uppercase hex (``""`` = zero length,
+  ``None`` = tag not sent); duplicate ids warn, a malformed value errors.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ import base64
 import re
 from dataclasses import dataclass, field
 
-from .models import CardProfile, KeysBundle, KernelParams, PosParam
+from .models import ActParam, CardProfile, KeysBundle, KernelParams, PosParam
 from ..protocol.kernel_tlv import (
     MAX_EXPONENT_BYTES,
     MAX_MODULUS_BYTES,
@@ -35,8 +38,9 @@ from ..protocol.kernel_tlv import (
 )
 
 __all__ = [
-    "Issue", "Report", "luhn_ok", "ppse_tlv_ok", "validate_keys",
-    "validate_kernel_params", "validate_pos_params", "validate_profile",
+    "Issue", "Report", "luhn_ok", "ppse_tlv_ok", "validate_act",
+    "validate_keys", "validate_kernel_params", "validate_pos_params",
+    "validate_profile",
 ]
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -316,6 +320,95 @@ def validate_pos_params(params: list[PosParam], owner: str) -> Report:
             report.add(owner, "warning",
                        f"pos_params 第 {i} 项 tag={param.tag} 重复")
         seen.add(param.tag)
+    return report
+
+
+# -- v2 CTEL2 ACT transaction data -------------------------------------------
+#
+# Wire model: docs/protocol.md §8.1 "ACT 交易数据（取代 v1.2 的 pos_params）"
+# (docs/protocol.md:514-542) and docs/protocol-v2-design.md section 5
+# (design:94-113).  ``act.signalData=[{id,value}]``, ``value`` is always a hex
+# string, ``null`` = do not send the tag, ``""`` = length 00.  ``executor.py``
+# reads only ``transaction.act``, so a defect here goes straight to the POS.
+
+#: 1-3 byte EMV tag shape — the exact rule the PosParam model enforces at parse
+#: time (models.py:52-60): a multi-byte tag must start with a byte whose low 5
+#: bits are 0x1F (e.g. 9F02, DF8101).  Used only for the conservative warning
+#: below, never to reject: the ACT tag table ends with a free "私有 tag" slot
+#: (docs/protocol.md:532), so the host must not block unfamiliar tags.
+_TAG_SHAPE = re.compile(r"^[0-9A-F]{2}(?:[0-9A-F]{2}){0,2}$")
+#: Any-case hex characters; the value's *uppercase* rule is checked separately
+#: because ``ActParam`` normalises it (models.py:460-465).
+_HEX_ANY_CASE = re.compile(r"^[0-9A-Fa-f]+$")
+#: CTEL2 ids the protocol documents although they are not EMV tags: the
+#: signalData ids of test_info / test_info_ack / act_ack / out
+#: (docs/protocol-v2-design.md §2.1-2.2, design:32-44).  ACT itself documents
+#: hex tags only, so this set exists purely to keep the id warning conservative
+#: — a name the protocol really defines must never be called implausible.
+_CTEL2_SIGNAL_IDS = frozenset({
+    "TESTID", "INTERFACEVERSION", "SESSIONID", "DEKDETID",  # test_info
+    "RESPONSECODE", "DESCRIPTION",                          # *_ack
+    "OPS", "DATARECORD", "DISCDATA", "UIRD", "KERNELID",    # out
+})
+
+
+def _plausible_act_id(tag: str) -> bool:
+    """True when ``tag`` is an EMV tag shape (1-3 bytes) or a documented
+    CTEL2 signal id.  Everything else is a *warning*: the host only advises."""
+    if tag in _CTEL2_SIGNAL_IDS:
+        return True
+    if not _TAG_SHAPE.fullmatch(tag):
+        return False
+    return len(tag) == 2 or (int(tag[:2], 16) & 0x1F) == 0x1F
+
+
+def validate_act(params: list[ActParam], owner: str) -> Report:
+    """Per-case v2 ``transaction.act`` checks (replaces ``validate_pos_params``).
+
+    The ``ActParam`` model normalises ``id``/``value`` on parse (``strip()``,
+    ``upper()``, spaces removed — models.py:455-465, docs/protocol.md:534-535),
+    so this reports only what survives that normalisation:
+
+    * duplicate ``id`` -> warning (same convention as ``validate_pos_params``:
+      the POS decides whether a repeated tag is meaningful);
+    * ``value`` that is not hex, or not a whole number of bytes -> error: the
+      string is handed to the POS verbatim, so a malformed value is a wire
+      defect, not a preference;
+    * ``value`` that is not uppercase *after* normalisation -> warning; a
+      normally-parsed ActParam can never trigger it, only one built without
+      validation (``model_construct``);
+    * ``id`` that is neither a plausible EMV tag nor a documented CTEL2 signal
+      id -> warning (see ``_plausible_act_id``).
+
+    ``value is None`` (tag not sent) and ``value == ""`` (zero length) are both
+    legal and are never flagged.
+    """
+    report = Report()
+    seen: set[str] = set()
+    for i, param in enumerate(params, start=1):
+        pid = param.id
+        if pid in seen:
+            report.add(owner, "warning", f"act 第 {i} 项 id={pid} 重复")
+        seen.add(pid)
+        if not _plausible_act_id(pid):
+            report.add(owner, "warning",
+                       f"act 第 {i} 项 id={pid!r} 既不像 EMV tag（1-3 字节大写 "
+                       f"hex，多字节首字节低 5 位须为 0x1F）也不是文档里的 "
+                       f"CTEL2 id；POS 可能回 NOTSUPPORTED")
+        value = param.value
+        if value is None or value == "":
+            continue  # 合法：None = 不下发该 tag；"" = 长度 00
+        if value != value.upper():
+            report.add(owner, "warning",
+                       f"act 第 {i} 项 id={pid} 的 value 未归一化为大写："
+                       f"{value!r}（模型会 upper，仅未走校验的构造可见）")
+        if not _HEX_ANY_CASE.fullmatch(value):
+            report.add(owner, "error",
+                       f"act 第 {i} 项 id={pid} 的 value 不是 hex：{value!r}")
+        elif len(value) % 2:
+            report.add(owner, "error",
+                       f"act 第 {i} 项 id={pid} 的 value 须为整字节（偶数长度）："
+                       f"{value!r}")
     return report
 
 

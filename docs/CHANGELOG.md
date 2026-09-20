@@ -5,6 +5,37 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-18（用例编辑器改 ACT + `act` 校验补齐）
+
+### 校验：新增 `validate_act`（v2 交易数据此前无校验）
+- **背景**：v2 的 `act` 值必须是**大写 hex**，而 `validation.py` 只有 `validate_pos_params`；
+  `ActParam` 只做 `strip().upper()`，非法 hex / 奇数长度 / 重复 id 都不会被发现 →
+  UI 里写错的值能一路到 wire。
+- **改动**（`cases/validation.py`，风格对齐 `validate_pos_params`）：
+  重复 `id` → warning；`value` 非 hex 或奇数长度 → **error**；`value` 规范化后仍非大写 → warning；
+  `id` 既不像 EMV tag 也非 CTEL2 signal id → **仅 warning**（设计允许私有 tag，不阻断）；
+  `value is None` 与 `""` 一律合法、不报。
+  接线：`loader.py`（按案例，与 pos_params 并列，legacy 校验保留）+ `web/api.py`（错误前缀 `act:`）；
+  `public_case` 增加返回 `act`。
+- **验证**：新增 `backend/tests/test_act_validation.py`（12 例）；真实用例库
+  `load_library('cases')` → 31 案例、**0 act issue**；全量 **211 passed / 0 failed**。
+  非空转：临时把三条规则改错 → 7 例失败；还原后 12 例通过。
+
+### 前端：用例编辑器改编辑 ACT（`pos_params` 不再作为下发字段）
+- **改动**：`AddCasePage.tsx` 的「交易参数」页签改为编辑 `act` 行（`id` 自动大写 + `value` 大写 hex，
+  可空 = 长度 00），`buildPayload` **只发 `transaction.act`**、不再发 `pos_params`；
+  客户端只阻断服务端判 error 的项（非整字节 hex）与重复 id；
+  legacy `brand.json` 的 `pos_params` 以**只读**形式展示并标注「v2 已不下发」（数据不删、不做自动换算，
+  因为 `"100.00"` 之类不是 hex）。
+- **`CaseSelectPage.tsx`**：原「POS 交易参数（下发 POS）」标题挂在 legacy `pos_params` 上（v2 已不成立），
+  改为展示 `act`（下发项）+ legacy `pos_params` 只读块并注明不下发。
+- **验证**：`npm run build` 通过（41 modules，`dist/assets/index-CkalVePj.js` 210.10 kB）。
+
+### 文档：`docs/联调-v2-启动计划.md` 更新 ACT 迁移状态
+- §6 由「ACT 未迁移（阻断）」改为「已迁移」，并把两处**需 POS 表态的行为变化**单列：
+  `9F1A`（5 个 MC 案例）/`9F33`（13 个 UPI 案例）按设计退出 ACT 且**当前不在任何 TERM 里**；
+  `5F36=02` 为新增下发项。附回滚口径命令。
+
 ## 2026-09-18（用例交易数据迁移到 ACT；POS 通知刷新；联调启动计划）
 
 ### 数据：`cases/**` 交易数据 `pos_params` → v2 `act`（解除联调阻断）

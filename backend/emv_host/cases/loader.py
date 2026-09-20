@@ -32,6 +32,7 @@ from .models import (
     TestCase,
 )
 from .validation import (
+    validate_act,
     validate_kernel_params,
     validate_keys,
     validate_pos_params,
@@ -211,6 +212,9 @@ class CaseLibrary:
             "timeout_seconds": tc.timeout_seconds,
             "retry_on_fail": tc.retry_on_fail,
             "operator_instructions": tc.transaction.operator_instructions.model_dump(),
+            # v2: ACT transaction data — the only POS transaction parameters
+            # (docs/protocol.md §8.1); pos_params below is legacy, never sent.
+            "act": [a.model_dump() for a in tc.transaction.act],
             "pos_params": [p.model_dump() for p in tc.transaction.pos_params],
             "expected_results": [r.model_dump() for r in tc.expected_results],
             # v1.2: per-case kernel parameter override (None = brand default)
@@ -460,6 +464,11 @@ def _load_case_file(case_file: Path, brand: str, mode: str,
         for issue in validate_keys(case.keys, case.case_id).issues:
             library.issues.append(LoadIssue(str(case_file), issue.severity,
                                             f"[{case.case_id}] {issue.message}"))
+    # v2: ``act`` is the wire path (executor reads only transaction.act);
+    # ``pos_params`` is legacy data and stays checked as such.
+    for issue in validate_act(case.transaction.act, case.case_id).issues:
+        library.issues.append(LoadIssue(str(case_file), issue.severity,
+                                        f"[{case.case_id}] {issue.message}"))
     for issue in validate_pos_params(case.transaction.pos_params, case.case_id).issues:
         library.issues.append(LoadIssue(str(case_file), issue.severity,
                                         f"[{case.case_id}] {issue.message}"))

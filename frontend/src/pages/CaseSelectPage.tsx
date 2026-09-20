@@ -331,9 +331,20 @@ function CaseDetailPanel({ detail }: { detail: CaseDetail }) {
           </p>
         )}
       </div>
+      {detail.act.length > 0 && (
+        <div className="gap">
+          <div className="section-title">交易参数 ACT（下发 POS）</div>
+          {detail.act.map((a, i) => (
+            <p key={i} className="rule-line">
+              <span className="mono">{a.id}</span>
+              <span className="v"> = {a.value === "" ? '""（长度 00）' : (a.value ?? "（不发）")}</span>
+            </p>
+          ))}
+        </div>
+      )}
       {detail.pos_params.length > 0 && (
         <div className="gap">
-          <div className="section-title">POS 交易参数（下发 POS）</div>
+          <div className="section-title">legacy pos_params（只读，v2 已不下发）</div>
           {detail.pos_params.map((pp, i) => (
             <p key={i} className="rule-line">
               <span className="mono">{pp.tag}</span>
@@ -341,6 +352,7 @@ function CaseDetailPanel({ detail }: { detail: CaseDetail }) {
               <span className="v"> = {pp.value}</span>
             </p>
           ))}
+          <p className="hint">v2 的交易数据是上面的 <span className="mono">act</span>（大写 hex）；这组 legacy 值不参与下发。</p>
         </div>
       )}
       <p><span className="k">timeout</span> <span className="v">{detail.timeout_seconds}s</span> ·

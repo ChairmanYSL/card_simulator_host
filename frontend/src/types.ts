@@ -87,6 +87,15 @@ export type PosParam = {
   value?: string;
 };
 
+//: v2 CTEL2 ACT transaction data item (docs/protocol.md §8.1): `id` is an EMV
+//: tag (e.g. 9F02) or a proprietary id, `value` is an UPPERCASE hex string,
+//: `""` = zero length, `null`/absent = the tag is not sent.  Only `act` reaches
+//: the POS (backend/emv_host/runner/executor.py reads only transaction.act).
+export type ActParam = {
+  id: string;
+  value?: string | null;
+};
+
 // ---------------------------------------------------------------------------
 // v1.2 kernel parameters (POS AID/CAPK/TERM)
 // ---------------------------------------------------------------------------
@@ -141,6 +150,8 @@ export type ProfileSummary = {
 
 export type BrandTemplate = {
   card_template: Record<string, unknown> | null;
+  //: legacy brand.json pos_params — v2 replaced it with a case's `act`
+  //: (docs/protocol.md §8.1), so the add-case page only displays it read-only
   pos_params: PosParam[];
 };
 
@@ -172,6 +183,9 @@ export type CaseDetail = {
   timeout_seconds: number;
   retry_on_fail: number;
   operator_instructions: OperatorInstructions;
+  //: v2: CTEL2 ACT transaction data — the only POS transaction parameters
+  act: ActParam[];
+  //: legacy v1.2 tag list, never sent to the POS any more
   pos_params: PosParam[];
   expected_results: MatchRule[];
   // v1.2: per-case POS kernel parameter override (null = use brand default)

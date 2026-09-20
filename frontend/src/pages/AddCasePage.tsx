@@ -5,7 +5,8 @@ import type { PosParam, BrandNode } from "../types";
 type PlanRow = { action: string; expect: string };
 type RuleRow = { path: string; op: string; expect: string; severity: string };
 type AidRow = { aid: string; label: string };
-type PosRow = { tag: string; name: string; value: string };
+// v2 ACT row: id = EMV tag / proprietary id, value = hex ("" = zero length)
+type ActRow = { id: string; value: string };
 type NoRespRow = { command: string; times: string }; // times "" = 每次静默
 
 type Kind = "case" | "group";
@@ -37,8 +38,12 @@ export type CaseDraft = {
   jsonProfileMode: boolean;
   jsonProfileText: string;
   keysJson: string;
-  // POS transaction parameters (brand template auto-added, tags editable)
-  posParams: PosRow[];
+  // v2 CTEL2 ACT transaction data — the ONLY POS transaction parameters
+  // (docs/protocol.md §8.1; executor.py reads only transaction.act).
+  actRows: ActRow[];
+  // legacy brand.json pos_params: shown read-only, never written into a new
+  // case and never sent (docs/protocol.md:541-542).
+  legacyPosParams: PosParam[];
   // v1.2: per-case POS kernel parameters (AID/CAPK/TERM) as a JSON document.
   // Deep validation is the server's job; this stays a textarea by design (no
   // AID/CAPK table UI in this iteration).
@@ -76,7 +81,7 @@ type Errors = Record<string, string>;
 const CASE_TABS = [
   { id: "basic", label: "基本信息" },
   { id: "card", label: "卡片档案" },
-  { id: "transaction", label: "交易参数" },
+  { id: "transaction", label: "交易参数 ACT" },
   { id: "kernel", label: "内核参数" },
   { id: "plan", label: "测试计划" },
   { id: "rules", label: "预期结果" },
@@ -98,6 +103,14 @@ const PPSE_MODES = ["", "auto", "disabled", "empty", "custom"];
 const NO_RESPONSE_COMMANDS = [
   "PPSE", "SELECT", "GPO", "READ_RECORD", "GET_DATA", "GENERATE_AC", "VERIFY",
 ];
+// v2: CTEL2 ids documented by the protocol although they are not EMV tags
+// (test_info / *_ack / out signalData ids); mirrors validation._CTEL2_SIGNAL_IDS
+// so the ACT id hint stays conservative.
+const CTEL2_SIGNAL_IDS = new Set([
+  "TESTID", "INTERFACEVERSION", "SESSIONID", "DEKDETID",
+  "RESPONSECODE", "DESCRIPTION",
+  "OPS", "DATARECORD", "DISCDATA", "UIRD", "KERNELID",
+]);
 
 // managed profile fields are edited through the form; templateExtra holds the
 // rest (aip/afl/records/cvmList/...) untouched
@@ -159,12 +172,15 @@ function noRespToRows(value: unknown): NoRespRow[] {
   return rows;
 }
 
-function posToRows(params: PosParam[] | null | undefined): PosRow[] {
-  return (params ?? []).map((p) => ({
-    tag: p.tag ?? "",
-    name: p.name ?? "",
-    value: p.value ?? "",
-  }));
+/** v2: the plausibility rule of ``validation._plausible_act_id`` — 1-3 byte EMV
+ *  tag shape or a documented CTEL2 signal id.  The server treats a mismatch as
+ *  a WARNING only, so this is used for a muted hint, never to block submit. */
+function actIdLooksLikeTag(id: string): boolean {
+  const tag = id.trim().toUpperCase();
+  if (!tag) return true;
+  if (CTEL2_SIGNAL_IDS.has(tag)) return true;
+  if (!/^[0-9A-F]{2}(?:[0-9A-F]{2}){0,2}$/.test(tag)) return false;
+  return tag.length === 2 || (parseInt(tag.slice(0, 2), 16) & 0x1f) === 0x1f;
 }
 
 export function emptyDraft(brand: string): CaseDraft {
@@ -181,7 +197,8 @@ export function emptyDraft(brand: string): CaseDraft {
     jsonProfileMode: false,
     jsonProfileText: "",
     keysJson: "",
-    posParams: [],
+    actRows: [{ id: "", value: "" }],
+    legacyPosParams: [],
     kernelParamsJson: "",
     kernelParamsRef: "",
     terminalProfileRef: "",
@@ -287,12 +304,14 @@ export function buildPayload(d: CaseDraft): unknown {
         entry_mode: "contactless",
         cvm_required: d.cvm_required === "" ? null : d.cvm_required === "true",
       },
-      pos_params: d.posParams
-        .filter((p) => p.tag.trim())
-        .map((p) => ({
-          tag: p.tag.trim().toUpperCase(),
-          name: p.name.trim(),
-          value: p.value.trim(),
+      // v2: ACT is the POS transaction data (docs/protocol.md §8.1).  A row
+      // without an id is dropped; an empty value is sent as "" = length 00.
+      // Legacy pos_params is deliberately NOT authored here any more.
+      act: d.actRows
+        .filter((r) => r.id.trim())
+        .map((r) => ({
+          id: r.id.trim().toUpperCase(),
+          value: r.value.trim().toUpperCase(),
         })),
     },
     test_plan: d.plan.map((row, i) => ({ step: i + 1, action: row.action.trim(), expect: row.expect.trim() })),
@@ -437,22 +456,21 @@ function validate(d: CaseDraft): Errors {
     }
   }
 
-  // POS transaction parameters: tag format + duplicates (server warn-level,
-  // surfaced here as errors so the user fixes them before submit)
-  const seenTags = new Set<string>();
-  d.posParams.forEach((p, i) => {
-    const tag = p.tag.trim().toUpperCase();
-    if (!tag) return;
-    if (!/^[0-9A-F]{2}(?:[0-9A-F]{2}){0,2}$/.test(tag)) {
-      e[`pos.${i}.tag`] = "tag 须为 1-3 字节大写 hex（如 9F02）";
-      return;
-    }
-    if (tag.length > 2 && (parseInt(tag.slice(0, 2), 16) & 0x1f) !== 0x1f) {
-      e[`pos.${i}.tag`] = `多字节 tag 首字节低 5 位须为 0x1F：${tag}`;
-      return;
-    }
-    if (seenTags.has(tag)) e[`pos.${i}.tag`] = `tag ${tag} 重复`;
-    seenTags.add(tag);
+  // v2 ACT transaction data (server: validate_act).  Only what the server
+  // treats as an ERROR is blocked here (a value that is not whole-byte hex);
+  // duplicate ids are surfaced too because a repeated ACT tag is almost always
+  // a mistake (the server reports them as a warning, not a rejection).  An
+  // implausible id is NOT blocked — it is only hinted at in the form, matching
+  // the server's warn-only rule (validation._plausible_act_id).
+  const seenActIds = new Set<string>();
+  d.actRows.forEach((r, i) => {
+    const id = r.id.trim().toUpperCase();
+    if (!id) return; // an id-less row is dropped by buildPayload
+    const value = r.value.trim();
+    if (value !== "" && !isHexEven(value))
+      e[`act.${i}.value`] = "value 须为偶数长度 hex（留空 = 长度 0；整行删除 = 不下发）";
+    if (seenActIds.has(id)) e[`act.${i}.id`] = `id ${id} 重复（服务端按告警处理）`;
+    seenActIds.add(id);
   });
 
   if (!/^\d{1,8}(\.\d{1,2})?$/.test(d.amount.trim()))
@@ -520,7 +538,7 @@ const CASE_TAB_KEYS: Record<CaseTabId, (key: string) => boolean> = {
     "acBehavior", "ppseMode", "ppseSw", "ppseData", "jsonProfile", "keysJson"]
     .includes(k) || k.startsWith("aid.") || k.startsWith("noResp."),
   transaction: (k) => ["amount", "currency", "exp_amount", "exp_currency"]
-    .includes(k) || k.startsWith("pos."),
+    .includes(k) || k.startsWith("act."),
   kernel: (k) => ["kernelParams", "kernelParamsRef", "terminalProfileRef"].includes(k),
   plan: (k) => k === "plan" || k.startsWith("plan."),
   rules: (k) => k === "rules" || k.startsWith("rules."),
@@ -586,7 +604,10 @@ export function AddCasePage({
       setDraft((prev) => {
         if (prev.brand !== brand) return prev; // user switched away meanwhile
         const card = templateToDraft(res.card_template);
-        return { ...prev, ...card, posParams: posToRows(res.pos_params) };
+        // legacy brand pos_params is kept for read-only display only: it is not
+        // copied into the draft's ACT rows (the value semantics differ — a
+        // legacy value like "100.00" is not hex) and is never submitted.
+        return { ...prev, ...card, legacyPosParams: res.pos_params ?? [] };
       });
     }).catch((e) =>
       setTemplateError(e instanceof Error ? e.message : String(e)));
@@ -910,7 +931,7 @@ export function AddCasePage({
             <p className="hint" style={{ marginTop: 0 }}>
               档案从卡组默认模板克隆并<b>随案例内嵌绑定</b>（profile.id 自动 = 案例号）。
               这里只放<b>卡片侧</b>配置（下发安卓）：AIP(82)、CVM(8E)、PPSE、PAN 等随
-              card_config 下发；交易参数（tag）不在此页，在「交易参数」页签且只下发 POS。
+              card_config 下发；交易数据（ACT）不在此页，在「交易参数 ACT」页签且只下发 POS。
             </p>
             <div className="form-grid">
               <Field label="档案显示名" error={errors.profileName}>
@@ -1067,51 +1088,73 @@ export function AddCasePage({
 
         {kind === "case" && tab === "transaction" && (
           <div>
-            <div className="section-title">POS 交易参数（按 tag 下发 POS，安卓不收）</div>
+            <div className="section-title">ACT 交易数据（下发 POS；安卓模拟卡不收）</div>
             <p className="hint" style={{ marginTop: 0 }}>
-              切换卡组时按卡组模板自动带出参数项；tag/名称/值均可自行修改增删。
+              v2 起 <span className="mono">transaction.act</span> 取代旧{" "}
+              <span className="mono">pos_params</span>，是<b>唯一下发 POS</b> 的交易数据：
+              每行一条 CTEL2 <span className="mono">signalData</span> 项{" "}
+              <span className="mono">{`{id, value}`}</span>。<b>id</b> 为 EMV tag
+              （如 <span className="mono">9F02</span>，私有 tag 亦允许），<b>value</b> 为
+              <b>大写 hex</b>：<span className="mono">""</span>（留空）= 长度 00 的空值，
+              删除整行 = 该 tag 不出现在 ACT 里。终端级 tag（<span className="mono">9F1A</span>/
+              <span className="mono">9F66</span> 等）不属于 ACT，请走「内核参数」页的 CONFIG.TERM。
             </p>
-            {draft.posParams.length === 0 && (
-              <p className="hint">该卡组未配置默认参数模板，可手动添加。</p>
+            {draft.actRows.length === 0 && (
+              <p className="hint">尚未配置 ACT 项，可手动添加（卡组旧模板不会自动带入）。</p>
             )}
-            {draft.posParams.map((p, i) => (
+            {draft.actRows.map((r, i) => (
               <div key={i} className="plan-row">
                 <div className="field grow">
-                  <label>tag *</label>
-                  <input type="text" value={p.tag} placeholder="如 9F02" className="mono"
+                  <label>id *</label>
+                  <input type="text" value={r.id} placeholder="如 9F02" className="mono"
                     onChange={(e) => {
-                      const list = [...draft.posParams];
-                      list[i] = { ...list[i], tag: e.target.value.toUpperCase() };
-                      set("posParams", list);
+                      const list = [...draft.actRows];
+                      list[i] = { ...list[i], id: e.target.value.toUpperCase() };
+                      set("actRows", list);
                     }} />
-                  {errors[`pos.${i}.tag`] && <div className="err">{errors[`pos.${i}.tag`]}</div>}
+                  {errors[`act.${i}.id`] && <div className="err">{errors[`act.${i}.id`]}</div>}
+                  {!errors[`act.${i}.id`] && r.id.trim() && !actIdLooksLikeTag(r.id) && (
+                    <div className="hint">不像是 EMV tag；服务端仅告警，不阻断</div>
+                  )}
                 </div>
                 <div className="field grow">
-                  <label>名称</label>
-                  <input type="text" value={p.name} placeholder="如 amount"
+                  <label>value（hex，可留空 = 长度 0）</label>
+                  <input type="text" value={r.value} placeholder="如 000000001500" className="mono"
                     onChange={(e) => {
-                      const list = [...draft.posParams];
-                      list[i] = { ...list[i], name: e.target.value };
-                      set("posParams", list);
+                      const list = [...draft.actRows];
+                      list[i] = { ...list[i], value: e.target.value.toUpperCase() };
+                      set("actRows", list);
                     }} />
-                </div>
-                <div className="field grow">
-                  <label>值</label>
-                  <input type="text" value={p.value} placeholder="如 100.00"
-                    onChange={(e) => {
-                      const list = [...draft.posParams];
-                      list[i] = { ...list[i], value: e.target.value };
-                      set("posParams", list);
-                    }} />
+                  {errors[`act.${i}.value`] && <div className="err">{errors[`act.${i}.value`]}</div>}
                 </div>
                 <button className="btn small"
-                  onClick={() => set("posParams", draft.posParams.filter((_, j) => j !== i))}>移除</button>
+                  onClick={() => set("actRows", draft.actRows.filter((_, j) => j !== i))}>移除</button>
               </div>
             ))}
             <button className="btn small" onClick={() =>
-              set("posParams", [...draft.posParams, { tag: "", name: "", value: "" }])}>
-              ＋ 添加参数项
+              set("actRows", [...draft.actRows, { id: "", value: "" }])}>
+              ＋ 添加 ACT 项
             </button>
+
+            {draft.legacyPosParams.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div className="section-title">legacy pos_params（只读，v2 已不下发）</div>
+                <p className="hint" style={{ marginTop: 0 }}>
+                  以下来自卡组 <span className="mono">brand.json</span> 的旧字段{" "}
+                  <span className="mono">transaction.pos_params</span>。v2 起由 ACT 取代
+                  （<span className="mono">executor.py</span> 只读{" "}
+                  <span className="mono">transaction.act</span>），这些值<b>不会写入新案例、
+                  也不会下发 POS</b>；如需等价效果，请按上面的 ACT 行用 id/value（hex）重建
+                  （旧值不是 hex，不能直接搬）。
+                </p>
+                {draft.legacyPosParams.map((p, i) => (
+                  <div key={i} className="rule-line muted">
+                    <span className="mono">{p.tag}</span>
+                    {" "}{p.name || "—"} = {p.value || "—"}
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="section-title" style={{ marginTop: 22 }}>操作员指引与机器期望</div>
             <div className="form-grid">
@@ -1430,7 +1473,7 @@ export function AddCasePage({
             <p className="hint" style={{ marginTop: 0 }}>
               {kind === "group"
                 ? "总案例 JSON（GroupDef：group_id/title/purpose/test_conditions/test_plan/pass_criteria，无 profile）。"
-                : "可执行案例 JSON（含内嵌 profile 与 transaction.pos_params）。"}
+                : "可执行案例 JSON（含内嵌 profile 与 transaction.act）。"}
               表单自动生成预览；勾选「编辑 JSON」后可粘贴直接导入，提交前先调用服务端校验。
             </p>
             <label className="check-line">

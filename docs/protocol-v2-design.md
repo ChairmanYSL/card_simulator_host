@@ -75,7 +75,7 @@ pos:  out（>=1；dual tap 可多条）
 
 | id | 值 | 对应 v1.2 |
 |---|---|---|
-| `CONF_NAME` | `"<brand>/<ref>"`（信息用，如 `amex/CONF_16`） | - |
+| `CONF_NAME` | `case.kernel_params_ref`（缺省 = `case.case_id`；信息用，如 `CONF_16`）。**实现为准**：`executor._config_frame` 发的是 ref/case_id，**不带 `brand/` 前缀** | - |
 | `AID` | 每条一个 item：一条拼接 BER-TLV 大写 hex | `kernel_params.aid[]` |
 | `CAPK` | 每条一个 item：一条拼接 BER-TLV | `capk[]` |
 | `DRL` | 每条一个 item：`9F06+8F+DF8105` 拼接 TLV | `drl[]` |

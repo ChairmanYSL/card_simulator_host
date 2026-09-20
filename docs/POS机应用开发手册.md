@@ -1,25 +1,28 @@
 # POS 机应用开发手册（Android 7.1.2）
 
-> **⚠️ 本文档描述的是 v1.1 口径，尚未逐节升级到 v1.2。**
-> v1.2 的 POS 端**权威且完整**的口径请看
-> [`docs/protocol-change-notice-v1.2.md`](protocol-change-notice-v1.2.md)（变更通知），
-> 协议权威文档见 `docs/protocol.md` **§12**（v1.2 差异节，优先于旧正文）。
-> 阅读本文档时请按下列 v1.2 差异自行替换：
+> **⚠️ 本文档正文描述的是 v1.1/v1.2 口径，已整体被协议 v2 取代，不是 v2 的实现依据。**
+> v2 的 POS 端**权威且完整**的对接口径请看
+> [`docs/change-notice-v2-pos.md`](change-notice-v2-pos.md)（POS 端变更通知，**当前生效**），
+> 协议权威文档见 `docs/protocol.md`（**唯一权威协议**；POS 相关见 §6.3 / §6.5 / §7）。
+> 正文中**仅 §3 / §4 / §12 的信封 `v`、握手 `protocol_version` 与 `protocol_mismatch` 阈值**
+> 已就地更正为 v2；**其余 v1.x 内容（帧名、报文体、时序、代码样例、状态机）一律作废，请勿照抄**。
+> 阅读本文档时请按下列 v1.x → v2 差异替换：
 >
-> | 本文档（v1.1） | v1.2 实际要求 |
+> | 本文档（v1.x） | v2 实际要求 |
 > |---|---|
-> | 握手 `protocol_version:"1.1"`，缺省宽容 | **必须** `"1.2"`；缺失或 `<1.2` 一律被拒 |
-> | `device_config`（若提及） | **已删除**；心跳 10s / 判死 30s / ack 15s 用缺省 |
-> | 只有 `pos_config` 需要 ack | **新增** `pos_kernel_config`（AID/CAPK/TERM）与 `session_abort`，二者也必 ack |
-> | `case_started` 无需 ack | `case_started` **必 ack**（15s） |
-> | `transaction_result` 发出即算上报 | host **先落盘再 ack**；收到 `persisted`/`duplicate` 后**不要重发**，仅 `ok:false` 才重试 |
+> | 握手 `protocol_version:"1.1"`/`"1.2"`，缺省宽容 | **必须** `"2.0"`；缺失或 `<2.0` -> `error{protocol_mismatch}` 并断开，**无兼容模式** |
+> | 信封 `"v":1` | **`"v":2`**（每帧都校验）：握手首帧 `v != 2` 回 `error{code:"bad_frame"}` 并断开；握手之后 `v != 2` 记 warning 并断开 |
+> | `config_push{pos_config}` / `config_push{pos_kernel_config}` | **已删除**；交易数据改由 `act` 下发，内核参数改由 `config` 下发（同名 id **逐条展开**，`DRL`/`EXCEPTION_FILE` 恒发、空表发一条 `value:""` = 清空） |
+> | `case_started` | **已删除**；操作员提示由 host Web UI 与 `test_info` 承载 |
+> | `transaction_result`（`result.{resp_code,outcome,online,tags}` 结构） | **已删除**，由 `out` 取代：`OPS`(DF8129, 8B) + `DataRecord`(**host 白名单，取到才报**，不是 TLV DB 全量) + `UIRD`；`resp_code` 由 host 派生（优先 `DataRecord.8A`） |
+> | `case_id`/`attempt_id` 回显、`msg_id` 同 id 退避重发 | CTEL2 的 POS 帧**不带** `case_id`/`attempt_id`；`msg`/`out` **不等 ACK**（host 回通用 `ack`，POS 可不依赖）；`*_ack` **按帧 type 关联**，`ref_msg_id` 仅诊断 |
+> | `pos_params[{tag,name,value}]` | **不再下发**（legacy）；交易数据改为 `act.signalData:[{id,value(hex)}]` |
+> | `session_abort` | **已删除**；没有任何帧宣告运行中止 |
 > | 未 ack / POS 离线仅是告警 | 一律**该案例 FAIL**，并**立即停止整轮** |
-> | 无异常停止通知 | 异常收尾双方各收一次 `session_abort`（必 ack） |
 >
 > **读者**：POS 交易应用开发人员（POS 端）。
-> **权威依据**：`docs/protocol.md`（唯一权威协议，v1.2 见 §12；已吸收 H1–H10 / O1–O7 /
-> N1–N12）。本手册只讲 POS 端需要实现的部分，若与 protocol.md 冲突，以
-> protocol.md 为准。变更索引见 `docs/CHANGELOG.md`。
+> **权威依据**：`docs/protocol.md`（唯一权威协议）+ `docs/change-notice-v2-pos.md`（POS 端当前对接口径）。
+> 本手册正文若与之冲突，**以这两份文档为准**。变更索引见 `docs/CHANGELOG.md`。
 > **目标系统**：Android 7.1.2（API 25）。
 
 ---
@@ -67,21 +70,21 @@
 
 - 长度 = payload 的 **UTF-8 字节数**；最大帧 **1 MiB**，超出 → host 断开；
 - payload 必须是 JSON **对象**；单连接累计 **5 个坏帧** → host 断开；
-- 每帧信封：`{"v":1,"type":"<消息类型>","msg_id":"<uuid-hex>","ts":<epoch秒>}`；
+- 每帧信封：`{"v":2,"type":"<消息类型>","msg_id":"<uuid-hex>","ts":<epoch秒>}`（v2 收发都校验 `v`）；
 - POS 发送方注意：确保发出去的每一帧都是合法 JSON 对象（不要发裸字符串/数组）。
 
 ## 4. 握手（POS 连接后 10 秒内必须发送）
 
 ```jsonc
 // POS -> host
-{"v":1,"type":"handshake","msg_id":"…","ts":…,
+{"v":2,"type":"handshake","msg_id":"…","ts":…,
  "client_type":"pos","token":"<tokens.json 里 pos 的 token>",
  "device_id":"<本机唯一标识，如序列号>","app_version":"1.0.0",
- "device_model":"<机型>","protocol_version":"1.1"}
+ "device_model":"<机型>","protocol_version":"2.0"}
 
 // host -> POS
-{"v":1,"type":"handshake_ack","msg_id":"…","ts":…,
- "session_id":"pos-<ts>-<port>","protocol_version":"1.1","server_time":…}
+{"v":2,"type":"handshake_ack","msg_id":"…","ts":…,
+ "session_id":"pos-<ts>-<port>","protocol_version":"2.0","server_time":…}
 ```
 
 错误码（POS 端处理方式）：
@@ -91,7 +94,7 @@
 | `auth_failed` | token/client_type 错 | 检查 token 配置，提示后**可重连重试** |
 | `already_connected` | 已有一台 POS 连接且 device_id 不同 | 提示另一台 POS 已占用，稍后重试 |
 | `handshake_timeout` | 10s 内未握手 | 重连重试 |
-| `protocol_mismatch` | 版本 < 1.1 | **确定性失败，不要重连**，明确报错升级 |
+| `protocol_mismatch` | `protocol_version` 缺失或 < 2.0 | **确定性失败，不要重连**，明确报错升级 |
 
 ## 5. 心跳与断线重连（POS 侧 watchdog）
 
@@ -368,7 +371,7 @@ public final class HostLink {
 
 ## 12. 联调检查清单（POS 端）
 
-- [ ] token 与 host `tokens.json` 的 pos 一致；`protocol_version:"1.1"`；
+- [ ] token 与 host `tokens.json` 的 pos 一致；`protocol_version:"2.0"`；
 - [ ] 收到 `pos_config` 后先 ack、参数正确填入（金额/币种/交易类型）；
 - [ ] 收到 `case_started` 后 ack 并显示操作员指引（金额/PIN/notes）；
 - [ ] `transaction_result` 原样回显 `case_id/attempt_id`，msg_id 每次新生成；

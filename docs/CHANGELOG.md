@@ -5,6 +5,56 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-18（用例交易数据迁移到 ACT；POS 通知刷新；联调启动计划）
+
+### 数据：`cases/**` 交易数据 `pos_params` → v2 `act`（解除联调阻断）
+- **类型**：用例库数据迁移（+ 新增迁移工具）
+- **背景**：v2 的 host 组帧只读 `case.transaction.act`（`executor.py:798-800`，无回退），
+  而 v1.2 的 host 是把 `pos_params` **原样**（人读值 `"100.00"`/`"156"`）JSON 下发、由 POS 解读；
+  仓库里**从来没有** `pos_params`→hex 的编码器。迁移前 **31/31** 个案例 `act` 为空 →
+  **wire 上 `ACT.signalData` 是空数组**，POS 收不到金额/币种/交易类型（全仓 192 个单测覆盖不到）。
+- **改动**：
+  - 新增 `tools/pos_params_to_act.py`：`--dry-run`（默认）/ `--apply`，
+    `--extras {drop,keep}`、`--exponent {yes,no}` 把两处口径显式化；
+    每个编码规则在模块 docstring 里注明依据（`9F02` 6B BCD 且小数位由货币指数决定、
+    `5F2A` n3→`0156`、`9F1A` n3、`9F33` 原样 hex、`5F36` 可选下发）；
+    未知币种**告警**而不是静默按 2 处理。
+  - 以**设计稿为准**执行 `--extras drop --exponent yes`：31 个案例迁移完成，
+    `act` 全部非空、`pos_params` 全部移除。
+- **验证**：`--dry-run` 4 种口径组合均 `31 cases converted, 0 failed`；
+  真实用例库 `CaseLibrary.reload()` 后 `VISA-CL-001.act = [9F02=000000010000, 5F2A=0156, 9C=00, 5F36=02]`、
+  `pos_params=[]`；全量单测 **199 passed / 0 failed**（迁移未破坏任何用例）。
+- **⚠️ 需三方确认的行为变化**：按设计 §5「`9F1A` 不在 ACT（属 CONFIG.TERM）」，5 个 Mastercard 案例的 `9F1A`
+  与 13 个 UnionPay 案例的 `9F33` **不再出现在 POS wire 上**（此前经 `pos_params` 下发）；
+  且这两个 tag **当前不在任何 TERM 里**（已核实）→ 需 POS 以自身终端参数承担。
+  若要求保内容不变，用 `python tools/pos_params_to_act.py --apply --extras keep` 重跑即可（一条命令回滚口径）。
+  另 `5F36=02` 是**新增**的 wire 内容（此前不发）。
+
+## 2026-09-18（联调准备：POS 通知刷新 + POS 手册勘误 + 启动计划）
+
+### 文档：`change-notice-v2-pos.md` 刷新为最终定稿口径
+- **改动**：新增「当前生效」状态与带日期的修订记录（r1 保留并标注作废）；
+  CONFIG 由数组形态改为**同名 id 逐条展开**、`CONF_NAME` 更正为 `kernel_params_ref`（缺省=case_id）；
+  新增 D1 空组语义（`DRL`/`EXCEPTION_FILE` 每笔恒发、空 → `value:""` = 清空、`null`/缺失 = 不管理）；
+  DataRecord 改为 **host 白名单 + 取到才报（32 = 31 + `9F66`）**（其余 31 条明确「不复述、不臆造」）；
+  新增 §4.1 `resp_code` 派生与 `out_no_outcome`；新增入站信封 `v` 校验；
+  明确 v1.2 POS 帧全删、**`session_abort` 不再存在**（中止无任何通知帧）。
+- **验证**：`value:[` 与 `CreateEMVDataRecord` 命中数归 0；残留 v1.x 字样均为修订记录/否定语境。
+
+### 文档：`docs/POS机应用开发手册.md` 勘误（最小改动）
+- 横幅重写为 v2 状态 + 权威指引 + v1.x→v2 替换表，并明确**正文 v1.x 部分已作废**；
+  就地更正 7 处零判断的 wire 常量（信封 `v`、`protocol_version`、`protocol_mismatch` 阈值）。
+- **未做（超出最小改动授权，已列清单上报）**：§6/§7/§8/§10/§11 的 v1.1 结构（`transaction_result`、
+  `config_push{pos_config}`、`pos_params`、Java 代码样例）需整节重写。**v2 POS 端目前没有可照抄的参考实现文档**
+  （只有 `tools/mock_clients/mock_pos.py`）。
+
+### 文档：新增 `docs/联调-v2-启动计划.md`
+- 三方（host/卡端/POS）联调启动计划：v2 变更要点速览、preflight（两端 connected + `app_version` 与
+  `--expect-versions` 一致、dist 为本次构建、无残留 host/锁）、轮次门控与 `[PAUSE-REQ]/[PAUSE-ACK]`、
+  统一测试修改流程（双侧证据交叉 + 卡端 logcat 时间戳校准 + 不用事件顺序推断因果）、
+  已知限制（ACT 行为变化、`card.*` P2 未接线、DataRecord 31 条清单待 POS 提供）、
+  证据与 token 保密口径、三方确认表。
+
 ## 2026-09-18（前端 v2 展示 + README v2 同步 + 修复前端构建阻断）
 
 ### 修复（**既有缺陷，非本轮引入**）：前端在 HEAD 上无法构建

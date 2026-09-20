@@ -55,24 +55,21 @@
       "currency": "156",
       "entry_mode": "contactless"
     },
-    "pos_params": [
+    "kernel_params": null,
+    "act": [
       {
-        "tag": "9F02",
-        "name": "amount",
-        "value": "100.00"
+        "id": "9F02",
+        "value": "000000010000"
       },
       {
-        "tag": "5F2A",
-        "name": "currency",
-        "value": "156"
+        "id": "5F2A",
+        "value": "0156"
       },
       {
-        "tag": "9F33",
-        "name": "terminal_capabilities",
-        "value": "E0F0C8"
+        "id": "5F36",
+        "value": "02"
       }
-    ],
-    "kernel_params": null
+    ]
   },
   "preconditions": [
     "phone NFC enabled and card simulator app in foreground",

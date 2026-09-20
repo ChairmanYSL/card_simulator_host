@@ -18,6 +18,7 @@ from .messages import (
     MSG_HEARTBEAT,
     MSG_HEARTBEAT_ACK,
     MSG_TEST_INFO_ACK,
+    PROTOCOL_VERSION,
     PROTOCOL_VERSION_STRING,
     make_ack,
     make_frame,
@@ -147,6 +148,11 @@ class ClientConnection:
         frame = await asyncio.wait_for(self.reader_read_frame(), HANDSHAKE_TIMEOUT)
         if frame.get("type") != MSG_HANDSHAKE:
             raise HandshakeError("bad_frame", "first frame must be handshake")
+        if frame.get("v") != PROTOCOL_VERSION:
+            raise HandshakeError(
+                "bad_frame",
+                f"handshake envelope v must be {PROTOCOL_VERSION}, "
+                f"got {frame.get('v')!r}")
         client_type = frame.get("client_type")
         token = frame.get("token")
         if client_type not in self.server.tokens:
@@ -244,6 +250,12 @@ class ClientConnection:
 
             self.last_recv = time.time()
             warned = False
+            if frame.get("v") != PROTOCOL_VERSION:
+                logger.warning("%s: bad envelope v=%r (need %d), dropping",
+                               self.label, frame.get("v"), PROTOCOL_VERSION)
+                raise ConnectionClosed(
+                    f"{self.label}: bad envelope v={frame.get('v')!r} "
+                    f"(need {PROTOCOL_VERSION})")
             msg_type = frame.get("type")
             if msg_type == MSG_HEARTBEAT:
                 await self.send(make_frame(MSG_HEARTBEAT_ACK, ref_msg_id=frame.get("msg_id")))

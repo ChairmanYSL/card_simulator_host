@@ -688,11 +688,11 @@ def _load_named_kernel_params(brand: str, brand_dir: Path,
                 params, f"{brand}:{ref}", trust_checksum=True).issues:
             library.issues.append(LoadIssue(str(path), issue.severity,
                                             f"[{brand}:{ref}] {issue.message}"))
-        logger.info("brand %s: loaded named POS config %s from %s "
-                    "(AID=%d CAPK=%d DRL=%d Exception=%d term=%s)",
-                    brand, ref, path, len(params.aids), len(params.caps),
-                    len(params.drl), len(params.exception_file),
-                    "yes" if params.term else "no")
+        logger.debug("brand %s: loaded named POS config %s from %s "
+                     "(AID=%d CAPK=%d DRL=%d Exception=%d term=%s)",
+                     brand, ref, path, len(params.aids), len(params.caps),
+                     len(params.drl), len(params.exception_file),
+                     "yes" if params.term else "no")
 
 
 def _safe_read_json(path: Path) -> dict[str, Any] | None:

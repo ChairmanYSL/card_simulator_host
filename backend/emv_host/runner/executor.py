@@ -901,10 +901,19 @@ class RunExecutor:
             signal.append({"id": CONFIG_ID_AID, "value": tlv})
         for tlv in payload["capk"]:
             signal.append({"id": CONFIG_ID_CAPK, "value": tlv})
-        for tlv in payload["drl"]:
-            signal.append({"id": CONFIG_ID_DRL, "value": tlv})
-        for tlv in payload["exception_file"]:
-            signal.append({"id": CONFIG_ID_EXCEPTION_FILE, "value": tlv})
+        # D1: DRL / EXCEPTION_FILE are ALWAYS present.  An empty list is sent as
+        # one item with value="" = "clear the table and add nothing" (needed for
+        # CONF_01_RemoveCRL); a missing id would mean "do not touch".
+        if payload["drl"]:
+            for tlv in payload["drl"]:
+                signal.append({"id": CONFIG_ID_DRL, "value": tlv})
+        else:
+            signal.append({"id": CONFIG_ID_DRL, "value": ""})
+        if payload["exception_file"]:
+            for tlv in payload["exception_file"]:
+                signal.append({"id": CONFIG_ID_EXCEPTION_FILE, "value": tlv})
+        else:
+            signal.append({"id": CONFIG_ID_EXCEPTION_FILE, "value": ""})
         if kernel.term:
             signal.append({"id": CONFIG_ID_TERM, "value": kernel.term})
         if kernel.version:
@@ -979,11 +988,18 @@ class RunExecutor:
             "pos_meta": {k: frame.get(k) for k in
                          ("device_id", "app_version", "ts", "msg_id")},
         }
+        # D2 (owner choice a): the kernel did not produce an outcome
+        # (OPS status bits = 0000 + empty DataRecord) -> the case FAILs with an
+        # explicit reason instead of a fabricated decline code.
+        no_outcome = (result["out"]["ops"].get("status_bits") == "0000"
+                      and not result["out"]["datarecord"])
         verdict = assert_result(result, case.expected_results)
         record["verdict"] = verdict.public()
         record["status"] = verdict.status
         record["finished_at"] = time.time()
-        if verdict.status == "FAIL":
+        if no_outcome and verdict.status != "PASS":
+            record["failure_reason"] = "out_no_outcome"
+        elif verdict.status == "FAIL":
             record["failure_reason"] = "assertion_failed"
         self.store.write_case_result(session.run, case.case_id, record)
         session.run.setdefault("results", {})[case.case_id] = {
@@ -992,7 +1008,10 @@ class RunExecutor:
         }
         self.store.update_run(session.run)
         if verdict.status == "FAIL":
-            session.failure_reason = session.failure_reason or "assertion_failed"
+            session.failure_reason = session.failure_reason or (
+                "out_no_outcome" if no_outcome else "assertion_failed")
+        elif no_outcome:
+            session.failure_reason = session.failure_reason or "out_no_outcome"
         return {"PASS": "pass", "WARN": "warn", "FAIL": "fail"}[verdict.status], \
             "persisted"
 

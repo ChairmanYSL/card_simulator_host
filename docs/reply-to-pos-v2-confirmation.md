@@ -2,7 +2,7 @@
 
 > 对应 POS 文档：`v2_变更确认回复.md`（POS 2.0.0 / versionCode 15）
 > 关联：`docs/protocol-v2-design.md`、`docs/change-notice-v2-pos.md`
-> 状态：**待我方负责人对 D 两项拍板后定稿回传**；其余为 host 已确认项。
+> 状态：**已定稿**（2026-09-18 负责人对 D1/D2/D3 拍板完毕，见 §D；可直接回传 POS）。
 
 ## A. 直接确认（无需双方改动）
 
@@ -28,44 +28,59 @@
      POS 已实现的「`CONFIG.TERM` 有 9F66 时用下发值覆盖内核回读值」。即白名单变 **32 条**。
 2. **OPS 全 0 的语义**：接受「内核未运行 = 全 0 + 空 DataRecord + UIRD 全 0」。
 
-## C. host 侧将修改（P1c-2 一并落地）
+## C. host 侧修改（已落地，工作区待提交）
 
-1. **空组语义（重要，需 POS 确认 D1）**：`CONF_01_RemoveCRL` 的 DRL 为空时，host 当前**不发 `DRL` 项**；
-   按 POS「缺失 = 不管理」会导致上一笔 DRL 残留。host 将改为：
+1. **空组语义（D1 已定，已实现）**：`CONF_01_RemoveCRL` 的 DRL 为空时，host 原先**不发 `DRL` 项**；
+   按 POS「缺失 = 不管理」会导致上一笔 DRL 残留。现已改为：
    - 非空：逐条 `{id:"DRL", value:"<tlv>"}`；
    - **空：发一条 `{id:"DRL", value:""}`，语义 = 清空该表且不加**；`EXCEPTION_FILE` 同理；
    - `AID`/`CAPK` 非空时逐条发（本轮不出现「空 AID/CAPK」）。
-2. **设计文档修订**：4 CONFIG 形态（逐条）、6.2 DataRecord（白名单）、6.3 DiscData（本轮不报）。
-3. **`resp_code` 派生（见 D2）**：`DataRecord.8A` 优先；无 8A 再按 OPS Status（APPROVED00 / DECLINED05 / ONLINE REQUEST00）。
+   - 代码：`backend/emv_host/runner/executor.py::_config_frame`。
+2. **设计文档修订（已完成）**：§4 CONFIG 形态（逐条 + 空组语义）、§6.2 DataRecord（32-tag 白名单 + 取到才报）、
+   §6.3 DiscData（本轮不报）、§6.1 `resp_code` 口径、§8 失败原因码（新增 `out_no_outcome` / `*_error` / `pos_not_connected`）。
+3. **`resp_code` 派生（D2(a) 已定，已实现）**：`DataRecord.8A` 优先；无 8A 再按 OPS Status
+   （APPROVED→`00` / DECLINED→`05` / ONLINE REQUEST→`00`）；内核未跑 → `resp_code=""` + 用例 FAIL（`out_no_outcome`）。
+   代码：`backend/emv_host/judge/outcome.py`、`backend/emv_host/runner/executor.py`。
+4. **入站 `v` 校验（D0，已实现）**：`backend/emv_host/protocol/connection.py`。
+5. **启动期日志降噪（D3，已实现）**：`backend/emv_host/cases/loader.py`。
 
-## D. 待我方负责人拍板（拍板后即回传 POS）
+> 状态口径：以上为 **host 仓库内改动 + 本机 pytest 实测**（Round-2：① 155 passed / ② 仅 F4 的 14 个），
+> **尚未与 POS 设备联调验证**。
 
-### D1. 「空组 = 清空」的 wire 约定
+## D. 负责人拍板结果（2026-09-18）
 
-建议：`{id:"DRL", value:""}` / `{id:"EXCEPTION_FILE", value:""}` 表示「清空该表且不加」；
-`value:null` 或 id 缺失 = 本笔不管理该表。
-- 备选：新增显式 id（如 `CLEAR_DRL`）。
-- **请负责人确认用哪一种**（我倾向 `value:""`，改动最小）。
+### D1. 「空组 = 清空」的 wire 约定 —— **采纳建议方案**
 
-### D2. 「无内核 outcome」时 `resp_code` 怎么表达（91/80/16）
+`{id:"DRL", value:""}` / `{id:"EXCEPTION_FILE", value:""}` = **清空该表且不加**；
+`value:null` 或 id 缺失 = 本笔不管理该表。**不新增显式 id**（如 `CLEAR_DRL`）。
 
-现状：`resp_code = DataRecord.8A ?? OPS.status`。POS 指出「卡侧失败 / 未挥卡 / POS 终止」通常没有 8A。
-host 建议二选一：
+- host 侧已按此实现（`executor._config_frame`：`DRL`/`EXCEPTION_FILE` **每笔恒发**，空表发一条 `value:""`）。
+- 设计文档 §4 已同步为「同名 id 逐条展开 + 空组 = `value:""` 清空」。
+- **请 POS 按此语义实现**：收到 `value:""` 必须清空对应表；收到 id 缺失时不动该表。
 
-- **(a) 推荐**：内核正常跑完  POS **一律上报 `8A`**（91/16/80 都走 8A，host 不需要私有 tag）；
-  内核未跑（卡侧失败/未挥卡/POS 终止） POS 按 3 发 OPS 全 0，**host 判该用例 FAIL（`out_no_outcome`）**，
-  视为「本笔没有有效结果」，不伪造 05/91/80。
-- **(b)**：内核未跑时由 POS 用 OPS Status 表达：`END APPLICATION(0100)` -> host 映射 `resp_code="80"`、
-  `TRY AGAIN(0111)` -> `"91"`（需负责人认可该映射与用例 `any_of` 集合匹配）。
+### D2. 「无内核 outcome」时 `resp_code` 怎么表达 —— **采纳 (a)**
 
-**请负责人选 (a) 或 (b)**（我倾向 (a)：不伪造结果；`any_of ['05','91',...]` 的用例本来就要求真实内核结果）。
+- 内核正常跑完 → POS **一律上报 `8A`**（`91`/`16`/`80` 都走 `8A`，host 不需要私有 tag）；
+- 内核未跑（卡侧失败 / 未挥卡 / POS 终止）→ POS 按 §3 发 **OPS 全 0 + 空 DataRecord + UIRD 全 0**；
+  host 判该用例 **FAIL / `out_no_outcome`**，视为「本笔没有有效结果」，**不伪造 `05`/`91`/`80`**。
+- 实测口径（`resp_code`）：优先 `DataRecord.8A`；无 `8A` 再按 OPS Status（`APPROVED`→`00`、`DECLINED`→`05`、
+  `ONLINE REQUEST`→`00`）；内核未跑时 `resp_code` 为**空串**。
+- 设计文档 §6.1、§8 已同步（新增 `out_no_outcome`）。
+- 注：`any_of ['05','91',...]` 类用例本就要求真实内核结果，故 (a) 不会削弱其判定力。
 
-### D3. 附带（低风险，默认按此执行，除非反对）
+### D3. 启动期 per-config INFO 降噪 —— **同意降级**
 
-- 启动期 per-config INFO（87 行 / 约 29 KB）**是否降为 DEBUG**（Round-1 报告 F3 附带项）：默认**降**，减少启动噪音与管道风险。
+`cases/amex/pos_configs` 的 87 行 / 约 29 KB 启动日志已由 `logger.info` 降为 **`logger.debug`**
+（`cases/loader.py`）。依据：Round-1 报告 §4（F3）——该日志量超过 Windows 匿名管道 4 KB 缓冲，
+会让「真实子进程 + `stdout=PIPE` 不读取」的进程阻塞在 bind 之前。
+
+### D0（附加，本轮一并裁决）
+
+- **入站帧 `v` 校验**：采纳「拒绝」——握手期 `v != 2` 回 `HandshakeError("bad_frame")`；
+  运行期 `v != 2` 记 warning 并断开（`protocol/connection.py`）。即信封 `v` 由「只发不收」改为**收发都校验**。
 
 ## E. 下一步
 
-- 负责人确认 D1/D2/D3 后，host 回传本答复定稿给 POS；
-- 同时进 P1c-2：迁移 `test_runner_timeout.py` / `test_v12_fixes.py`、`docs/protocol.md` v2、前端 v2 展示、
-  以及本答复 C 的 host 改动。
+- 本答复自本日起为**定稿**，可直接回传 POS；
+- host 侧 P1c-2 剩余：迁移 `test_runner_timeout.py` / `test_v12_fixes.py` 到 v2、`docs/protocol.md` 重写为 v2、
+  前端 v2 展示（`out.ops.status` + APDU）。

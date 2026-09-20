@@ -1,6 +1,6 @@
 # host-POS 协议 v2（Mastercard CTEL2 TEI 兼容）设计冻结稿
 
-> 状态：**P0 设计冻结稿（待评审）**。实施从 P1 起，**替换 v1.2、不并存**。
+> 状态：**v2 设计冻结稿（P1/P1c-1 已实施；本文已与 2026-09-18 的实现对齐）**。实施从 P1 起，**替换 v1.2、不并存**。
 > 依据：`refernce/m_ctel2_en-us-2025-06-17.pdf`（CTEL2 v4.1，TEI 接口 p78-93，PCD-bypass p94-99）
 > + `refernce/OPS_description_1.png` / `OPS_description_2.png`（OPS 位表）+ 用户 R1-R7 裁决。
 
@@ -18,7 +18,7 @@
 
 - host = TCP 服务端；`android` / `pos` = 客户端；端口 `9100`（Web/API/WS `8000`）。
 - 帧：`4B 大端长度 + UTF-8 JSON`，最大 1MiB；坏帧累计 5 断连。
-- 信封：`{"v":2,"type":"<小写消息类型>","msg_id":"<uuid>","ts":<epoch>}`（v 由 1 升 2，待评审 Q2）。
+- 信封：`{"v":2,"type":"<小写消息类型>","msg_id":"<uuid>","ts":<epoch>}`（v 由 1 升 2；Q2 已定稿，见 §11）。
 - 握手：`handshake{client_type, token, device_id, app_version, device_model, protocol_version:"2.0"}`；
   缺失或 `<2.0` -> `error{code:"protocol_mismatch"}` 并断开（确定性失败）。
 - 心跳沿用（host 10s / 告警 30s / 断 60s）；CTEL2 未定义心跳，保留为传输层机制（待评审 Q5）。
@@ -68,19 +68,28 @@ pos:  out（>=1；dual tap 可多条）
 
 ## 4. CONFIG 内容（R2=b）
 
-`config.signalData`（id 由 host 定义，value 为 hex 或数组）：
+`config.signalData`（id 由 host 定义，value 为 hex）：
+
+**形态（Q6 已定稿，POS「v2 变更确认回复」6.2 对齐）**：**同名 id 逐条展开为权威**；
+不使用「单 item 值 = 数组」的形态。host 已按此实现（`executor._config_frame`）。
 
 | id | 值 | 对应 v1.2 |
 |---|---|---|
 | `CONF_NAME` | `"<brand>/<ref>"`（信息用，如 `amex/CONF_16`） | - |
-| `AID` | 数组，每项一条拼接 BER-TLV 大写 hex | `kernel_params.aid[]` |
-| `CAPK` | 数组，每项一条拼接 BER-TLV | `capk[]` |
-| `DRL` | 数组，每项 `9F06+8F+DF8105` 拼接 TLV | `drl[]` |
-| `EXCEPTION_FILE` | 数组，每项 `5A+5F34` 拼接 TLV | `exception_file[]` |
+| `AID` | 每条一个 item：一条拼接 BER-TLV 大写 hex | `kernel_params.aid[]` |
+| `CAPK` | 每条一个 item：一条拼接 BER-TLV | `capk[]` |
+| `DRL` | 每条一个 item：`9F06+8F+DF8105` 拼接 TLV | `drl[]` |
+| `EXCEPTION_FILE` | 每条一个 item：`5A+5F34` 拼接 TLV | `exception_file[]` |
 | `TERM` | 一条拼接 TLV hex（= CONF.term + PROFILE.term） | `term` |
 | `VERSION` | `"4.2.0"` 等（host 侧元数据） | `version` |
 
-> 待评审 Q6：AID/CAPK 等用「一项一条」还是「单 item 值=数组」。
+**空组语义（D1 已定稿）**：`DRL` / `EXCEPTION_FILE` **每笔恒发**（host 已实现）：
+
+- 非空 → 逐条 `{id:"DRL", value:"<tlv>"}`，语义 = 整表替换（R2=b）；
+- **空 → 发一条 `{id:"DRL", value:""}`，语义 = 清空该表且不加**（`CONF_01_RemoveCRL` 依赖此语义，
+  否则按 POS「缺失 = 不管理」会残留上一笔的 DRL/黑名单）；
+- `value:null` 或 id 缺失 = 本笔不管理该表；
+- `AID` / `CAPK` 非空时逐条发；本轮不出现「空 AID/CAPK」。
 
 ## 5. ACT 交易数据
 
@@ -129,18 +138,28 @@ pos:  out（>=1；dual tap 可多条）
 CVM OBTAIN SIGNATURE / DataRecord+DiscData+Receipt / AIP N/A / FieldOff 0 / RemovalTimeout 0。
 
 host 派生：`outcome` = Status（APPROVED 记 approved / DECLINED 记 declined / ...）；
-`online` 由 Status 与 Online Response Data 推；`resp_code` 由 DataRecord（如 `8A`/`9F27`）或 OPS 组合派生（待评审 Q9）。
+`online` 由 Status 与 Online Response Data 推；`resp_code` 派生口径（Q9 已定稿，见 D2(a)）：
+优先 `DataRecord.8A`；无 `8A` 再按 OPS Status（`APPROVED`→`00`、`DECLINED`→`05`、`ONLINE REQUEST`→`00`）；
+**内核未跑**（OPS 全 0 + 空 DataRecord）→ `resp_code` 为空串、判该用例 FAIL（`out_no_outcome`），不伪造 `05/91/80`。
 
 ### 6.2 DataRecord
 
-= POS 侧 `CreateEMVDataRecord()` 的 TLV DB 全量 tag（`{tag: hex}`），host 解成 `out.datarecord.<tag>`；
+**host 约定白名单 + 「取到才报」（已定稿，替代原「TLV DB 全量」）**：
+POS 侧 `CreateEMVDataRecord()` 只导出 host 约定的白名单 tag（KS8226 无全量导出 API）；
+取不到的 tag **不出现**在 `DataRecord` 中。host 解成 `out.datarecord.<tag>`；
 OPS Byte5 b6=0 或值为 null 时该源为空。
+
+白名单 **32 条**（31 条 + `9F66`，后者为 `QPB-B-002-01` 断言 `out.datarecord.9F66` = 本笔下发的 TTQ 所需；
+POS 保留「`CONFIG.TERM` 含 `9F66` 时用下发值覆盖内核回读值」的行为）。
+
+> `9F02` / `9F03` / `9F53` 允许出现在 `DataRecord`（在白名单内，已确认）。
 
 ### 6.3 DiscData / UIRD / KernelId
 
-- `DiscData`：POS 私有 TLV -> `out.discdata.<tag>`；
-- `UIRD`：13B hex（与 `msg` 同构）；
-- `KernelId`：Kernel Identifier-Terminal -> `out.kernelid`。
+- `DiscData`：POS 私有 TLV -> `out.discdata.<tag>`。**本轮 host 不断言 `out.discdata.*`**，
+  POS 可不报；将来若要用，另给 tag 清单；
+- `UIRD`：取 `DF8116`（13B hex），取不到则全 0（与 `msg` 同构）；
+- `KernelId`：Kernel Identifier-Terminal -> `out.kernelid`；**本轮 POS 不上报**。
 
 ## 7. 卡端链路（保留 + 全量 APDU）
 
@@ -169,10 +188,12 @@ OPS Byte5 b6=0 或值为 null 时该源为空。
 - `expected_results` 支持三类路径：`card.*`（7.1）、`out.*`（6）、派生字段 `outcome`/`online`/`resp_code`；
 - 匹配算子沿用：`eq/neq/contains/prefix/regex/any_of/present/absent/range`；
 - 新失败原因码：
-  - `test_info_ack_timeout` / `test_info_rejected`
-  - `config_ack_timeout` / `config_rejected`
-  - `act_ack_timeout` / `act_rejected` / `act_not_supported`
+  - `test_info_ack_timeout` / `test_info_rejected` / `test_info_error`
+  - `config_ack_timeout` / `config_rejected` / `config_error`
+  - `act_ack_timeout` / `act_rejected` / `act_not_supported` / `act_error`
   - `out_timeout`
+  - `pos_not_connected`（POS 未连接时任一 signal 未确认）
+  - `out_no_outcome`（OPS 全 0 + 空 DataRecord = 内核未跑出结果，见 6.1 D2(a)）
   - `card_apdu_missing` / `card_apdu_mismatch:<path>` / `card_apdu_bleed`
   - `out_ops_mismatch:<path>` / `out_datarecord_missing:<tag>`
 - 任一端断线 -> 案例 FAIL；整轮停止策略沿用（任一 FAIL 即停止）。
@@ -191,15 +212,25 @@ OPS Byte5 b6=0 或值为 null 时该源为空。
 `case_started`、`transaction_result`、`session_abort`。
 待评审 Q5：`session_abort` 是否保留为传输层异常通知（CTEL2 无对应信号）。
 
-## 11. 开放问题（P0 评审用）
+## 11. 开放问题（评审状态，2026-09-18 更新）
 
-1. wire `type` 用大写 CTEL2 名（`TEST_INFO`）还是小写 snake（`test_info`）？
-2. `protocol_version` 是否 `"2.0"`？信封 `v` 是否升 2？
-3. CONFIG 的 id 命名（`CONF_NAME/AID/CAPK/DRL/EXCEPTION_FILE/TERM/VERSION`）可否？
-4. ACT 是否沿用 `transaction.pos_params` 命名、只把 value 改成 hex？金额 6B BCD 确认？
-5. `session_abort` 与 heartbeat 的去留？
-6. CONFIG 的 AID/CAPK 用「一 item 一条 TLV」还是「单 item 值=数组」？
-7. 卡端 trace 恒开后，`trace_enabled` / `device_config` 如何处置（是否彻底删除）？
-8. 前端（RunPage / AddCasePage / HistoryPage）改动范围：先最小可用（展示 out.ops.status + APDU），还是一步到位？
-9. `resp_code` 的派生口径：优先 DataRecord 的哪个 tag（`8A`？`9F27`？）？
-10. `out.datarecord` 与 `card.*` 断言的优先级/组合语义（全部 pass 才 PASS？warn 级？）？
+> 状态口径：**已定稿**项以 `backend/emv_host/protocol/messages.py` 与 `runner/executor.py` 的实际实现为准
+> （P1/P1c-1 已实施）。仍未决的项在末尾注明。
+
+1. wire `type` 用大写 CTEL2 名还是小写 snake？—— **已定稿：小写 snake**
+   （`messages.py:51-59`：`test_info`/`config`/`act`/`test_info_ack`/`config_ack`/`act_ack`/`msg`/`out`）。
+2. `protocol_version` 是否 `"2.0"`？信封 `v` 是否升 2？—— **已定稿：均为是**
+   （`messages.py:22,27`；且入站 `v` 已加校验，见 `protocol/connection.py`）。
+3. CONFIG 的 id 命名 —— **已定稿**：`CONF_NAME/AID/CAPK/DRL/EXCEPTION_FILE/TERM/VERSION`（`messages.py:63-69`）。
+4. ACT 是否沿用 `transaction.pos_params` 命名？—— **已定稿：不沿用，改用 `TransactionParams.act`**
+   （`cases/models.py:474`；`pos_params` 仅作 legacy 保留且**不使用**，见 `models.py:472` 注释）。
+5. `session_abort` 与 heartbeat 的去留？—— **已定稿**：`session_abort` **删除**（§10 硬切换）；
+   heartbeat 保留为传输层机制（CTEL2 未定义，`messages.py:36-37`）。
+6. CONFIG 的 AID/CAPK 形态？—— **已定稿：同名 id 逐条展开**（§4，POS 6.2 对齐）。
+7. 卡端 trace 恒开后 `trace_enabled` / `device_config` 如何处置？—— **部分**：`device_config` 已删除
+   （`messages.py:9-10`）；`trace_enabled` 由 `card_config` 承载（`executor.py:697-698` 注释）。
+8. **前端改动范围（先最小可用 vs 一步到位）—— 仍未决**，需负责人裁决。
+9. `resp_code` 派生口径 —— **已定稿**（见 §6.1 D2(a)）：`DataRecord.8A` 优先，其次 OPS Status。
+10. `out.datarecord` 与 `card.*` 断言的优先级/组合语义 —— **部分**：`out.*` 已实施；
+    `card.*`（APDU 判定）属 **P2，尚未实施**。
+

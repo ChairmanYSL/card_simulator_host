@@ -1,0 +1,30 @@
+........................................................................ [ 37%]
+........................................................................ [ 75%]
+................................................                         [100%]
+============================== warnings summary ===============================
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\_pytest\config\__init__.py:1624
+  C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\_pytest\config\__init__.py:1624: PytestConfigWarning: No files were found in testpaths; consider removing or adjusting your testpaths configuration. Searching recursively from the current directory instead.
+    self.args, self.args_source = self._decide_args(
+
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1
+  C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_runner_result.py)
+    class TestCase(BaseModel):
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_runner_timeout.py)
+    class TestCase(BaseModel):
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_v12_fixes.py)
+    class TestCase(BaseModel):
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_v2_rulings.py)
+    class TestCase(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+192 passed, 6 warnings in 25.73s

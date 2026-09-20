@@ -1,0 +1,5 @@
+--- variant=file cwd=E:\Work\ZT\card_simulator_host
+    ok=True died=None elapsed=1.8s bytes_before_'Uvicorn running'=29033
+    last_captured_line: INFO:     127.0.0.1:57559 - "GET /api/health HTTP/1.1" 200 OK
+    last_probe_err=URLError: <urlopen error timed out>
+

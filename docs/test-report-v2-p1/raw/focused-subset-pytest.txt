@@ -1,0 +1,182 @@
+........................................................................ [ 46%]
+...FF..........F.......................................................F [ 93%]
+.........F                                                               [100%]
+================================== FAILURES ===================================
+________ test_gen_cases_ignores_manifest_entries_outside_the_brand_dir ________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-124/test_gen_cases_ignores_manifes0')
+
+    def test_gen_cases_ignores_manifest_entries_outside_the_brand_dir(tmp_path):
+        """A corrupted manifest must not let a regeneration delete outside files."""
+>       gen = load_gen_cases()
+              ^^^^^^^^^^^^^^^^
+
+tests\test_export_kernel_params.py:206: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_export_kernel_params.py:200: in load_gen_cases
+    spec.loader.exec_module(module)
+<frozen importlib._bootstrap_external>:755: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:893: in get_code
+    ???
+<frozen importlib._bootstrap_external>:823: in source_to_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+f = <built-in function compile>
+args = (b'"""Generate (or regenerate) the demo case library under cases/.\r\n\r\nUsage:  python tools/gen_cases.py [cases_roo...(sys.argv[1] if len(sys.argv) > 1 else "cases")\r\n', 'E:\\Work\\ZT\\card_simulator_host\\tools\\gen_cases.py', 'exec')
+kwds = {'dont_inherit': True, 'optimize': -1}
+
+>   ???
+E     File "E:\Work\ZT\card_simulator_host\tools\gen_cases.py", line 277
+E       def embedded_profile(brand: dict, brand: str, case_id: str, title: str,
+E                                         ^^^^^^^^^^
+E   SyntaxError: duplicate argument 'brand' in function definition
+
+<frozen importlib._bootstrap>:491: SyntaxError
+_______________ test_gen_cases_clean_is_bounded_to_the_manifest _______________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-124/test_gen_cases_clean_is_bounde0')
+
+    def test_gen_cases_clean_is_bounded_to_the_manifest(tmp_path):
+>       gen = load_gen_cases()
+              ^^^^^^^^^^^^^^^^
+
+tests\test_export_kernel_params.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_export_kernel_params.py:200: in load_gen_cases
+    spec.loader.exec_module(module)
+<frozen importlib._bootstrap_external>:755: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:893: in get_code
+    ???
+<frozen importlib._bootstrap_external>:823: in source_to_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+f = <built-in function compile>
+args = (b'"""Generate (or regenerate) the demo case library under cases/.\r\n\r\nUsage:  python tools/gen_cases.py [cases_roo...(sys.argv[1] if len(sys.argv) > 1 else "cases")\r\n', 'E:\\Work\\ZT\\card_simulator_host\\tools\\gen_cases.py', 'exec')
+kwds = {'dont_inherit': True, 'optimize': -1}
+
+>   ???
+E     File "E:\Work\ZT\card_simulator_host\tools\gen_cases.py", line 277
+E       def embedded_profile(brand: dict, brand: str, case_id: str, title: str,
+E                                         ^^^^^^^^^^
+E   SyntaxError: duplicate argument 'brand' in function definition
+
+<frozen importlib._bootstrap>:491: SyntaxError
+_______________ test_serve_from_backend_dir_uses_repo_defaults ________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-124/test_serve_from_backend_dir_us0')
+
+    def test_serve_from_backend_dir_uses_repo_defaults(tmp_path):
+        """Starting from `backend/` without --cases/--tokens/--static must anchor
+        those defaults to the repository root and serve normally."""
+        if os.name != "nt":
+            pytest.skip("CTRL_BREAK_EVENT delivery is Windows-specific")
+        web, device = _free_ports(2)
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "emv_host", "serve",
+             "--port", str(web), "--device-port", str(device),
+             "--runs", str(tmp_path / "runs"),
+             "--log-dir", str(tmp_path / "logs")],
+            cwd=str(REPO_ROOT / "backend"), env=_clean_env(),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags,
+        )
+        try:
+            for _ in range(120):
+                if proc.poll() is not None:
+                    out = proc.stdout.read().decode(errors="replace")
+                    pytest.fail(f"server died early (exit {proc.returncode}):\n{out[-2000:]}")
+                try:
+                    with urllib.request.urlopen(
+                            f"http://127.0.0.1:{web}/api/health", timeout=1):
+                        break
+                except Exception:  # noqa: BLE001
+                    time.sleep(0.2)
+            else:
+                proc.kill()
+>               pytest.fail("server did not start (default path resolution broken?)")
+E               Failed: server did not start (default path resolution broken?)
+
+tests\test_launch.py:143: Failed
+____________________ test_unattributed_out_is_quarantined _____________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-124/test_unattributed_out_is_quara0')
+
+    @pytest.mark.asyncio
+    async def test_unattributed_out_is_quarantined(tmp_path):
+        executor = _executor(tmp_path)
+        run = executor.store.new_run("visa", "contactless", [CASE_ID], "single")
+    
+        # no session at all
+        executor._session = None
+        conn = FakeConn()
+        await executor._on_out(conn, out_frame(msg_id="q-1"))
+        assert conn.last["detail"] == "quarantined"
+        assert conn.last["ok"] is True
+    
+        # session exists but no in-flight attempt waiter
+        session = _session(run, waiting=False)
+        executor._session = session
+        conn = FakeConn()
+        await executor._on_out(conn, out_frame(msg_id="q-2"))
+        assert conn.last["detail"] == "quarantined"
+        assert not session._result_waiter
+    
+        qpath = executor.store.run_dir(
+            executor.store.root, run["run_id"]) / "quarantine.jsonl"
+        assert qpath.is_file()
+>       assert len(qpath.read_text(encoding="utf-8").splitlines()) == 2
+E       assert 1 == 2
+E        +  where 1 = len(['{"at": 1789697115.3663812, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos...0.0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}'])
+E        +    where ['{"at": 1789697115.3663812, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos...0.0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}'] = <built-in method splitlines of str object at 0x00000167AE94B930>()
+E        +      where <built-in method splitlines of str object at 0x00000167AE94B930> = '{"at": 1789697115.3663812, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos-....0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}\n'.splitlines
+E        +        where '{"at": 1789697115.3663812, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos-....0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}\n' = read_text(encoding='utf-8')
+E        +          where read_text = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-124/test_unattributed_out_is_quara0/2026-09-18/20260918T100515_71bbd194/quarantine.jsonl').read_text
+
+tests\test_runner_result.py:228: AssertionError
+_____________________ test_real_process_ctrl_c_exit_clean _____________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-124/test_real_process_ctrl_c_exit_0')
+
+    def test_real_process_ctrl_c_exit_clean(tmp_path):
+        """End-to-end: spawn the real `python -m emv_host serve` process, deliver
+        a console-break event (same graceful path as Ctrl+C on Windows) and assert
+        the process exits with code 0 and without any traceback."""
+        if os.name != "nt":
+            pytest.skip("CTRL_BREAK_EVENT delivery is Windows-specific")
+    
+        # retry with fresh ports: between probing and binding, Windows may hand
+        # the ephemeral port to another socket (rare but observed intermittently)
+        for attempt in range(3):
+            result = _run_subprocess_exit_probe(tmp_path)
+            if result is None:
+                return  # passed
+            if attempt == 2:
+>               raise result
+E               AssertionError: server did not start in time
+
+tests\test_shutdown.py:261: AssertionError
+============================== warnings summary ===============================
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\_pytest\config\__init__.py:1624
+  C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\_pytest\config\__init__.py:1624: PytestConfigWarning: No files were found in testpaths; consider removing or adjusting your testpaths configuration. Searching recursively from the current directory instead.
+    self.args, self.args_source = self._decide_args(
+
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1
+  C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_runner_result.py)
+    class TestCase(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_export_kernel_params.py::test_gen_cases_ignores_manifest_entries_outside_the_brand_dir
+FAILED tests/test_export_kernel_params.py::test_gen_cases_clean_is_bounded_to_the_manifest
+FAILED tests/test_launch.py::test_serve_from_backend_dir_uses_repo_defaults
+FAILED tests/test_runner_result.py::test_unattributed_out_is_quarantined - as...
+FAILED tests/test_shutdown.py::test_real_process_ctrl_c_exit_clean - Assertio...
+5 failed, 149 passed, 3 warnings in 592.06s (0:09:52)

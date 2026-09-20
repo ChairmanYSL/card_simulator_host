@@ -5,6 +5,123 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-18（前端 v2 展示 + README v2 同步 + 修复前端构建阻断）
+
+### 修复（**既有缺陷，非本轮引入**）：前端在 HEAD 上无法构建
+- **类型**：前端缺陷修复（阻断级）
+- **背景**：`npm run build`（`tsc -b && vite build`）在本轮之前即失败，且 `frontend/dist` 长期停留在
+  2026-09-15 的陈旧构建——即此前所有前端改动都未能真正发布。
+- **改动**（`frontend/src/pages/AddCasePage.tsx`，2 处独立缺陷）：
+  - JSX **文本**中的裸 `<=`（`模数长度 <= 256 字节`）→ `&lt;=`（`TS1003`，JSX 文本里的 `<` 必须转义）；
+  - 引用未定义标识符 `sch`（`emptyDraft/emptyGroupDraft/applyTemplate`）→ `brand`
+    （`366f95c` 的 `scheme`→`brand` 改名遗漏，`TS2304`）。
+- **验证**：`npm run build` 成功（41 modules，`dist/assets/index-DIcIZby1.js` 207.54 kB）；
+  `dist` 时间戳更新为 2026-09-18 16:52。
+- **未改的同源命名残留**：`AddCasePage.tsx:583/585/587`（形参 `sch`）、`:635`（`const sch = brand`）。
+
+### 前端：v2 展示（设计 §11 Q8 的"先最小可用"：`out.ops.status` + APDU）
+- **改动**：
+  - `frontend/src/types.ts`：新增 `OutOps` / `CaseRawResult` / `TraceMessage` / `TraceEntry`；
+    `RunDetail` 补 `trace`（后端早已返回，前端类型缺失）。
+  - `frontend/src/pages/HistoryPage.tsx`：运行详情新增 `out.ops`（`status [status_bits]`）与 `resp_code`
+    两列；新增 APDU trace 折叠区（按 `COMMAND`/`RESPONSE` + `SW` + `elapsed_ms` 渲染）；页脚标签
+    `v1.2：` → `v2：`。
+- **落点**：`out.ops` 与 trace 仅存在于已落盘记录（`results/<case_id>.json` + `runs/<run_id>/trace/`），
+  经 `/api/history/{run_id}` 暴露；实时 `SessionInfo.results` 不含 `raw_result`，故 **RunPage 实时 OPS 显示
+  与 AddCasePage 的 `pos_params`→`act` 表单改造属"一步到位"，未做（待裁决）**。
+- **验证**：`npm run build` 通过；起真实 host 后 `GET /api/history/{run_id}` 实测
+  `raw_result.out.ops.status="RFU(0000)"`/`status_bits="0000"`/`resp_code=""`、`trace` 2 条，
+  与 UI 渲染字段逐个对应；`GET /` → 200（新 dist 已被服务）。
+  **未做视觉/交互验证**（仓库无前端测试框架）。
+
+### 文档：README 同步为 v2
+- **改动**：横幅、拓扑图（`result 回传`→`out 回传`）、编排模型（→ `test_info → config → act → out`，
+  判定落盘后 ack）、用例 JSON 示例（`pos_params`→`act`；`tags.gen_ac.9F26`→`out.datarecord.9F26`）、
+  运行语义（失败原因码改 v2；**删除"`session_abort` 双方必 ack"这一 v2 已不成立的承诺**）、mock 说明。
+- **验证**：逐条审计残余 `v1.2` 字样，均为"已删除/legacy"等历史或否定语境，无一处作为现行行为。
+- **未做**：`docs/POS机应用开发手册.md` 未检查，可能仍是 v1.2。
+
+## 2026-09-18（协议 v2 P1c-2：D1/D2/D3 + 入站 v 校验落地；设计文档与 POS 答复定稿）
+
+### 协议：空组清空语义 / `resp_code` 口径 / 启动日志降噪 / 入站 `v` 校验
+- **类型**：协议行为 + 安全校验 + 日志治理（host 侧）；**仅工作区改动，尚未提交**
+- **依据**：`docs/test-report-v2-p1/REPORT.md`（Round 1，F1–F3 与 §5.3）+ `docs/reply-to-pos-v2-confirmation.md`；
+  负责人 2026-09-18 对 D1/D2/D3 及「入站 v 校验」的裁决。
+- **改动**：
+  - **D1 空组语义**（`runner/executor.py::_config_frame`）：`DRL`/`EXCEPTION_FILE` **每笔恒发**；
+    空表发一条 `{id:"DRL", value:""}` = 「清空该表且不加」；id 缺失 = 本笔不管理该表。
+  - **D2(a) `resp_code` 口径**（`runner/executor.py`）：OPS 全 0 + 空 `DataRecord`（内核未跑）→
+    用例 FAIL / `out_no_outcome`，`resp_code` 为空串，不伪造 `05/91/80`。
+  - **D3 日志降噪**（`cases/loader.py`）：named POS config 装载日志 `logger.info` → `logger.debug`
+    （原先 87 行 / 约 29 KB 启动噪音）。
+  - **入站 `v` 校验**（`protocol/connection.py`）：握手期 `v != 2` → `HandshakeError("bad_frame")`；
+    运行期 `v != 2` → warning + 断开。信封 `v` 由「只发不收」改为收发都校验。
+  - **文档**：`protocol-v2-design.md` §4（CONFIG 逐条 + 空组语义）、§6.1（`resp_code` 口径）、
+    §6.2（DataRecord 32-tag 白名单 + 取到才报）、§6.3（DiscData 本轮不报）、§8（失败原因码新增
+    `out_no_outcome`/`*_error`/`pos_not_connected`）；`reply-to-pos-v2-confirmation.md` 由「待拍板」**定稿**。
+- **验证**：Round 2 实测 ① 聚焦子集 **155 passed / 0 failed（20.56s）**；
+  ② 全量当时 **170 passed / 14 failed**，14 个全为 F4（v1.2 残留）。
+  **F4 迁移完成后同日复测：`python -m pytest -q` → 184 passed, 0 failed（27.14s）**，
+  证据 `docs/test-report-v2-p1-round2/raw/full-pytest-after-f4.txt`。
+  **注意**：D1/D2/入站 v 校验三条新行为**均 0 单测覆盖**（见 Round-2 报告 §5.1），
+  「未引入新失败」≠「已验证」；D1 的 `CONF_01_RemoveCRL` 场景当前无 case 引用。
+- **口径**：以上为 host 仓库内改动 + 本机 pytest 实测，**未与 POS/卡端联调**。
+
+### 测试：`test_runner_timeout.py` / `test_v12_fixes.py` 迁 v2（F4）
+- **改动**：两文件的 `StubProtocol` 补 v2 `send_to_and_ack_signal`（镜像 `protocol/server.py:148`）与
+  `send_and_wait_signal`；断言的 v1.2 帧/原因码改 v2（`case_started`→`act`、`transaction_result`→`out`、
+  `result_timeout`→`out_timeout`、`pos_*`→`config_*`/`act_*`）；`_on_transaction_result`→`_on_out`。
+- **`session_abort` 语义变化**：v2 §10 已删除该帧，原「通知两端会话已中止」的正断言改为
+  「不发任何 v1.2 legacy 帧」的负断言；即 **v2 下无任何帧通告整轮中止**，卡端仅靠 `stop_emulation` 收尾。
+- **验证**：29/29 通过；全量 184 passed。改动审查：19 处 assert 替换全部有 v2 对应，新增 21 处含更强的
+  顺序/状态断言（`pos.seen == [test_info, config, act]`、`record["status"]`），非弱化。
+
+### 测试：补三条新行为的回归覆盖（`tests/test_v2_rulings.py`，8 例）
+- **背景**：D1 空表语义、D2 `out_no_outcome`、入站 `v` 校验三条新行为此前 **0 单测覆盖**
+  （见 `docs/test-report-v2-p1-round2/REPORT.md` §5.1），"未引入新失败"不等于"已验证"。
+- **改动**：新增 `backend/tests/test_v2_rulings.py`（本轮唯一新增文件，未改任何既有受跟踪文件）：
+  D1 三例（空表清空项 / 非空逐条 / 两表独立）、D2 三例（主路径 + "有 DataRecord 则不算 no_outcome"边界 +
+  正常批准仍 PASS 的对照）、入站 `v` 两例（握手 `v != 2` → `bad_frame`；握手后 `v != 2` → 告警并断开）。
+- **验证**：8 passed；全量 **192 passed / 0 failed**（起点 14 failed / 170 passed）。
+  非空转验证：临时破坏三处行为 → 对应用例各失败 → 哈希校验还原（`executor.py`/`connection.py` SHA256
+  与破坏前逐字节一致，`git diff --stat` 与基线相同）。
+
+## 2026-09-18（协议 v2 P1c-1r：Round-1 测试报告 F1/F2/F3 修复）
+
+### 修复：`gen_cases` 撞名（阻断级）/ quarantine 断言 / 真实子进程 stdout 管道
+- **类型**：工具缺陷修复 + 测试修复 + 新增断言（提交 `0fb2c40`）
+- **依据**：`docs/test-report-v2-p1/REPORT.md`（Round 1）。
+- **改动**：
+  - **F1**：`tools/gen_cases.py` 因 `scheme -> brand` 重命名产生 **9 个函数**重复形参（`ast.parse` 不检重复形参，
+    故此前核验漏检），导致全文件 `SyntaxError`；品牌定义 dict 形参统一改名 **`brand_conf`**（`: dict` 注解与
+    9 处调用点语义不变）。复核：`compileall` 全树 exit=0 + AST 结构化扫描 0 处重复形参。
+  - **F2**：`tests/test_runner_result.py` 的 quarantine 落盘行数断言 `2 -> 1`
+    （无 session 不落盘是 v1.2 起既有设计，`_quarantine` 与 v1.2 逐字相同）。
+  - **F3**：`tests/test_launch.py` / `tests/test_shutdown.py` 真实子进程 stdout 由 `PIPE`（未排空）改为
+    **文件重定向**。根因：启动期日志约 **29 KB** > Windows 匿名管道 4 KB 缓冲，子进程阻塞在 bind 之前；
+    对照实验：stdout→文件/排空管道 1.8s 起服务，未排空管道 145s 从未监听（服务端本身无缺陷）。
+  - **附加**：`tests/test_frames.py` 新增**出站信封 `v=2`** 断言（补 Round-1 报告的覆盖度缺口）；
+    `executor._pos_signal` 拆分 `*_ack_timeout`（`ConnectionClosed`）与 `*_error`（本地/编程/传输异常）。
+- **验证**：Round 2 ① 155 passed / 0 failed；② 仅 F4 的 14 个失败。耗时由 592s/597s 降至
+  **20.56s / 21.55s**（F3 消除了 3×约 24s 的无效重试）。
+
+## 2026-09-18（协议 v2 P1c-1：用例断言迁移 + CTEL2 OUT 测试）
+
+### 测试/工具：断言路径迁 `out.datarecord.*`，runner 测试改 v2（提交 `ffa28f2`）
+- **改动**：11 个用例文件把 `tags.gen_ac.*` / `tags.gpo.*` / `tags.read_record.*` 共 17 处断言迁移为
+  `out.datarecord.*`；`test_launch`/`test_protocol_server` 版本断言升 2.0；
+  `test_runner_result.py` 整体重写为 CTEL2 OUT（判定+落盘后 ack、msg_id 去重、quarantine）；
+  `executor._on_out` 补 msg_id 去重守卫；新增 `docs/test-plan-v2-p1.md`。
+- **验证**：Round 1 聚焦子集 5 failed / 149 passed（5 个失败即后续 P1c-1r 的 F1/F2/F3），全量 19 failed / 164 passed。
+
+## 2026-09-18（协议 v2 P1：host CTEL2 TEI 核心）
+
+### 协议：host-POS 报文切换为 CTEL2 TEI（提交 `13195f6`）
+- **改动**：`test_info`/`config`/`act` 下发 + POS `out`（OPS + DataRecord）判定与落盘；
+  CONFIG 内嵌完整配置（R2=b）；v1.2 POS 报文（`config_push*`/`case_started`/`transaction_result`/`session_abort`）
+  按 R7 **硬切换删除**，不保留兼容开关；`_on_transaction_result` → `_on_out`。
+- **验证**：见 P1c-1 轮次（同一批用例）。
+
 ## 2026-09-15（v1.2.x 修正：Amex POS 配置改为模块化自由配对）
 
 ### 重构：CONF / Profile 拆成独立模块，case 自由选择

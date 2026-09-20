@@ -1,0 +1,12 @@
+total failure blocks: 19
+
+* test_gen_cases_ignores_manifest_entries_outside_the_brand_dir
+    at : tests\test_export_kernel_params.py:200
+    why: SyntaxError: duplicate argument 'brand' in function definition
+
+* test_gen_cases_clean_is_bounded_to_the_manifest
+    at : tests\test_export_kernel_params.py:200
+    why: SyntaxError: duplicate argument 'brand' in function definition
+
+* test_serve_from_backend_dir_uses_repo_defaults
+    at : tests\test_launch.py:143

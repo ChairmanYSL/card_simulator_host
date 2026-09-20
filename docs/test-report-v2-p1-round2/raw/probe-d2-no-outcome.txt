@@ -1,0 +1,10 @@
+OPS all-zero + empty DataRecord, judged through the real _on_out:
+
+[A expects approved] ack=persisted status=FAIL record.failure_reason='out_no_outcome'
+[A expects approved] outcome='rfu(0000)' resp_code='' session.failure_reason='out_no_outcome'
+
+[B no assertions] ack=persisted status=PASS record.failure_reason=None
+[B no assertions] outcome='rfu(0000)' resp_code='' session.failure_reason='out_no_outcome'
+
+[C only warn-severity rules] ack=persisted status=WARN record.failure_reason='out_no_outcome'
+[C only warn-severity rules] outcome='rfu(0000)' resp_code='' session.failure_reason='out_no_outcome'

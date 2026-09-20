@@ -1,0 +1,699 @@
+........................................................................ [ 39%]
+...FF..........F.......................................................F [ 78%]
+.F...FFFF..FF.F........FFFFF...FF......                                  [100%]
+================================== FAILURES ===================================
+________ test_gen_cases_ignores_manifest_entries_outside_the_brand_dir ________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_gen_cases_ignores_manifes0')
+
+    def test_gen_cases_ignores_manifest_entries_outside_the_brand_dir(tmp_path):
+        """A corrupted manifest must not let a regeneration delete outside files."""
+>       gen = load_gen_cases()
+              ^^^^^^^^^^^^^^^^
+
+tests\test_export_kernel_params.py:206: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_export_kernel_params.py:200: in load_gen_cases
+    spec.loader.exec_module(module)
+<frozen importlib._bootstrap_external>:755: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:893: in get_code
+    ???
+<frozen importlib._bootstrap_external>:823: in source_to_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+f = <built-in function compile>
+args = (b'"""Generate (or regenerate) the demo case library under cases/.\r\n\r\nUsage:  python tools/gen_cases.py [cases_roo...(sys.argv[1] if len(sys.argv) > 1 else "cases")\r\n', 'E:\\Work\\ZT\\card_simulator_host\\tools\\gen_cases.py', 'exec')
+kwds = {'dont_inherit': True, 'optimize': -1}
+
+>   ???
+E     File "E:\Work\ZT\card_simulator_host\tools\gen_cases.py", line 277
+E       def embedded_profile(brand: dict, brand: str, case_id: str, title: str,
+E                                         ^^^^^^^^^^
+E   SyntaxError: duplicate argument 'brand' in function definition
+
+<frozen importlib._bootstrap>:491: SyntaxError
+_______________ test_gen_cases_clean_is_bounded_to_the_manifest _______________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_gen_cases_clean_is_bounde0')
+
+    def test_gen_cases_clean_is_bounded_to_the_manifest(tmp_path):
+>       gen = load_gen_cases()
+              ^^^^^^^^^^^^^^^^
+
+tests\test_export_kernel_params.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_export_kernel_params.py:200: in load_gen_cases
+    spec.loader.exec_module(module)
+<frozen importlib._bootstrap_external>:755: in exec_module
+    ???
+<frozen importlib._bootstrap_external>:893: in get_code
+    ???
+<frozen importlib._bootstrap_external>:823: in source_to_code
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+f = <built-in function compile>
+args = (b'"""Generate (or regenerate) the demo case library under cases/.\r\n\r\nUsage:  python tools/gen_cases.py [cases_roo...(sys.argv[1] if len(sys.argv) > 1 else "cases")\r\n', 'E:\\Work\\ZT\\card_simulator_host\\tools\\gen_cases.py', 'exec')
+kwds = {'dont_inherit': True, 'optimize': -1}
+
+>   ???
+E     File "E:\Work\ZT\card_simulator_host\tools\gen_cases.py", line 277
+E       def embedded_profile(brand: dict, brand: str, case_id: str, title: str,
+E                                         ^^^^^^^^^^
+E   SyntaxError: duplicate argument 'brand' in function definition
+
+<frozen importlib._bootstrap>:491: SyntaxError
+_______________ test_serve_from_backend_dir_uses_repo_defaults ________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_serve_from_backend_dir_us0')
+
+    def test_serve_from_backend_dir_uses_repo_defaults(tmp_path):
+        """Starting from `backend/` without --cases/--tokens/--static must anchor
+        those defaults to the repository root and serve normally."""
+        if os.name != "nt":
+            pytest.skip("CTRL_BREAK_EVENT delivery is Windows-specific")
+        web, device = _free_ports(2)
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "emv_host", "serve",
+             "--port", str(web), "--device-port", str(device),
+             "--runs", str(tmp_path / "runs"),
+             "--log-dir", str(tmp_path / "logs")],
+            cwd=str(REPO_ROOT / "backend"), env=_clean_env(),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags,
+        )
+        try:
+            for _ in range(120):
+                if proc.poll() is not None:
+                    out = proc.stdout.read().decode(errors="replace")
+                    pytest.fail(f"server died early (exit {proc.returncode}):\n{out[-2000:]}")
+                try:
+                    with urllib.request.urlopen(
+                            f"http://127.0.0.1:{web}/api/health", timeout=1):
+                        break
+                except Exception:  # noqa: BLE001
+                    time.sleep(0.2)
+            else:
+                proc.kill()
+>               pytest.fail("server did not start (default path resolution broken?)")
+E               Failed: server did not start (default path resolution broken?)
+
+tests\test_launch.py:143: Failed
+____________________ test_unattributed_out_is_quarantined _____________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_unattributed_out_is_quara0')
+
+    @pytest.mark.asyncio
+    async def test_unattributed_out_is_quarantined(tmp_path):
+        executor = _executor(tmp_path)
+        run = executor.store.new_run("visa", "contactless", [CASE_ID], "single")
+    
+        # no session at all
+        executor._session = None
+        conn = FakeConn()
+        await executor._on_out(conn, out_frame(msg_id="q-1"))
+        assert conn.last["detail"] == "quarantined"
+        assert conn.last["ok"] is True
+    
+        # session exists but no in-flight attempt waiter
+        session = _session(run, waiting=False)
+        executor._session = session
+        conn = FakeConn()
+        await executor._on_out(conn, out_frame(msg_id="q-2"))
+        assert conn.last["detail"] == "quarantined"
+        assert not session._result_waiter
+    
+        qpath = executor.store.run_dir(
+            executor.store.root, run["run_id"]) / "quarantine.jsonl"
+        assert qpath.is_file()
+>       assert len(qpath.read_text(encoding="utf-8").splitlines()) == 2
+E       assert 1 == 2
+E        +  where 1 = len(['{"at": 1789697713.1542246, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos...0.0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}'])
+E        +    where ['{"at": 1789697713.1542246, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos...0.0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}'] = <built-in method splitlines of str object at 0x000002332F8C49B0>()
+E        +      where <built-in method splitlines of str object at 0x000002332F8C49B0> = '{"at": 1789697713.1542246, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos-....0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}\n'.splitlines
+E        +        where '{"at": 1789697713.1542246, "reason": "case_id mismatch", "frame": {"type": "out", "msg_id": "q-2", "device_id": "pos-....0", "signalData": [{"id": "OPS", "value": "1000F00030F0FF00"}, {"id": "DataRecord", "value": "8A0230309F270140"}]}}\n' = read_text(encoding='utf-8')
+E        +          where read_text = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_unattributed_out_is_quara0/2026-09-18/20260918T101513_c63db046/quarantine.jsonl').read_text
+
+tests\test_runner_result.py:228: AssertionError
+________ test_result_timeout_fails_case_stops_run_and_skips_remainder _________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_result_timeout_fails_case0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F927380>
+
+    @pytest.mark.asyncio
+    async def test_result_timeout_fails_case_stops_run_and_skips_remainder(
+            tmp_path, monkeypatch):
+        cases = {cid: make_case(cid) for cid in ("C-01", "C-02", "C-03")}
+        android, pos = AckingConn("android@stub"), AckingConn("pos@stub")
+        executor = build(tmp_path, cases, android=android, pos=pos)
+        session = await run_cases(executor, list(cases), monkeypatch)
+    
+        run = executor.store.get_run(session.run["run_id"])
+        first = executor.store.get_case_result(run["run_id"], "C-01")
+        assert first["status"] == "FAIL"
+>       assert first["failure_reason"] == "result_timeout"
+E       AssertionError: assert 'test_info_ack_timeout' == 'result_timeout'
+E         
+E         - result_timeout
+E         + test_info_ack_timeout
+
+tests\test_runner_timeout.py:183: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:13,343 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+_______________ test_pos_offline_fails_case_instead_of_warning ________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_pos_offline_fails_case_in0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F93BE00>
+
+    @pytest.mark.asyncio
+    async def test_pos_offline_fails_case_instead_of_warning(tmp_path, monkeypatch):
+        """Q8: an offline POS used to be warn-only; it is a FAIL in v1.2."""
+        cases = {"C-01": make_case("C-01", pos_params=True)}
+        executor = build(tmp_path, cases, pos=None)
+        session = await run_cases(executor, ["C-01"], monkeypatch)
+    
+        run = executor.store.get_run(session.run["run_id"])
+        record = executor.store.get_case_result(run["run_id"], "C-01")
+        assert record["status"] == "FAIL"
+>       assert record["failure_reason"] == "pos_not_connected"
+E       AssertionError: assert 'test_info_ack_timeout' == 'pos_not_connected'
+E         
+E         - pos_not_connected
+E         + test_info_ack_timeout
+
+tests\test_runner_timeout.py:247: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:13,803 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+____________________ test_pos_config_rejection_fails_case _____________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_pos_config_rejection_fail0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F93BA80>
+
+    @pytest.mark.asyncio
+    async def test_pos_config_rejection_fails_case(tmp_path, monkeypatch):
+        cases = {"C-01": make_case("C-01", pos_params=True)}
+        pos = AckingConn("pos@stub",
+                         reject={"pos_config": {"ok": False, "detail": "no"}})
+        executor = build(tmp_path, cases, pos=pos)
+        session = await run_cases(executor, ["C-01"], monkeypatch)
+    
+        record = executor.store.get_case_result(session.run["run_id"], "C-01")
+>       assert record["failure_reason"] == "pos_config_rejected"
+E       AssertionError: assert 'test_info_ack_timeout' == 'pos_config_rejected'
+E         
+E         - pos_config_rejected
+E         + test_info_ack_timeout
+
+tests\test_runner_timeout.py:261: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:13,944 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+___________________ test_case_started_rejection_fails_case ____________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_case_started_rejection_fa0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F939630>
+
+    @pytest.mark.asyncio
+    async def test_case_started_rejection_fails_case(tmp_path, monkeypatch):
+        cases = {"C-01": make_case("C-01")}
+        pos = AckingConn("pos@stub",
+                         reject={"case_started": {"ok": False, "detail": "busy"}})
+        executor = build(tmp_path, cases, pos=pos)
+        session = await run_cases(executor, ["C-01"], monkeypatch)
+    
+        record = executor.store.get_case_result(session.run["run_id"], "C-01")
+>       assert record["failure_reason"] == "pos_case_started_rejected"
+E       AssertionError: assert 'test_info_ack_timeout' == 'pos_case_started_rejected'
+E         
+E         - pos_case_started_rejected
+E         + test_info_ack_timeout
+
+tests\test_runner_timeout.py:273: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:14,038 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+________________ test_pos_case_started_ack_timeout_fails_case _________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_pos_case_started_ack_time0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F93B9A0>
+
+    @pytest.mark.asyncio
+    async def test_pos_case_started_ack_timeout_fails_case(tmp_path, monkeypatch):
+        cases = {"C-01": make_case("C-01")}
+    
+        class PosAcksConfigOnly(AckingConn):
+            async def send_and_wait_ack(self, frame, timeout=15.0, event=None):  # noqa: ARG002
+                if frame.get("type") == "case_started":
+                    raise TimeoutError("no ack")
+                return await super().send_and_wait_ack(frame, timeout=timeout)
+    
+        executor = build(tmp_path, cases, pos=PosAcksConfigOnly("pos@stub"))
+        session = await run_cases(executor, ["C-01"], monkeypatch)
+    
+        record = executor.store.get_case_result(session.run["run_id"], "C-01")
+>       assert record["failure_reason"] == "pos_case_started_ack_timeout"
+E       AssertionError: assert 'test_info_ack_timeout' == 'pos_case_started_ack_timeout'
+E         
+E         - pos_case_started_ack_timeout
+E         + test_info_ack_timeout
+
+tests\test_runner_timeout.py:290: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:14,128 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+_______________ test_kernel_config_is_pushed_before_pos_config ________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_kernel_config_is_pushed_b0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F9398D0>
+
+    @pytest.mark.asyncio
+    async def test_kernel_config_is_pushed_before_pos_config(tmp_path, monkeypatch):
+        """R5: pos_kernel_config precedes pos_config and its rejection fails the case."""
+        kernel = KernelParams(
+            aids=[AidKernelParam(aid="A0000000031010",
+                                 fields=[TlvField(tag="DF01", value="01")])],
+            term="9F6604360000809F1A0201569F7A0101")
+        cases = {"C-01": make_case("C-01", pos_params=True)}
+        pos = AckingConn("pos@stub")
+        executor = build(tmp_path, cases, pos=pos, kernel=kernel)
+        session = await run_cases(executor, ["C-01"], monkeypatch)
+    
+>       assert pos.seen[0] == "pos_kernel_config"
+               ^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests\test_runner_timeout.py:361: IndexError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:14,246 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+___________________ test_kernel_config_rejection_fails_case ___________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_kernel_config_rejection_f0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F939940>
+
+    @pytest.mark.asyncio
+    async def test_kernel_config_rejection_fails_case(tmp_path, monkeypatch):
+        kernel = KernelParams(
+            aids=[AidKernelParam(aid="A0000000031010")],
+            term="9F6604360000809F1A0201569F7A0101")
+        cases = {"C-01": make_case("C-01")}
+        pos = AckingConn("pos@stub", reject={
+            "pos_kernel_config": {"ok": False, "detail": "kernel busy"}})
+        executor = build(tmp_path, cases, pos=pos, kernel=kernel)
+        session = await run_cases(executor, ["C-01"], monkeypatch)
+    
+        record = executor.store.get_case_result(session.run["run_id"], "C-01")
+        assert record["status"] == "FAIL"
+>       assert record["failure_reason"] == "pos_kernel_config_apply_failed"
+E       AssertionError: assert 'test_info_ack_timeout' == 'pos_kernel_c..._apply_failed'
+E         
+E         - pos_kernel_config_apply_failed
+E         + test_info_ack_timeout
+
+tests\test_runner_timeout.py:385: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:14,385 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+________________ test_case_level_kernel_params_override_brand _________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_case_level_kernel_params_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002332F93A0B0>
+
+    @pytest.mark.asyncio
+    async def test_case_level_kernel_params_override_brand(tmp_path, monkeypatch):
+        brand_kernel = KernelParams(
+            aids=[AidKernelParam(aid="A0000000031010")],
+            term="9F6604360000809F1A0201569F7A0101")
+        case = make_case("C-01")
+        case.kernel_params = KernelParams(
+            aids=[AidKernelParam(aid="A0000000041010")],
+            term="9F6604360000809F1A0201569F7A0101")
+        pos = AckingConn("pos@stub")
+        executor = build(tmp_path, {"C-01": case}, pos=pos, kernel=brand_kernel)
+        await run_cases(executor, ["C-01"], monkeypatch)
+    
+>       frame = next(f for f in pos.sent
+                     if f.get("config_type") == "pos_kernel_config")
+E       StopIteration
+
+tests\test_runner_timeout.py:412: StopIteration
+
+The above exception was the direct cause of the following exception:
+
+self = <Coroutine test_case_level_kernel_params_override_brand>
+
+    def runtest(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        runner = self._request.getfixturevalue(runner_fixture_id)
+        context = contextvars.copy_context()
+        synchronized_obj = _synchronize_coroutine(
+            getattr(*self._synchronization_target_attr), runner, context
+        )
+        with MonkeyPatch.context() as c:
+            c.setattr(*self._synchronization_target_attr, synchronized_obj)
+>           super().runtest()
+
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\pytest_asyncio\plugin.py:569: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\pytest_asyncio\plugin.py:905: in inner
+    runner.run(coro, context=context)
+C:\Python314\Lib\asyncio\runners.py:127: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <ProactorEventLoop running=False closed=False debug=False>
+future = <Task finished name='Task-332' coro=<test_case_level_kernel_params_override_brand() done, defined at E:\Work\ZT\card_simulator_host\backend\tests\test_runner_timeout.py:399> exception=RuntimeError('coroutine raised StopIteration')>
+
+    def run_until_complete(self, future):
+        """Run until the Future is done.
+    
+        If the argument is a coroutine, it is wrapped in a Task.
+    
+        WARNING: It would be disastrous to call run_until_complete()
+        with the same coroutine twice -- it would wrap it in two
+        different Tasks and that can't be good.
+    
+        Return the Future's result, or raise its exception.
+        """
+        self._check_closed()
+        self._check_running()
+    
+        new_task = not futures.isfuture(future)
+        future = tasks.ensure_future(future, loop=self)
+        if new_task:
+            # An exception is raised if the future didn't complete, so there
+            # is no need to log the "destroy pending task" message
+            future._log_destroy_pending = False
+    
+        future.add_done_callback(_run_until_complete_cb)
+        try:
+            self.run_forever()
+        except:
+            if new_task and future.done() and not future.cancelled():
+                # The coroutine raised a BaseException. Consume the exception
+                # to not log a warning, the caller doesn't have access to the
+                # local task.
+                future.exception()
+            raise
+        finally:
+            future.remove_done_callback(_run_until_complete_cb)
+        if not future.done():
+            raise RuntimeError('Event loop stopped before Future completed.')
+    
+>       return future.result()
+               ^^^^^^^^^^^^^^^
+E       RuntimeError: coroutine raised StopIteration
+
+C:\Python314\Lib\asyncio\base_events.py:719: RuntimeError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:15:14,660 ERROR   emv_host.runner | [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [C-01] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+_____________________ test_real_process_ctrl_c_exit_clean _____________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_real_process_ctrl_c_exit_0')
+
+    def test_real_process_ctrl_c_exit_clean(tmp_path):
+        """End-to-end: spawn the real `python -m emv_host serve` process, deliver
+        a console-break event (same graceful path as Ctrl+C on Windows) and assert
+        the process exits with code 0 and without any traceback."""
+        if os.name != "nt":
+            pytest.skip("CTRL_BREAK_EVENT delivery is Windows-specific")
+    
+        # retry with fresh ports: between probing and binding, Windows may hand
+        # the ephemeral port to another socket (rare but observed intermittently)
+        for attempt in range(3):
+            result = _run_subprocess_exit_probe(tmp_path)
+            if result is None:
+                return  # passed
+            if attempt == 2:
+>               raise result
+E               AssertionError: server did not start in time
+
+tests\test_shutdown.py:261: AssertionError
+___________ test_f2_assertion_failure_abort_reason_carries_case_id ____________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_f2_assertion_failure_abor0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002333034FA80>
+
+    @pytest.mark.asyncio
+    async def test_f2_assertion_failure_abort_reason_carries_case_id(tmp_path, monkeypatch):
+        """The assertion FAIL path never calls _fail() from _judge, yet must name
+        the case �� and must NOT be relabelled result_timeout."""
+        case = TestCase(
+            case_id=CASE_ID, title=CASE_ID, brand="visa",
+            profile=CardProfile(id=CASE_ID),
+            transaction=TransactionParams(operator_instructions=OperatorInstructions()),
+            # DECLINED answers resp_code "05", so this rule fails -> assertion FAIL
+            expected_results=[MatchRule(path="resp_code", op="eq", expect="00")],
+            timeout_seconds=10)
+        executor, _android, pos = build(tmp_path, {CASE_ID: case},
+                                        result_payload=DECLINED)
+        session = await run_one(executor, case, monkeypatch)
+        run = executor.store.get_run(session.run["run_id"])
+        record = executor.store.get_case_result(run["run_id"], CASE_ID)
+    
+        assert record["status"] == "FAIL"
+>       assert record["failure_reason"] == "assertion_failed", \
+            "a failing assertion must not be relabelled by the wait loop"
+E       AssertionError: a failing assertion must not be relabelled by the wait loop
+E       assert 'test_info_ack_timeout' == 'assertion_failed'
+E         
+E         - assertion_failed
+E         + test_info_ack_timeout
+
+tests\test_v12_fixes.py:244: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:22:32,919 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:32,919 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:32,919 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:32,919 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:32,919 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+_____________________ test_f2_passing_case_is_not_aborted _____________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_f2_passing_case_is_not_ab0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002333056DE80>
+
+    @pytest.mark.asyncio
+    async def test_f2_passing_case_is_not_aborted(tmp_path, monkeypatch):
+        """Control: the same wiring with an approved payload ends FINISHED."""
+        case = TestCase(
+            case_id=CASE_ID, title=CASE_ID, brand="visa",
+            profile=CardProfile(id=CASE_ID),
+            transaction=TransactionParams(operator_instructions=OperatorInstructions()),
+            timeout_seconds=10)
+        executor, _android, _pos = build(tmp_path, {CASE_ID: case},
+                                         result_payload=APPROVED)
+        session = await run_one(executor, case, monkeypatch)
+        run = executor.store.get_run(session.run["run_id"])
+>       assert run["status"] == "FINISHED"
+E       AssertionError: assert 'ABORTED' == 'FINISHED'
+E         
+E         - FINISHED
+E         + ABORTED
+
+tests\test_v12_fixes.py:264: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:22:33,577 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:33,577 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:33,577 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:33,577 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:33,577 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+__________________ test_f2_every_failure_path_names_the_case __________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_f2_every_failure_path_nam0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002333056DDA0>
+
+    @pytest.mark.asyncio
+    async def test_f2_every_failure_path_names_the_case(tmp_path, monkeypatch):
+        """All failure reasons share one shape: case_failed:<case_id>:<reason>."""
+        reasons = {
+            "android_not_connected": dict(android=None),
+            "pos_not_connected": dict(pos=None, case_pos_params=True),
+            "pos_config_rejected": dict(pos_reject={"pos_config": {"ok": False}},
+                                        case_pos_params=True),
+            "pos_kernel_config_apply_failed": dict(
+                kernel=KernelParams(aids=[AidKernelParam(aid="A0000000031010")],
+                                    term=TERM),
+                pos_reject={"pos_kernel_config": {"ok": False}}),
+        }
+        for expected, kw in reasons.items():
+            workdir = tmp_path / expected
+            workdir.mkdir(parents=True, exist_ok=True)
+            case_pos_params = kw.pop("case_pos_params", False)
+            case = make_case(pos_params=case_pos_params)
+            executor, _android, _pos = build(workdir, {CASE_ID: case}, **kw)
+            session = await run_one(executor, case, monkeypatch)
+            run = executor.store.get_run(session.run["run_id"])
+>           assert run["abort_reason"] == f"case_failed:{CASE_ID}:{expected}", \
+                f"{expected}: got {run['abort_reason']}"
+E           AssertionError: pos_not_connected: got case_failed:VISA-CL-001:test_info_ack_timeout
+E           assert 'case_failed:...o_ack_timeout' == 'case_failed:...not_connected'
+E             
+E             - case_failed:VISA-CL-001:pos_not_connected
+E             + case_failed:VISA-CL-001:test_info_ack_timeout
+
+tests\test_v12_fixes.py:290: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:22:33,653 ERROR   emv_host.runner | [VISA-CL-001] android not connected, cannot run
+2026-09-18 10:22:33,653 ERROR   emv_host.runner | [VISA-CL-001] android not connected, cannot run
+2026-09-18 10:22:33,653 ERROR   emv_host.runner | [VISA-CL-001] android not connected, cannot run
+2026-09-18 10:22:33,653 ERROR   emv_host.runner | [VISA-CL-001] android not connected, cannot run
+2026-09-18 10:22:33,653 ERROR   emv_host.runner | [VISA-CL-001] android not connected, cannot run
+2026-09-18 10:22:34,292 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,292 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,292 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,292 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,292 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [VISA-CL-001] android not connected, cannot run
+ERROR    emv_host.runner:executor.py:137 [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+________________ test_f3_all_writers_emit_attempt_and_attempts ________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_f3_all_writers_emit_attem0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002333056E200>
+
+    @pytest.mark.asyncio
+    async def test_f3_all_writers_emit_attempt_and_attempts(tmp_path, monkeypatch):
+        """PASS (via _judge) and ABORTED (via _finalize_case) share one schema."""
+        # a) PASS path -> _judge, driven through the real attempt flow
+        case = make_case()
+        pass_dir = tmp_path / "pass"
+        pass_dir.mkdir(parents=True, exist_ok=True)
+        executor, _android, _pos = build(pass_dir, {CASE_ID: case},
+                                         result_payload=APPROVED)
+        session = await run_one(executor, case, monkeypatch)
+        passed = executor.store.get_case_result(session.run["run_id"], CASE_ID)
+>       assert passed["status"] == "PASS"
+E       AssertionError: assert 'FAIL' == 'PASS'
+E         
+E         - PASS
+E         + FAIL
+
+tests\test_v12_fixes.py:307: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:22:34,887 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,887 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,887 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,887 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:34,887 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+_________________ test_h2_early_failure_still_parks_the_card __________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_h2_early_failure_still_pa0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002333056F4D0>
+
+    @pytest.mark.asyncio
+    async def test_h2_early_failure_still_parks_the_card(tmp_path, monkeypatch):
+        """pos_not_connected after emulating must still send stop_emulation."""
+        case = make_case(pos_params=True)
+        executor, android, _pos = build(tmp_path, {CASE_ID: case}, pos=None)
+        session = await run_one(executor, case, monkeypatch)
+    
+        record = executor.store.get_case_result(session.run["run_id"], CASE_ID)
+>       assert record["failure_reason"] == "pos_not_connected"
+E       AssertionError: assert 'test_info_ack_timeout' == 'pos_not_connected'
+E         
+E         - pos_not_connected
+E         + test_info_ack_timeout
+
+tests\test_v12_fixes.py:377: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:22:35,533 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:35,533 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:35,533 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:35,533 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:35,533 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+________________ test_h2_kernel_rejection_still_parks_the_card ________________
+
+tmp_path = WindowsPath('C:/Users/bruce/AppData/Local/Temp/pytest-of-bruce/pytest-125/test_h2_kernel_rejection_still0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002333056F460>
+
+    @pytest.mark.asyncio
+    async def test_h2_kernel_rejection_still_parks_the_card(tmp_path, monkeypatch):
+        case = make_case()
+        kernel = KernelParams(aids=[AidKernelParam(aid="A0000000031010")], term=TERM)
+        executor, android, _pos = build(
+            tmp_path, {CASE_ID: case}, kernel=kernel,
+            pos_reject={"pos_kernel_config": {"ok": False}})
+        session = await run_one(executor, case, monkeypatch)
+    
+>       assert executor.store.get_case_result(
+            session.run["run_id"], CASE_ID)["failure_reason"] == \
+            "pos_kernel_config_apply_failed"
+E       AssertionError: assert 'test_info_ack_timeout' == 'pos_kernel_c..._apply_failed'
+E         
+E         - pos_kernel_config_apply_failed
+E         + test_info_ack_timeout
+
+tests\test_v12_fixes.py:392: AssertionError
+---------------------------- Captured stderr call -----------------------------
+2026-09-18 10:22:36,178 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:36,178 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:36,178 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:36,178 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+2026-09-18 10:22:36,178 ERROR   emv_host.runner | [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+------------------------------ Captured log call ------------------------------
+ERROR    emv_host.runner:executor.py:137 [VISA-CL-001] test_info ack failed: 'StubProtocol' object has no attribute 'send_to_and_ack_signal'
+============================== warnings summary ===============================
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\_pytest\config\__init__.py:1624
+  C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\_pytest\config\__init__.py:1624: PytestConfigWarning: No files were found in testpaths; consider removing or adjusting your testpaths configuration. Searching recursively from the current directory instead.
+    self.args, self.args_source = self._decide_args(
+
+C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1
+  C:\Users\bruce\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_runner_result.py)
+    class TestCase(BaseModel):
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_runner_timeout.py)
+    class TestCase(BaseModel):
+
+emv_host\cases\models.py:517
+  E:\Work\ZT\card_simulator_host\backend\emv_host\cases\models.py:517: PytestCollectionWarning: cannot collect test class 'TestCase' because it has a __init__ constructor (from: tests/test_v12_fixes.py)
+    class TestCase(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_export_kernel_params.py::test_gen_cases_ignores_manifest_entries_outside_the_brand_dir
+FAILED tests/test_export_kernel_params.py::test_gen_cases_clean_is_bounded_to_the_manifest
+FAILED tests/test_launch.py::test_serve_from_backend_dir_uses_repo_defaults
+FAILED tests/test_runner_result.py::test_unattributed_out_is_quarantined - as...
+FAILED tests/test_runner_timeout.py::test_result_timeout_fails_case_stops_run_and_skips_remainder
+FAILED tests/test_runner_timeout.py::test_pos_offline_fails_case_instead_of_warning
+FAILED tests/test_runner_timeout.py::test_pos_config_rejection_fails_case - A...
+FAILED tests/test_runner_timeout.py::test_case_started_rejection_fails_case
+FAILED tests/test_runner_timeout.py::test_pos_case_started_ack_timeout_fails_case
+FAILED tests/test_runner_timeout.py::test_kernel_config_is_pushed_before_pos_config
+FAILED tests/test_runner_timeout.py::test_kernel_config_rejection_fails_case
+FAILED tests/test_runner_timeout.py::test_case_level_kernel_params_override_brand
+FAILED tests/test_shutdown.py::test_real_process_ctrl_c_exit_clean - Assertio...
+FAILED tests/test_v12_fixes.py::test_f2_assertion_failure_abort_reason_carries_case_id
+FAILED tests/test_v12_fixes.py::test_f2_passing_case_is_not_aborted - Asserti...
+FAILED tests/test_v12_fixes.py::test_f2_every_failure_path_names_the_case - A...
+FAILED tests/test_v12_fixes.py::test_f3_all_writers_emit_attempt_and_attempts
+FAILED tests/test_v12_fixes.py::test_h2_early_failure_still_parks_the_card - ...
+FAILED tests/test_v12_fixes.py::test_h2_kernel_rejection_still_parks_the_card
+19 failed, 164 passed, 5 warnings in 597.36s (0:09:57)

@@ -1,16 +1,18 @@
 # EMV Test Host (card_simulator_host)
 
 > 变更索引与审核入口：`docs/CHANGELOG.md`（协议层详见 `docs/protocol.md`）。
-> **当前协议版本：v1.2（硬切换）**——两端必须同窗口升级；POS 侧口径见
-> [docs/protocol-change-notice-v1.2.md](docs/protocol-change-notice-v1.2.md)。
+> **当前协议版本：v2（硬切换）**——v1.2 的 POS 报文已**全部删除**，不提供兼容开关、不并存，
+> 两端必须同窗口升级；对端口径见 [docs/change-notice-v2-pos.md](docs/change-notice-v2-pos.md)
+> 与 [docs/change-notice-v2-card.md](docs/change-notice-v2-card.md)。
 >
-> v1.2 要点速览（详见 `docs/protocol.md` §12）：
-> * 握手必须上报 `protocol_version:"1.2"`，缺失或 `<1.2` 一律拒绝；
-> * 删除 `device_config`（两端用缺省 心跳 10s / 判死 30s / ack 15s）；
-> * 新增 `pos_kernel_config`（AID/CAPK/TERM/DRL/ExceptionFile 下发 POS）与 `session_abort`（异常收尾，双方必 ack）；
-> * **任一案例 FAIL → 整轮立即停止**，剩余案例记为 `SKIPPED`；
-> * POS 离线/断线、任一端 ack 超时 → 该案例 FAIL（v1.1 时代多为 warning）；
-> * `transaction_result` 的 ack 表示「判定已落盘」（`persisted`/`duplicate`/`quarantined`）。
+> v2 要点速览（详见 `docs/protocol.md` §12）：
+> * 信封固定 `v=2`；握手**必须**上报 `protocol_version:"2.0"`，缺失或 `<2.0` → `protocol_mismatch` 拒绝（§2、§12.1）；
+> * 删除 `device_config`（两端用缺省 心跳 10s / 告警 30s / 断开 60s / ack 15s）；
+> * host↔POS 改为 Mastercard CTEL2 报文集：`test_info` / `config` / `act`（host→POS），`test_info_ack` / `config_ack` / `act_ack` / `msg` / `out`（POS→host）；
+>   旧帧 `pos_config` / `pos_kernel_config` / `case_started` / `transaction_result` / `session_abort` **已删除**（§6.7）；
+> * **任一案例 FAIL/ERROR → 整轮立即停止**，剩余案例记为 `SKIPPED`；
+> * POS 离线/断线、任一端 ack 超时 → 该案例 FAIL（`pos_disconnected` / `*_ack_timeout` 等，§12.3）；
+> * `out` 的 ack 表示「判定已落盘」（`persisted` / `duplicate` / `quarantined` / `out_invalid`；§7.2）。
 
 EMV 自动测试上位机：作为 TCP 服务端连接两个客户端——**安卓 NFC 卡片模拟应用**（安卓手机模拟真实银行卡）与**POS 交易应用**（真实 POS 机），编排测试、接收交易结果、自动判定用例、在浏览器中展示与控制。
 
@@ -21,10 +23,10 @@ EMV 自动测试上位机：作为 TCP 服务端连接两个客户端——**安
 └──────────────┘  status/ack    │   FastAPI)          │                    └─────────────┘
 ┌──────────────┐   TCP :9100    │  cases/  runs/      │
 │ POS 交易应用  │◄──────────────►│  tokens.json        │
-└──────────────┘  result 回传    └─────────────────────┘
+└──────────────┘  out 回传       └─────────────────────┘
 ```
 
-* **编排模型**：后端只指挥安卓（下发卡片档案、启动/停止 NFC 模拟）；POS 由操作员手动操作，后端在每个用例开始前把 **内核参数（`config_push{pos_kernel_config}`）与 POS 交易参数（`config_push{pos_config}`）** 下发 POS（均需 ack），POS 交易应用在交易结束后自动回传 `transaction_result`，后端按 `attempt_id` 归属并判定。
+* **编排模型**：后端只指挥安卓（下发卡片档案 `config_push{card_config}`、启动/停止 NFC 模拟；卡端链路沿用 `card_config` / `start_emulation` / `stop_emulation` / `status` / `log`）；POS 由操作员手动操作，后端在每个用例开始前按序下发 **`test_info` → `config`（仅当本案内核参数非空）→ `act`** 三个 CTEL2 信号（各自等 `test_info_ack` / `config_ack` / `act_ack`），POS 应答后完成交易并回传 **`out`（OPS + DataRecord）**；`out` 不带 case/attempt 标识，归属「当前在途 attempt」，host **先判定并落盘再 ack**（§4、§7.2）。
 * 协议细节见 [docs/protocol.md](docs/protocol.md)；**POS 端开发手册**（安卓 7.1.2）见 [docs/POS机应用开发手册.md](docs/POS机应用开发手册.md)。
 
 ## 快速开始
@@ -79,7 +81,7 @@ python -m emv_host stop | abort | skip
 明亮 Apple 风格界面（系统字体、大圆角、毛玻璃顶栏，字号随系统缩放）：
 
 * **01 · 卡组入口**：按目录展示卡组（visa / mastercard / unionpay / jcb / amex / discover / pure，全部为非接 contactless 用例），显示用例数，点击进入；进入后为**用例选择**页——整轮测试 / 勾选批量 / 单个用例 / 断点续跑；可临时覆盖 suite 策略（失败即停/继续、重试次数）；点击用例查看 test plan、操作员指引与预期结果；
-* **02 · 添加用例**：页面顶部区分两种形态——**可执行案例**（独立案例 / 选「所属总案例」即为子案例，写进该组目录并自动建议 `组号-NN` 编号）与**总案例（分组）**（只配置测试目的/条件/test plan/通过标准，**不配置** profile/交易参数/预期结果；新建即 `group.json`）。可执行案例表单：卡片档案从该卡组默认模板（`brand.json.card_template`）克隆并与案例**内嵌绑定**（profile.id 自动 = 案例号），可编辑 PAN/AID/PPSE/acBehavior 等卡片侧字段（**acBehavior 含「无」选项**——不设置首 GAC 行为、按终端 P1 应答，用于不支持 GAC 决策的卡组），完整 JSON 兜底；「交易参数」页签按卡组模板自动带出 **POS 交易参数（tag 列表，tag 可自行设定修改）**，只下发 POS；前端逐字段校验，服务端二次校验（案例号/总案例号唯一、内嵌档案存在且校验通过、仅非接、路径安全），错误逐条提示并自动定位到出错选项卡；添加后热重载立即生效，也可在「JSON 导入」选项卡粘贴整份用例/总案例 JSON（先经 `/api/cases/validate` 或 `/api/groups/validate` 校验再落盘）；
+* **02 · 添加用例**：页面顶部区分两种形态——**可执行案例**（独立案例 / 选「所属总案例」即为子案例，写进该组目录并自动建议 `组号-NN` 编号）与**总案例（分组）**（只配置测试目的/条件/test plan/通过标准，**不配置** profile/交易参数/预期结果；新建即 `group.json`）。可执行案例表单：卡片档案从该卡组默认模板（`brand.json.card_template`）克隆并与案例**内嵌绑定**（profile.id 自动 = 案例号），可编辑 PAN/AID/PPSE/acBehavior 等卡片侧字段（**acBehavior 含「无」选项**——不设置首 GAC 行为、按终端 P1 应答，用于不支持 GAC 决策的卡组），完整 JSON 兜底；「交易参数」页签按卡组模板自动带出 **POS 交易参数（tag 列表，tag 可自行设定修改）**，写入 `transaction.pos_params`——v2 下该字段为 legacy、**不再下发 POS**（wire 上的交易数据是 `transaction.act`，见下）；前端逐字段校验，服务端二次校验（案例号/总案例号唯一、内嵌档案存在且校验通过、仅非接、路径安全），错误逐条提示并自动定位到出错选项卡；添加后热重载立即生效，也可在「JSON 导入」选项卡粘贴整份用例/总案例 JSON（先经 `/api/cases/validate` 或 `/api/groups/validate` 校验再落盘）；
 * **03 · 运行视图**：两端设备状态灯、当前用例与 attempt、操作员指引（金额/交易类型/PIN）、用例队列实时状态（PASS/FAIL/WARN/ABORTED/SKIPPED/INCONCLUSIVE）、终端风格滚动日志；三级控制按钮——立即中止 / 本用例后停 / 跳过当前用例；浏览器刷新不影响后端运行（WS 重连按事件序号重放）；
 * **04 · 历史记录**：每次运行落盘 `runs/<日期>/<run_id>/`（run.json、逐用例结果、checkpoint、quarantine 迟到结果、断言明细），页面可回溯每一条断言的 实际 vs 预期。
 
@@ -89,7 +91,7 @@ python -m emv_host stop | abort | skip
 cases/
   visa/
     brand.json                  # 卡组元信息 + suite 策略 + 环境假设
-                                 # + card_template(默认卡片模板) + pos_params(默认POS参数)
+                                 # + card_template(默认卡片模板) + pos_params(默认POS参数模板，legacy 不下发)
     .gen_cases_manifest.json     # demo 生成器清单（见下）
     contactless/cases/*.json     # 独立用例（文件名 = case_id，直接可执行，自包含 profile）
     contactless/cases/<group_id>/    # 总案例分组：group.json（说明/test plan，无 profile）
@@ -110,9 +112,11 @@ cases/
 > **v2 绑定规则**：profile 与可执行案例一对一——每个案例 JSON **内嵌完整 CardProfile**
 > （可再内嵌可选 keys）；总案例（group.json）不配置 profile。**不再有卡组级共享
 > profiles/ 档案库**。安卓侧只接收卡片数据（AIP=82、CVM=8E、PPSE、PAN…都在 profile 内）；
-> 交易参数（`transaction.pos_params`，带 tag）只下发 POS（`config_push{pos_config}`）。
+> 交易数据（ACT）与内核参数（CONFIG）**只下发 POS**，安卓侧永远收不到；wire 上的 POS 交易数据是
+> `transaction.act`（`{id, value}`，value 为大写 hex，随 `act` 帧下发）；legacy `transaction.pos_params`
+> 保留在模型里但**不再下发**（详见 docs/protocol.md §8.1）。
 
-`brand.json`：
+`brand.json`（`pos_params` 为 legacy 卡组默认模板，v2 **不下发**）：
 
 ```json
 {
@@ -143,7 +147,7 @@ cases/
       "entry_mode": "contactless", "pin_hint": "none",
       "notes": "将手机贴到 POS 读卡器"},
     "expected_values": {"amount": "100.00", "currency": "156"},
-    "pos_params": [ {"tag": "9F02", "name": "amount", "value": "100.00"} ]
+    "act": [ {"id": "9F02", "value": "000000001500"} ]
   },
   "test_plan": [{"step": 1, "action": "…", "expect": "…"}],
   "timeout_seconds": 180,
@@ -151,13 +155,14 @@ cases/
   "expected_results": [
     {"path": "resp_code", "op": "eq", "expect": "00", "severity": "pass"},
     {"path": "outcome", "op": "eq", "expect": "approved"},
-    {"path": "tags.gen_ac.9F26", "op": "present"}
+    {"path": "out.datarecord.9F26", "op": "present"}
   ]
 }
 ```
 
 * `operator_instructions` 只给操作员看；`expected_values` 只用于机器断言——POS 手输金额与案例不一致不会假失败。
-* `pos_params`（POS 交易参数）：按 tag 下发 POS（每用例开始前 `config_push{pos_config}`，POS ack 后进入 case_started）；tag 为大写 hex（1–3 字节 EMV tag），可自行设定。
+* `act`（POS 交易数据，v2）：`{id, value}` 列表，`id` 为 EMV tag 或私有 id，`value` 为大写 hex（`null`=不发该 tag，`""`=长度 00），随 `act` 帧下发 POS；tag 与编码见 docs/protocol.md §8.1。
+* legacy `transaction.pos_params` / `brand.json.pos_params`（v1.2 遗留）：仍保留在模型里、加载时校验 tag 格式，但**不再下发 POS**；现有案例数据尚未迁移到 `act`（wire 上的 `ACT.signalData` 当前可能为空数组），见 docs/protocol.md §8.1 提示。
 * `profile.noResponseCommands`（指令不响应，N12）：卡片对该指令**不发任何响应 APDU**（静默）；字符串=每次都静默，`{"command":"GPO","times":N}`=仅前 N 次静默；详见 docs/protocol.md §8.4。
 * 断言操作符：`eq / neq / contains / prefix / regex / any_of / present / absent / range`；`severity: pass|warn`。
 * 加载时校验：profile 必须内嵌（缺失即 error）；PAN Luhn / 有效期格式 / Track2 hex / AFL 指向记录存在 / AID 偶数 hex / pos_params tag 格式，问题在启动日志与「卡组入口」页显示；profile.id 与 case_id 不一致仅 warning。
@@ -167,21 +172,22 @@ cases/
 
 * 同一时刻只允许一个运行会话（物理设备唯一）。
 * 三个动词：`stop`=当前用例完成后停；`abort`=立即中止当前用例（ABORTED）；`resume`=从最近一次同卡组/方式的运行续跑未 PASS/WARN 的用例。
-* **失败策略（v1.2 起）**：**任一案例 FAIL/ERROR → 整轮立即停止**，剩余队列逐条落盘为 `SKIPPED`
+* **失败策略（v2）**：**任一案例 FAIL/ERROR → 整轮立即停止**，剩余队列逐条落盘为 `SKIPPED`
   （`note=run_stopped_after_failure:<case_id>`）。`suite_policy.on_failure=continue` 与请求里的
   `on_failure` **已不再生效**（字段保留仅为兼容）。
 * 重试次数取 max(brand 策略, case 的 retry_on_fail)，每次重试新 `attempt_id`；但 FAIL 不再重试
   （FAIL 即停轮）。
 * run 级 `abort_reason` 统一为 `case_failed:<case_id>:<failure_reason>`；案例级失败原因写在
-  `results/<case>.json` 的 `failure_reason`（同时进 run 索引）。
+  `results/<case>.json` 的 `failure_reason`（同时进 run 索引）；**全表见 docs/protocol.md §12.3**。
 * 写前检查点：每用例启动前落盘 `checkpoint.json`；服务重启时 RUNNING 运行标 INTERRUPTED、当前用例标 INCONCLUSIVE，可断点续跑。
-* **设备断线（v1.2 起）**：**任一端**断开 → 当前用例 FAIL（`android_disconnected` /
-  `pos_disconnected`）并停整轮（v1.1 时代 POS 断开只是告警）。
-* **ack 纪律（v1.2 起）**：所有 host→端命令必 ack；超时或明确拒绝 → 该案例 FAIL 并给出具名原因
-  （如 `pos_config_ack_timeout`、`card_ready_timeout`）。预算可用 `--card-ack-timeout` /
-  `--pos-ack-timeout` 调整（默认 15s）。
-* **异常收尾通知（v1.2 起）**：run 以 ABORTED/STOPPED/ERROR 结束时向卡端与 POS 各发一次
-  `session_abort`（双方必 ack，3s best-effort）；正常跑完不发。
+* **设备断线（v2）**：**任一端**断开 → 当前用例 FAIL（`android_disconnected` /
+  `pos_disconnected`）并停整轮（v1.2 时代 POS 断开只是告警，v2 已废除）。
+* **ack 纪律（v2）**：所有 host→端命令必 ack；CTEL2 信号要求 `ResponseCode=YES`，超时或
+  `NO`/`NOTSUPPORTED` → 该案例 FAIL 并给出具名原因（如 `test_info_ack_timeout` /
+  `config_ack_timeout` / `act_ack_timeout` / `act_not_supported`、`card_ready_timeout`）。
+  预算可用 `--card-ack-timeout` / `--pos-ack-timeout` 调整（默认 15s）。
+* **异常收尾（v2）**：`session_abort` 已删除（CTEL2 无对应信号）——无论正常跑完还是以
+  ABORTED/STOPPED/ERROR 结束，都**不再**向卡端或 POS 发通知帧；卡端仍走 `stop_emulation` 收尾（§10）。
 * 迟到/无主结果 → quarantine（不判定），历史详情可见；**同一 attempt 内**的重传按去重处理
   （ack `duplicate`，不写 quarantine）；跨案例晚到才进 quarantine。
 * 卡端一旦上报 `emulating`，其后任何失败路径都会补发一次 `stop_emulation`（避免 HCE 会话跨案例残留）。
@@ -248,7 +254,7 @@ python tools/mock_clients/mock_pos.py     # 协议级 mock：POS（--outcome app
                                           #   | declined_offline | approved_online，--delay/--interactive）
 ```
 
-> mock 的 `transaction_result` 会**等待 host 的落盘 ack** 并打印
+> mock 的 `out` 会**等待 host 的落盘 ack** 并打印
 > `ack ... detail=persisted|duplicate`；这一行为依赖 mock 的收发分离（reader task + 队列），
 > 否则 on_message 内等待 ack 会自锁（v1.2 修复项 F1）。
 

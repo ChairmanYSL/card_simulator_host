@@ -1,0 +1,5 @@
+--- variant=pipe cwd=E:\Work\ZT\card_simulator_host
+    ok=False died=None elapsed=145.0s bytes_before_'Uvicorn running'=0 (never reached)
+    last_captured_line: (none)
+    last_probe_err=URLError: <urlopen error timed out>
+

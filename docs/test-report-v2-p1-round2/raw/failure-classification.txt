@@ -1,0 +1,58 @@
+total failure blocks: 14
+
+* test_result_timeout_fails_case_stops_run_and_skips_remainder
+    at : tests\test_runner_timeout.py:183
+    why: + test_info_error
+
+* test_pos_offline_fails_case_instead_of_warning
+    at : tests\test_runner_timeout.py:247
+    why: + test_info_error
+
+* test_pos_config_rejection_fails_case
+    at : tests\test_runner_timeout.py:261
+    why: + test_info_error
+
+* test_case_started_rejection_fails_case
+    at : tests\test_runner_timeout.py:273
+    why: + test_info_error
+
+* test_pos_case_started_ack_timeout_fails_case
+    at : tests\test_runner_timeout.py:290
+    why: + test_info_error
+
+* test_kernel_config_is_pushed_before_pos_config
+    at : tests\test_runner_timeout.py:361
+    why: IndexError: list index out of range
+
+* test_kernel_config_rejection_fails_case
+    at : tests\test_runner_timeout.py:385
+    why: + test_info_error
+
+* test_case_level_kernel_params_override_brand
+    at : tests\test_runner_timeout.py:412
+    why: RuntimeError: coroutine raised StopIteration
+
+* test_f2_assertion_failure_abort_reason_carries_case_id
+    at : tests\test_v12_fixes.py:244
+    why: + test_info_error
+
+* test_f2_passing_case_is_not_aborted
+    at : tests\test_v12_fixes.py:264
+    why: + ABORTED
+
+* test_f2_every_failure_path_names_the_case
+    at : tests\test_v12_fixes.py:290
+    why: + case_failed:VISA-CL-001:test_info_error
+
+* test_f3_all_writers_emit_attempt_and_attempts
+    at : tests\test_v12_fixes.py:307
+    why: + FAIL
+
+* test_h2_early_failure_still_parks_the_card
+    at : tests\test_v12_fixes.py:377
+    why: + test_info_error
+
+* test_h2_kernel_rejection_still_parks_the_card
+    at : tests\test_v12_fixes.py:392
+    why: + test_info_error
+

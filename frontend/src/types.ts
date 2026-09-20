@@ -205,11 +205,69 @@ export type RunDetail = {
     failure_reason?: string | null;
     note?: string;
     verdict?: { status: string; rules: { path: string; op: string; expect: unknown; severity: string; ok: boolean; actual: unknown; message: string }[] };
-    raw_result?: Record<string, unknown>;
+    raw_result?: CaseRawResult;
   }>;
   quarantine: { at: number; reason: string; frame: Record<string, unknown> }[];
+  //: protocol v2: per-case APDU diagnostic trace, capped server-side (last 500)
+  trace?: Record<string, TraceEntry[]>;
 };
 
 export type LogLine = { level: string; message: string; ts: number };
 
 export type WsEvent = { seq: number; event: string; data: unknown };
+
+// ---------------------------------------------------------------------------
+// protocol v2: CTEL2 OUT (OPS + DataRecord) and the APDU diagnostic trace
+// ---------------------------------------------------------------------------
+
+//: OPS = Outcome Parameter Set (DF8129, 8 bytes), decoded by the host
+//: (backend/emv_host/judge/outcome.py).  An all-zero OPS decodes to
+//: status "RFU(0000)" / outcome "rfu(0000)" -> case FAIL out_no_outcome.
+export type OutOps = {
+  raw: string;
+  status: string;       // APPROVED / DECLINED / ONLINE REQUEST / END APPLICATION / RFU(0000) / ...
+  status_bits: string;  // the 4 status bits as text, e.g. "0001" (APPROVED) / "0000"
+  outcome: string;      // approved / declined / rfu(0000) / ...
+  start?: string;
+  cvm?: string;
+  data_record_present?: number;
+  discretionary_data_present?: number;
+};
+
+//: the judgeable result persisted inside results/<case_id>.json (raw_result)
+export type CaseRawResult = {
+  outcome?: string;
+  online?: string;
+  resp_code?: string;   // "" when the kernel produced no outcome (v2 D2)
+  out?: {
+    ops?: OutOps;
+    datarecord?: Record<string, string>;
+    discdata?: Record<string, string>;
+    uird?: string | null;
+    kernelid?: string | null;
+  };
+};
+
+//: one runs/<run_id>/trace/<case_id>.jsonl entry (APDU diagnostic channel,
+//: log{level:"trace"}); never judged (docs/protocol.md section 6.4)
+export type TraceMessage =
+  | string
+  | {
+      event?: string;      // "apdu" | "field"
+      direction?: string;  // "COMMAND" | "RESPONSE"
+      seq?: number;
+      cla?: number; ins?: number; p1?: number; p2?: number;
+      data_hex?: string;
+      sw?: string;
+      elapsed_ms?: number;
+      no_response?: boolean;
+      tag?: string;
+      value?: string;
+      [k: string]: unknown;
+    };
+
+export type TraceEntry = {
+  at: number;
+  attempt_id?: string;
+  message: TraceMessage;
+};

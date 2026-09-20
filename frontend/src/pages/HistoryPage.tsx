@@ -1,11 +1,38 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { HistorySummary, RunDetail } from "../types";
+import type { HistorySummary, RunDetail, TraceMessage } from "../types";
 import { fmtDuration, fmtTime, Tag } from "../components/Tag";
 
 function Count({ n, label }: { n: number; label: string }) {
   if (!n) return null;
   return <span className="muted"> {label}={n}</span>;
+}
+
+//: protocol v2: render one APDU-trace entry (docs/protocol.md section 6.4).
+//: The trace is diagnostic only — it never takes part in the verdict.
+function fmtTrace(m: TraceMessage): string {
+  if (typeof m === "string") return m;
+  if (m.event === "apdu") {
+    const dir = String(m.direction ?? "");
+    const head = `#${m.seq ?? "-"} ${dir}`;
+    if (dir === "COMMAND") {
+      const hx = [m.cla, m.ins, m.p1, m.p2]
+        .map((n) => Number(n ?? 0).toString(16).padStart(2, "0").toUpperCase())
+        .join(" ");
+      return `${head} ${hx} ${m.data_hex ?? ""}${m.no_response ? "  (no response)" : ""}`;
+    }
+    return `${head} ${m.data_hex ?? ""} SW=${m.sw ?? "----"} (${m.elapsed_ms ?? 0}ms)`;
+  }
+  if (m.event === "field") return `field ${m.tag ?? ""}=${m.value ?? ""}`;
+  return JSON.stringify(m);
+}
+
+//: v2 OPS summary for one persisted OUT (D2: an all-zero OPS means the kernel
+//: produced no outcome -> the host records FAIL out_no_outcome, resp_code "").
+function opsLabel(raw?: { out?: { ops?: { status?: string; status_bits?: string } } }): string {
+  const ops = raw?.out?.ops;
+  if (!ops?.status) return "—";
+  return `${ops.status} [${ops.status_bits ?? "----"}]`;
 }
 
 export function HistoryPage() {
@@ -106,6 +133,8 @@ export function HistoryPage() {
                 <th>status</th>
                 <th>attempts</th>
                 <th>failure reason</th>
+                <th>out.ops (v2)</th>
+                <th>resp_code</th>
                 <th>assertion detail</th>
               </tr>
             </thead>
@@ -120,6 +149,13 @@ export function HistoryPage() {
                     fontSize: 12,
                   }}>
                     {r.failure_reason || "—"}
+                  </td>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {opsLabel(r.raw_result)}
+                  </td>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {r.raw_result?.resp_code === "" ? <span className="muted">""</span>
+                      : (r.raw_result?.resp_code ?? "—")}
                   </td>
                   <td>
                     {r.verdict?.rules.map((rule, i) => (
@@ -137,10 +173,37 @@ export function HistoryPage() {
             </tbody>
           </table>
           <div className="muted" style={{ fontSize: 12 }}>
-            v1.2：任一案例 FAIL 后整轮立即停止，其余案例记为 <span className="mono">SKIPPED</span>
+            v2：任一案例 FAIL 后整轮立即停止，其余案例记为 <span className="mono">SKIPPED</span>
             （note=<span className="mono">run_stopped_after_failure:&lt;case_id&gt;</span>），不是漏跑；
-            <span className="mono"> failure_reason</span> 说明 FAIL 的具体原因。
+            <span className="mono"> failure_reason</span> 说明 FAIL 的具体原因（
+            <span className="mono">out_no_outcome</span> = 内核未跑出结果）。
           </div>
+          {Object.values(detail.results).some(
+            (r) => (detail.trace?.[r.case_id]?.length ?? 0) > 0,
+          ) && (
+            <div className="gap">
+              <div className="section-title">apdu trace · APDU 诊断（v2，仅诊断不参与判定）</div>
+              {Object.values(detail.results).map((r) => {
+                const lines = detail.trace?.[r.case_id] ?? [];
+                if (!lines.length) return null;
+                return (
+                  <details key={r.case_id} className="gap">
+                    <summary className="mono" style={{ cursor: "pointer" }}>
+                      {r.case_id} · {lines.length} 条
+                    </summary>
+                    <div style={{ marginTop: 6 }}>
+                      {lines.map((t, i) => (
+                        <div key={i} className="rule-line mono" style={{ fontSize: 12 }}>
+                          <span className="muted">{fmtTime(t.at)} </span>
+                          {fmtTrace(t.message)}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          )}
           {detail.quarantine.length > 0 && (
             <div className="gap">
               <div className="section-title">quarantine · 迟到/无主结果</div>

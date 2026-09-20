@@ -599,13 +599,13 @@ export function AddCasePage({
   }, [draft.brand]);
 
   const changeBrand = (brand: string) => {
-    setDraft((prev) => ({ ...emptyDraft(sch), title: prev.title, summary: prev.summary,
+    setDraft((prev) => ({ ...emptyDraft(brand), title: prev.title, summary: prev.summary,
       timeout_seconds: prev.timeout_seconds, retry_on_fail: prev.retry_on_fail }));
-    setGdraft((prev) => ({ ...emptyGroupDraft(sch), title: prev.title, summary: prev.summary }));
+    setGdraft((prev) => ({ ...emptyGroupDraft(brand), title: prev.title, summary: prev.summary }));
     setErrors({});
     setGerrors({});
     setServerError(null);
-    applyTemplate(sch);
+    applyTemplate(brand);
   };
 
   const activePayload = () =>
@@ -1168,7 +1168,7 @@ export function AddCasePage({
             <p className="hint">
               本版本用 JSON 文本域编辑（不做 AID/CAPK 表格 UI）。服务端会做深度校验：
               <span className="mono">9F06</span> 5–8 字节、CAPK 元素顺序、
-              <span className="mono"> DF02</span> 模数长度 <= 256 字节、
+              <span className="mono"> DF02</span> 模数长度 &lt;= 256 字节、
               <span className="mono"> DF03 = SHA1(9F06‖9F22‖DF02‖DF04)</span>、
               <span className="mono"> DF05</span> 编码（ascii8/bcd4/bcd3/raw）与去重。
             </p>

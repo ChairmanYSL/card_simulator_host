@@ -135,6 +135,22 @@ class RunStore:
         }
         if record.get("failure_reason"):
             summary["failure_reason"] = record["failure_reason"]
+        # v2 (design section 11 Q8, minimal scope): the run-level index is what
+        # the LIVE session snapshot streams, so the OPS outcome has to travel in
+        # it -- otherwise the run view cannot show it until the run is over.
+        # Only present keys are copied (a v1.2-shaped record has no raw_result at
+        # all), so partial records keep exactly their current summary.
+        raw_result = record.get("raw_result")
+        if isinstance(raw_result, dict):
+            out = raw_result.get("out")
+            ops = out.get("ops") if isinstance(out, dict) else None
+            if isinstance(ops, dict):
+                if ops.get("status"):
+                    summary["ops_status"] = ops["status"]
+                if ops.get("status_bits"):
+                    summary["ops_status_bits"] = ops["status_bits"]
+            if raw_result.get("resp_code"):
+                summary["resp_code"] = raw_result["resp_code"]
         run.setdefault("results", {})[case_id] = summary
         self._write_run(run)
 

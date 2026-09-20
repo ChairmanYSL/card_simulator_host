@@ -109,6 +109,7 @@ export function RunPage({
             <tr>
               <th>case id</th>
               <th>status</th>
+              <th>ops / resp (v2)</th>
               <th>attempts</th>
               <th>failure reason</th>
               <th>finished</th>
@@ -124,6 +125,16 @@ export function RunPage({
                     {caseId} {isCurrent && <span className="muted">◂ RUNNING</span>}
                   </td>
                   <td>{r ? <Tag status={r.status} /> : <Tag status={isCurrent ? "RUNNING" : "PENDING"} />}</td>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {r?.ops_status ? (
+                      <>
+                        {r.ops_status}
+                        {r.resp_code && <span className="muted"> · {r.resp_code}</span>}
+                      </>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
                   <td className="muted">{r?.attempts ?? 0}</td>
                   <td className="mono" style={{
                     color: r?.failure_reason ? "var(--red)" : undefined,
@@ -140,6 +151,9 @@ export function RunPage({
         <div className="muted" style={{ fontSize: 12 }}>
           v1.2：首个 FAIL 即停止整轮，其后案例显示 <span className="mono">SKIPPED</span>；
           <span className="mono"> failure_reason</span> 为本次失败的直接原因。
+          <br />
+          v2：POS 回传 OUT 后，<span className="mono">ops / resp</span> 列显示 OPS status
+          与 <span className="mono">resp_code</span>（运行期间即时更新，无需等整轮结束）。
         </div>
       </div>
 

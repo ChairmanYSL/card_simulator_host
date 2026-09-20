@@ -1002,10 +1002,19 @@ class RunExecutor:
         elif verdict.status == "FAIL":
             record["failure_reason"] = "assertion_failed"
         self.store.write_case_result(session.run, case.case_id, record)
-        session.run.setdefault("results", {})[case.case_id] = {
-            "status": verdict.status, "attempts": session.current_attempt + 1,
-            "verdict": verdict.status, "finished_at": record["finished_at"],
-        }
+        # v2 Q8: MERGE into the summary write_case_result just wrote instead of
+        # replacing it -- that summary also carries the OUT outcome
+        # (ops_status / resp_code) which the live session snapshot streams, plus
+        # the failure_reason the run view shows while the run is still going.
+        # ``verdict`` stays the plain status string here (the full rule list is
+        # in results/<case_id>.json).
+        session.run.setdefault("results", {}).setdefault(
+            case.case_id, {}).update({
+                "status": verdict.status,
+                "attempts": session.current_attempt + 1,
+                "verdict": verdict.status,
+                "finished_at": record["finished_at"],
+            })
         self.store.update_run(session.run)
         if verdict.status == "FAIL":
             session.failure_reason = session.failure_reason or (

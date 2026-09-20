@@ -22,6 +22,11 @@ export type CaseRunResult = {
   // v1.2: why a case failed (result_timeout / pos_not_connected /
   // assertion_failed / ...); present on FAIL and ERROR records
   failure_reason?: string | null;
+  // protocol v2 (design section 11 Q8): the live OUT outcome, streamed in the
+  // run-level summary only when the case record carried a raw_result
+  ops_status?: string;       // APPROVED / DECLINED / ONLINE REQUEST / RFU(0000)
+  ops_status_bits?: string;  // the 4 status bits as text, e.g. "0001"
+  resp_code?: string;        // DataRecord 8A (or the derived code), e.g. "3030"
 };
 
 export type SessionInfo = {

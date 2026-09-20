@@ -1,10 +1,16 @@
-"""v1.2 D4/D5/Q9: the run loop's failure semantics.
+"""D4/D5/Q9: the run loop's failure semantics, under protocol v2 (CTEL2).
 
 Every host->device command needs an ack.  A timeout, a rejection, or a
 disconnected peer FAILs the current case with a named ``failure_reason``; a FAIL
 stops the whole run and every case still queued is persisted as SKIPPED with
-``note=run_stopped_after_failure:<case>``; both sides then receive
-``session_abort``.
+``note=run_stopped_after_failure:<case>``.
+
+v2 difference (design section 10): ``session_abort`` was REMOVED, so an aborted
+run is no longer announced on the wire — the run-level ``abort_reason`` and the
+per-case ``failure_reason`` are the whole record.  The POS command path is the
+CTEL2 signal set (``test_info`` -> ``config`` -> ``act``, each answered by a
+``*_ack`` carrying ``signalData[ResponseCode]``); the result wait is now
+``out_timeout`` instead of ``result_timeout``.
 
 The stubs here are deliberately tiny: they replace the devices, not the logic
 under test (``_run_loop_body``, ``_attempt``, ``_fail``, ``_mark_remaining_skipped``).
@@ -27,13 +33,35 @@ from emv_host.cases.models import (
     TlvField,
     TransactionParams,
 )
+from emv_host.protocol.connection import ConnectionClosed
+from emv_host.protocol.messages import (
+    CONFIG_ID_AID,
+    CONFIG_ID_TERM,
+    MSG_ACT,
+    MSG_CONFIG,
+    MSG_TEST_INFO,
+)
 from emv_host.runner.executor import RunExecutor
 from emv_host.runner.session import RunSession
 from emv_host.store.run_store import RunStore
 
+#: concatenated TERM TLV used by the kernel-params tests
+TERM = "9F6604360000809F1A0201569F7A0101"
+
+#: v1.2 POS frames removed by protocol v2 (design section 10)
+LEGACY_POS_FRAMES = frozenset({
+    "session_abort", "case_started", "transaction_result",
+    "pos_config", "pos_kernel_config", "device_config",
+})
+
 
 async def _sink(event, data):  # noqa: ARG001
     pass
+
+
+def signal_ack(code: str = "YES") -> dict:
+    """A CTEL2 ``*_ack`` as the POS sends it (design section 2.2)."""
+    return {"signalData": [{"id": "ResponseCode", "value": code}]}
 
 
 def make_case(case_id: str, *, timeout: int = 10,
@@ -66,7 +94,12 @@ class StubLibrary:
 
 
 class AckingConn:
-    """A device that acks everything (with an optional per-type override)."""
+    """A device that acks everything (with an optional per-type override).
+
+    ``reject`` is keyed by the frame's ``config_type`` (card link) or ``type``
+    (CTEL2 signals); the override value is a full ack frame, so a v1.2-style
+    ``{"ok": False}`` and a v2 ``signal_ack("NO")`` both work.
+    """
 
     def __init__(self, label: str, *, reject: dict[str, dict] | None = None,
                  seen: list[str] | None = None):
@@ -84,6 +117,13 @@ class AckingConn:
         self.sent.append(frame)
         return self.reject.get(key, {"ok": True, "detail": ""})
 
+    async def send_and_wait_signal(self, frame, expect_type, timeout=15.0,  # noqa: ARG002
+                                   event=None):
+        key = frame.get("type")
+        self.seen.append(key)
+        self.sent.append(frame)
+        return self.reject.get(key, signal_ack("YES"))
+
 
 class SilentConn:
     """A device that never acks (ack timeout)."""
@@ -97,6 +137,12 @@ class SilentConn:
 
     async def send_and_wait_ack(self, frame, timeout=15.0, event=None):  # noqa: ARG002
         raise self.exc
+
+    async def send_and_wait_signal(self, frame, expect_type, timeout=15.0,  # noqa: ARG002
+                                   event=None):
+        # the real transport turns a *_ack timeout into ConnectionClosed
+        # (protocol/connection.py:120), which is the branch under test
+        raise ConnectionClosed(f"{self.label}: {expect_type} timeout")
 
 
 class StubProtocol:
@@ -122,6 +168,15 @@ class StubProtocol:
         if conn is None:
             return None
         return await conn.send_and_wait_ack(frame, timeout=timeout)
+
+    async def send_to_and_ack_signal(self, client_type, frame, expect_type,
+                                     timeout=15.0):
+        """Mirror protocol/server.py:148 — the v2 POS signal request."""
+        conn = self.get_client(client_type)
+        if conn is None:
+            return None
+        return await conn.send_and_wait_signal(frame, expect_type,
+                                               timeout=timeout)
 
 
 _DEFAULT = object()
@@ -180,19 +235,23 @@ async def test_result_timeout_fails_case_stops_run_and_skips_remainder(
     run = executor.store.get_run(session.run["run_id"])
     first = executor.store.get_case_result(run["run_id"], "C-01")
     assert first["status"] == "FAIL"
-    assert first["failure_reason"] == "result_timeout"
+    # v2: the POS never produced an OUT -> out_timeout (was result_timeout)
+    assert first["failure_reason"] == "out_timeout"
     assert run["status"] == "ABORTED"
-    assert run["abort_reason"] == "case_failed:C-01:result_timeout"
+    assert run["abort_reason"] == "case_failed:C-01:out_timeout"
+    # the POS really was driven (test_info + act; no kernel params -> no config)
+    assert pos.seen == [MSG_TEST_INFO, MSG_ACT]
 
     for cid in ("C-02", "C-03"):
         skipped = executor.store.get_case_result(run["run_id"], cid)
         assert skipped["status"] == "SKIPPED"
         assert skipped["note"] == "run_stopped_after_failure:C-01"
 
-    abort_frames = [f for f in pos.sent if f.get("type") == "session_abort"]
-    assert abort_frames, "the POS must be told the session was aborted"
-    assert abort_frames[-1]["reason"] == "result_timeout"
-    assert any(f.get("type") == "session_abort" for f in android.sent)
+    # v2 (design section 10) removed session_abort: the abort is now only
+    # recorded host-side, so no v1.2 frame may reach either device any more.
+    assert not [f for f in pos.sent if f.get("type") in LEGACY_POS_FRAMES]
+    assert not [f for f in android.sent if f.get("type") in LEGACY_POS_FRAMES]
+    # the card was emulating, so it is still parked (H2 semantics under v2)
     assert any(f.get("type") == "stop_emulation" for f in android.sent)
 
 
@@ -251,43 +310,52 @@ async def test_pos_offline_fails_case_instead_of_warning(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pos_config_rejection_fails_case(tmp_path, monkeypatch):
-    cases = {"C-01": make_case("C-01", pos_params=True)}
-    pos = AckingConn("pos@stub",
-                     reject={"pos_config": {"ok": False, "detail": "no"}})
-    executor = build(tmp_path, cases, pos=pos)
+    """v2: the POS-side CONFIG (kernel AID/CAPK/TERM) rejection FAILs the case."""
+    cases = {"C-01": make_case("C-01")}
+    kernel = KernelParams(
+        aids=[AidKernelParam(aid="A0000000031010")], term=TERM)
+    pos = AckingConn("pos@stub", reject={MSG_CONFIG: signal_ack("NO")})
+    executor = build(tmp_path, cases, pos=pos, kernel=kernel)
     session = await run_cases(executor, ["C-01"], monkeypatch)
 
     record = executor.store.get_case_result(session.run["run_id"], "C-01")
-    assert record["failure_reason"] == "pos_config_rejected"
+    assert record["status"] == "FAIL"
+    assert record["failure_reason"] == "config_rejected"
+    assert MSG_ACT not in pos.seen, "no point acting on a config we could not load"
 
 
 @pytest.mark.asyncio
 async def test_case_started_rejection_fails_case(tmp_path, monkeypatch):
+    """v2: ``case_started`` is gone; the ACT that starts the transaction replaces
+    it, so a POS rejection of that signal FAILs with ``act_rejected``."""
     cases = {"C-01": make_case("C-01")}
-    pos = AckingConn("pos@stub",
-                     reject={"case_started": {"ok": False, "detail": "busy"}})
+    pos = AckingConn("pos@stub", reject={MSG_ACT: signal_ack("NO")})
     executor = build(tmp_path, cases, pos=pos)
     session = await run_cases(executor, ["C-01"], monkeypatch)
 
     record = executor.store.get_case_result(session.run["run_id"], "C-01")
-    assert record["failure_reason"] == "pos_case_started_rejected"
+    assert record["failure_reason"] == "act_rejected"
 
 
 @pytest.mark.asyncio
 async def test_pos_case_started_ack_timeout_fails_case(tmp_path, monkeypatch):
+    """v2: the POS acks test_info but never the ACT -> ``act_ack_timeout``."""
     cases = {"C-01": make_case("C-01")}
 
-    class PosAcksConfigOnly(AckingConn):
-        async def send_and_wait_ack(self, frame, timeout=15.0, event=None):  # noqa: ARG002
-            if frame.get("type") == "case_started":
-                raise TimeoutError("no ack")
-            return await super().send_and_wait_ack(frame, timeout=timeout)
+    class PosAcksEverythingButAct(AckingConn):
+        async def send_and_wait_signal(self, frame, expect_type,  # noqa: ARG002
+                                       timeout=15.0, event=None):
+            if frame.get("type") == MSG_ACT:
+                # the real transport raises ConnectionClosed on a signal timeout
+                raise ConnectionClosed("pos@stub: act_ack timeout")
+            return await super().send_and_wait_signal(
+                frame, expect_type, timeout=timeout)
 
-    executor = build(tmp_path, cases, pos=PosAcksConfigOnly("pos@stub"))
+    executor = build(tmp_path, cases, pos=PosAcksEverythingButAct("pos@stub"))
     session = await run_cases(executor, ["C-01"], monkeypatch)
 
     record = executor.store.get_case_result(session.run["run_id"], "C-01")
-    assert record["failure_reason"] == "pos_case_started_ack_timeout"
+    assert record["failure_reason"] == "act_ack_timeout"
 
 
 @pytest.mark.asyncio
@@ -348,7 +416,8 @@ async def test_pos_disconnect_during_attempt_fails_case():
 
 @pytest.mark.asyncio
 async def test_kernel_config_is_pushed_before_pos_config(tmp_path, monkeypatch):
-    """R5: pos_kernel_config precedes pos_config and its rejection fails the case."""
+    """R5 under v2: the kernel CONFIG precedes the ACT it configures, and its
+    rejection fails the case."""
     kernel = KernelParams(
         aids=[AidKernelParam(aid="A0000000031010",
                              fields=[TlvField(tag="DF01", value="01")])],
@@ -358,15 +427,16 @@ async def test_kernel_config_is_pushed_before_pos_config(tmp_path, monkeypatch):
     executor = build(tmp_path, cases, pos=pos, kernel=kernel)
     session = await run_cases(executor, ["C-01"], monkeypatch)
 
-    assert pos.seen[0] == "pos_kernel_config"
-    assert "pos_config" in pos.seen
-    assert pos.seen.index("pos_kernel_config") < pos.seen.index("pos_config")
-    frame = next(f for f in pos.sent
-                 if f.get("config_type") == "pos_kernel_config")
-    assert frame["kernel_params"]["aid"][0].startswith("9F06")
-    assert frame["kernel_params"]["term"] == kernel.term
+    # v2 command order: test_info -> config (kernel params) -> act
+    assert pos.seen == [MSG_TEST_INFO, MSG_CONFIG, MSG_ACT]
+    assert pos.seen.index(MSG_CONFIG) < pos.seen.index(MSG_ACT)
+    frame = next(f for f in pos.sent if f.get("type") == MSG_CONFIG)
+    aid = next(i["value"] for i in frame["signalData"] if i["id"] == CONFIG_ID_AID)
+    assert aid.startswith("9F06")
+    assert next(i["value"] for i in frame["signalData"]
+                if i["id"] == CONFIG_ID_TERM) == kernel.term
     record = executor.store.get_case_result(session.run["run_id"], "C-01")
-    assert record["failure_reason"] == "result_timeout"  # reached the wait stage
+    assert record["failure_reason"] == "out_timeout"  # reached the wait stage
 
 
 @pytest.mark.asyncio
@@ -375,15 +445,14 @@ async def test_kernel_config_rejection_fails_case(tmp_path, monkeypatch):
         aids=[AidKernelParam(aid="A0000000031010")],
         term="9F6604360000809F1A0201569F7A0101")
     cases = {"C-01": make_case("C-01")}
-    pos = AckingConn("pos@stub", reject={
-        "pos_kernel_config": {"ok": False, "detail": "kernel busy"}})
+    pos = AckingConn("pos@stub", reject={MSG_CONFIG: signal_ack("NO")})
     executor = build(tmp_path, cases, pos=pos, kernel=kernel)
     session = await run_cases(executor, ["C-01"], monkeypatch)
 
     record = executor.store.get_case_result(session.run["run_id"], "C-01")
     assert record["status"] == "FAIL"
-    assert record["failure_reason"] == "pos_kernel_config_apply_failed"
-    assert "case_started" not in pos.seen, "no point starting a case we cannot run"
+    assert record["failure_reason"] == "config_rejected"
+    assert MSG_ACT not in pos.seen, "no point starting a case we cannot run"
 
 
 @pytest.mark.asyncio
@@ -393,7 +462,7 @@ async def test_no_kernel_params_means_no_push(tmp_path, monkeypatch):
     executor = build(tmp_path, cases, pos=pos, kernel=None)
     await run_cases(executor, ["C-01"], monkeypatch)
 
-    assert "pos_kernel_config" not in pos.seen
+    assert MSG_CONFIG not in pos.seen
 
 
 @pytest.mark.asyncio
@@ -409,6 +478,6 @@ async def test_case_level_kernel_params_override_brand(tmp_path, monkeypatch):
     executor = build(tmp_path, {"C-01": case}, pos=pos, kernel=brand_kernel)
     await run_cases(executor, ["C-01"], monkeypatch)
 
-    frame = next(f for f in pos.sent
-                 if f.get("config_type") == "pos_kernel_config")
-    assert "A0000000041010" in frame["kernel_params"]["aid"][0]
+    frame = next(f for f in pos.sent if f.get("type") == MSG_CONFIG)
+    aid = next(i["value"] for i in frame["signalData"] if i["id"] == CONFIG_ID_AID)
+    assert "A0000000041010" in aid

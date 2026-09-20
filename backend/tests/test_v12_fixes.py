@@ -11,6 +11,13 @@ back to DEFECTS.md:
   ``stop_emulation`` (and cases that never started do NOT);
 * H-LOG — ``emulating.registered_aids`` is logged (ruling 3.1c);
 * C3 — external ``kernel_params_dir`` precedence and its misconfiguration.
+
+The pinned behaviours are unchanged; only the POS-side mechanics moved to
+protocol v2 (CTEL2): the case is started by ``act`` (not ``case_started``) and
+the outcome arrives as ``out`` (not ``transaction_result``), so the POS-side
+config failure is now the single v2 ``config_rejected`` (POS ``config`` carries
+the kernel AID/CAPK/TERM) rather than a separate ``pos_config``/
+``pos_kernel_config_apply_failed`` pair.
 """
 
 from __future__ import annotations
@@ -70,7 +77,12 @@ class StubLibrary:
 
 
 class Conn:
-    """A device stub: records frames, acks everything unless told otherwise."""
+    """A device stub: records frames, acks everything unless told otherwise.
+
+    ``reject`` is keyed by the frame's ``config_type`` (card link) or ``type``
+    (CTEL2 signals); the override value is a full ack frame, so a v1.2-style
+    ``{"ok": False}`` and a v2 ``signal_ack("NO")`` both work.
+    """
 
     def __init__(self, label: str, *, reject: dict[str, dict] | None = None):
         self.label = label
@@ -84,6 +96,12 @@ class Conn:
         self.sent.append(frame)
         key = frame.get("config_type") or frame.get("type")
         return self.reject.get(key, {"ok": True, "detail": ""})
+
+    async def send_and_wait_signal(self, frame, expect_type, timeout=15.0,  # noqa: ARG002
+                                   event=None):
+        self.sent.append(frame)
+        key = frame.get("type")
+        return self.reject.get(key, signal_ack("YES"))
 
     def frames(self, kind: str) -> list[dict]:
         return [f for f in self.sent if f.get("type") == kind]
@@ -112,13 +130,29 @@ class StubProtocol:
             return None
         return await conn.send_and_wait_ack(frame, timeout=timeout)
 
+    async def send_to_and_ack_signal(self, client_type, frame, expect_type,
+                                     timeout=15.0):
+        """Mirror protocol/server.py:148 — the v2 POS signal request."""
+        conn = self.get_client(client_type)
+        if conn is None:
+            return None
+        return await conn.send_and_wait_signal(frame, expect_type,
+                                               timeout=timeout)
 
-#: An "approved" POS payload that PASSes VISA-CL-001 (resp_code 00/approved).
-APPROVED = {"resp_code": "00", "outcome": "approved", "online": "offline",
-            "tags": {"gen_ac": {"9F26": "AABB"}}}
-#: The same shape but declined, so VISA-CL-001's assertions FAIL.
-DECLINED = {"resp_code": "05", "outcome": "declined", "online": "offline",
-            "tags": {}}
+
+def signal_ack(code: str = "YES") -> dict:
+    """A CTEL2 ``*_ack`` as the POS sends it (design section 2.2)."""
+    return {"signalData": [{"id": "ResponseCode", "value": code}]}
+
+
+#: An "approved" CTEL2 OUT (OPS + DataRecord) that PASSes VISA-CL-001.
+APPROVED = [
+    {"id": "OPS", "value": "1000F00030F0FF00"},
+    {"id": "DataRecord", "value": "8A0230309F270140"},
+]
+#: The same shape but declined.  With no ARC in the DataRecord the derived
+#: ``resp_code`` is "05", so VISA-CL-001's ``resp_code == "00"`` assertion FAILs.
+DECLINED = [{"id": "OPS", "value": "20F0F00030F0FF00"}]
 
 
 #: Sentinel: "the caller did not say anything about this device" (-> give it a
@@ -136,10 +170,9 @@ def build(tmp_path, cases, *, kernel=None, android_reject=None, android=DEFAULT_
 
     * ``emit_emulating`` reports the android "emulating" status through the
       protocol layer — never by poking ``executor._session``;
-    * ``result_payload`` makes the POS report that transaction_result as soon as
-      it is told `case_started`, i.e. it drives the real `_attempt` path
-      (including the abort/timeout branches) instead of calling the handler
-      directly;
+    * ``result_payload`` makes the POS report that CTEL2 OUT as soon as it is
+      told `act`, i.e. it drives the real `_attempt` path (including the
+      abort/timeout branches) instead of calling the handler directly;
     * ``pos=None`` means "no POS is connected"; the default gives it a stub.
     """
     executor = RunExecutor(StubLibrary(cases, kernel), None, RunStore(tmp_path), _sink)
@@ -173,24 +206,32 @@ def build(tmp_path, cases, *, kernel=None, android_reject=None, android=DEFAULT_
             session = executor._session
             if session is not None and session._emulation_waiter is not None:
                 session.deliver_emulation_status("emulating")
-        if client_type == "pos" and frame.get("type") == "case_started" \
+        return ack
+
+    async def send_to_and_ack_signal(client_type, frame, expect_type,
+                                     timeout=15.0):
+        conn = android_conn if client_type == "android" else pos_conn
+        if conn is None:
+            return None
+        ack = await conn.send_and_wait_signal(frame, expect_type, timeout=timeout)
+        if client_type == "pos" and frame.get("type") == "act" \
                 and result_payload is not None:
-            # Deliver as a real POS would: a short moment after case_started,
-            # NOT inline — _attempt creates the result waiter only after this
-            # ack returns, so an inline result would be quarantined as unattributed.
-            async def report(case_id=frame.get("case_id"),
-                             attempt_id=frame.get("attempt_id"),
+            # Deliver as a real POS would: a short moment after the ACT ack, NOT
+            # inline — _attempt creates the OUT waiter only after this ack
+            # returns, so an inline OUT would be quarantined as unattributed.
+            async def report(signal_data=result_payload,
                              msg_id=frame.get("msg_id")):
                 await asyncio.sleep(0.02)
-                await executor._on_transaction_result(pos_conn, {
-                    "type": "transaction_result", "msg_id": f"m-{msg_id}",
-                    "case_id": case_id, "attempt_id": attempt_id,
-                    "result": result_payload})
+                await executor._on_out(pos_conn, {
+                    "type": "out", "msg_id": f"out-{msg_id}",
+                    "device_id": "pos-1", "app_version": "2.0.0",
+                    "signalData": signal_data})
             asyncio.get_running_loop().create_task(report())
         return ack
 
     protocol.send_to = send_to  # type: ignore[assignment]
     protocol.send_to_and_ack = send_to_and_ack  # type: ignore[assignment]
+    protocol.send_to_and_ack_signal = send_to_and_ack_signal  # type: ignore[assignment]
     executor.protocol = protocol
     return executor, android_conn, pos_conn
 
@@ -200,7 +241,7 @@ async def run_one(executor: RunExecutor, case: TestCase,
     """Run one case with the result wait shortened.
 
     ``TestCase.timeout_seconds`` has a 10s floor, so every ``asyncio.wait`` is
-    capped: result-driven tests inject their transaction_result within ~20ms and
+    capped: result-driven tests inject their CTEL2 OUT within ~20ms and
     resolve before the cap, while timeout-driven tests deliberately never
     resolve.  Shrinking the deadline (rather than reacting to which future
     completed) keeps the real ``_attempt`` control flow intact.
@@ -226,12 +267,13 @@ async def run_one(executor: RunExecutor, case: TestCase,
 @pytest.mark.asyncio
 async def test_f2_assertion_failure_abort_reason_carries_case_id(tmp_path, monkeypatch):
     """The assertion FAIL path never calls _fail() from _judge, yet must name
-    the case — and must NOT be relabelled result_timeout."""
+    the case — and must NOT be relabelled out_timeout by the wait loop."""
     case = TestCase(
         case_id=CASE_ID, title=CASE_ID, brand="visa",
         profile=CardProfile(id=CASE_ID),
         transaction=TransactionParams(operator_instructions=OperatorInstructions()),
-        # DECLINED answers resp_code "05", so this rule fails -> assertion FAIL
+        # DECLINED carries no ARC, so the derived resp_code is "05" and this rule
+        # (resp_code == "00") fails -> assertion FAIL
         expected_results=[MatchRule(path="resp_code", op="eq", expect="00")],
         timeout_seconds=10)
     executor, _android, pos = build(tmp_path, {CASE_ID: case},
@@ -245,7 +287,10 @@ async def test_f2_assertion_failure_abort_reason_carries_case_id(tmp_path, monke
         "a failing assertion must not be relabelled by the wait loop"
     # before F2 this was the case-less "case_failed:assertion_failed"
     assert run["abort_reason"] == f"case_failed:{CASE_ID}:assertion_failed"
-    assert pos.frames("session_abort")[-1]["reason"] == "assertion_failed"
+    # v2 (design section 10) removed session_abort, so the failing verdict is
+    # no longer broadcast to the POS; the case record + run.abort_reason above
+    # are the record of it.
+    assert pos.frames("session_abort") == []
     assert run["status"] == "ABORTED"
 
 
@@ -268,16 +313,22 @@ async def test_f2_passing_case_is_not_aborted(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_f2_every_failure_path_names_the_case(tmp_path, monkeypatch):
-    """All failure reasons share one shape: case_failed:<case_id>:<reason>."""
+    """All v2 failure reasons share one shape: case_failed:<case_id>:<reason>.
+
+    The reason set follows design section 8: the POS signal ACKs
+    (test_info/config/act), the missing-POS path, and the missing-OUT timeout.
+    """
     reasons = {
         "android_not_connected": dict(android=None),
         "pos_not_connected": dict(pos=None, case_pos_params=True),
-        "pos_config_rejected": dict(pos_reject={"pos_config": {"ok": False}},
-                                    case_pos_params=True),
-        "pos_kernel_config_apply_failed": dict(
+        "test_info_rejected": dict(pos_reject={"test_info": signal_ack("NO")}),
+        "config_rejected": dict(
             kernel=KernelParams(aids=[AidKernelParam(aid="A0000000031010")],
                                 term=TERM),
-            pos_reject={"pos_kernel_config": {"ok": False}}),
+            pos_reject={"config": signal_ack("NO")}),
+        "act_rejected": dict(pos_reject={"act": signal_ack("NO")}),
+        "act_not_supported": dict(pos_reject={"act": signal_ack("NOTSUPPORTED")}),
+        "out_timeout": dict(),
     }
     for expected, kw in reasons.items():
         workdir = tmp_path / expected
@@ -386,12 +437,11 @@ async def test_h2_kernel_rejection_still_parks_the_card(tmp_path, monkeypatch):
     kernel = KernelParams(aids=[AidKernelParam(aid="A0000000031010")], term=TERM)
     executor, android, _pos = build(
         tmp_path, {CASE_ID: case}, kernel=kernel,
-        pos_reject={"pos_kernel_config": {"ok": False}})
+        pos_reject={"config": signal_ack("NO")})
     session = await run_one(executor, case, monkeypatch)
 
     assert executor.store.get_case_result(
-        session.run["run_id"], CASE_ID)["failure_reason"] == \
-        "pos_kernel_config_apply_failed"
+        session.run["run_id"], CASE_ID)["failure_reason"] == "config_rejected"
     assert len(android.frames("stop_emulation")) == 1
 
 
@@ -399,8 +449,11 @@ async def test_h2_kernel_rejection_still_parks_the_card(tmp_path, monkeypatch):
 async def test_h2_normal_pass_sends_exactly_one_stop(tmp_path, monkeypatch):
     """The moved stop must not be emitted twice on the happy path."""
     case = make_case()
-    executor, android, _pos = build(tmp_path, {CASE_ID: case})
-    await run_one(executor, case, monkeypatch)
+    executor, android, _pos = build(tmp_path, {CASE_ID: case},
+                                    result_payload=APPROVED)
+    session = await run_one(executor, case, monkeypatch)
+    record = executor.store.get_case_result(session.run["run_id"], CASE_ID)
+    assert record["status"] == "PASS"
     assert len(android.frames("stop_emulation")) == 1
 
 

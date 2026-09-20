@@ -580,11 +580,11 @@ export function AddCasePage({
   const gset = <K extends keyof GroupDraft>(key: K, value: GroupDraft[K]) =>
     setGdraft((prev) => ({ ...prev, [key]: value }));
 
-  const applyTemplate = (sch: string) => {
+  const applyTemplate = (brand: string) => {
     setTemplateError(null);
-    api.brandTemplate(sch).then((res) => {
+    api.brandTemplate(brand).then((res) => {
       setDraft((prev) => {
-        if (prev.brand !== sch) return prev; // user switched away meanwhile
+        if (prev.brand !== brand) return prev; // user switched away meanwhile
         const card = templateToDraft(res.card_template);
         return { ...prev, ...card, posParams: posToRows(res.pos_params) };
       });
@@ -632,9 +632,8 @@ export function AddCasePage({
   };
 
   const reset = () => {
-    const sch = brand;
-    setDraft(emptyDraft(sch));
-    setGdraft(emptyGroupDraft(sch));
+    setDraft(emptyDraft(brand));
+    setGdraft(emptyGroupDraft(brand));
     setErrors({});
     setGerrors({});
     setServerError(null);
@@ -642,7 +641,7 @@ export function AddCasePage({
     setJsonMode(false);
     setJsonText("");
     setTab("basic");
-    applyTemplate(sch);
+    applyTemplate(brand);
   };
 
   const switchKind = (k: Kind) => {

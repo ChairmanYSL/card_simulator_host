@@ -82,7 +82,7 @@ python -m emv_host stop | abort | skip
 
 * **01 · 卡组入口**：按目录展示卡组（visa / mastercard / unionpay / jcb / amex / discover / pure，全部为非接 contactless 用例），显示用例数，点击进入；进入后为**用例选择**页——整轮测试 / 勾选批量 / 单个用例 / 断点续跑；可临时覆盖 suite 策略（失败即停/继续、重试次数）；点击用例查看 test plan、操作员指引与预期结果；
 * **02 · 添加用例**：页面顶部区分两种形态——**可执行案例**（独立案例 / 选「所属总案例」即为子案例，写进该组目录并自动建议 `组号-NN` 编号）与**总案例（分组）**（只配置测试目的/条件/test plan/通过标准，**不配置** profile/交易参数/预期结果；新建即 `group.json`）。可执行案例表单：卡片档案从该卡组默认模板（`brand.json.card_template`）克隆并与案例**内嵌绑定**（profile.id 自动 = 案例号），可编辑 PAN/AID/PPSE/acBehavior 等卡片侧字段（**acBehavior 含「无」选项**——不设置首 GAC 行为、按终端 P1 应答，用于不支持 GAC 决策的卡组），完整 JSON 兜底；「交易参数」页签按卡组模板自动带出 **POS 交易参数（tag 列表，tag 可自行设定修改）**，写入 `transaction.pos_params`——v2 下该字段为 legacy、**不再下发 POS**（wire 上的交易数据是 `transaction.act`，见下）；前端逐字段校验，服务端二次校验（案例号/总案例号唯一、内嵌档案存在且校验通过、仅非接、路径安全），错误逐条提示并自动定位到出错选项卡；添加后热重载立即生效，也可在「JSON 导入」选项卡粘贴整份用例/总案例 JSON（先经 `/api/cases/validate` 或 `/api/groups/validate` 校验再落盘）；
-* **03 · 运行视图**：两端设备状态灯、当前用例与 attempt、操作员指引（金额/交易类型/PIN）、用例队列实时状态（PASS/FAIL/WARN/ABORTED/SKIPPED/INCONCLUSIVE）、终端风格滚动日志；三级控制按钮——立即中止 / 本用例后停 / 跳过当前用例；浏览器刷新不影响后端运行（WS 重连按事件序号重放）；
+* **03 · 运行视图**：两端设备状态灯、当前用例与 attempt、操作员指引（金额/交易类型/PIN）、用例队列实时状态（PASS/FAIL/WARN/ERROR/ABORTED/SKIPPED/INCONCLUSIVE）、终端风格滚动日志；三级控制按钮——立即中止 / 本用例后停 / 跳过当前用例；浏览器刷新不影响后端运行（WS 重连按事件序号重放）；
 * **04 · 历史记录**：每次运行落盘 `runs/<日期>/<run_id>/`（run.json、逐用例结果、checkpoint、quarantine 迟到结果、断言明细），页面可回溯每一条断言的 实际 vs 预期。
 
 ## 用例库结构（`--cases` 目录）
@@ -242,7 +242,7 @@ python tools/export_kernel_params.py \
 ## 测试与工具
 
 ```bash
-cd backend && python -m pytest          # 后端单测（184 个）
+cd backend && python -m pytest          # 后端单测（192 个）
 python tools/gen_cases.py cases         # 重新生成演示用例库（清单式覆盖，不删自建用例；
                                         #   清单项若逃逸 brand 目录会被跳过）
 python tools/export_kernel_params.py --help   # 内核参数导出（写入仓库外目录）
@@ -264,7 +264,8 @@ python tools/mock_clients/mock_pos.py     # 协议级 mock：POS（--outcome app
 # 驱动一轮：开跑前先预检"两端在线 + 版本一致"，不满足则拒绝开跑（退出码 2）
 python tools/joint_debug/run_cases.py --all \
     --expect-versions pos=1.0.13,card=1.0.31 \
-    --on-failure continue --retry 0 --settle 15
+    --retry 0 --settle 15
+# 注：v2 下 host 首个 FAIL 即停止整轮，`--on-failure continue` 已被忽略（保留仅兼容旧调用）
 
 # 单个 brand / 单个用例
 python tools/joint_debug/run_cases.py --brand visa --case VISA-CL-001

@@ -21,6 +21,28 @@
 - **断言示例**：`{"path": "card.gpo.pdol.9F35", "op": "eq", "expect": "E2"}`
 - **本地校验**（无设备）：用参考 APDU 合成 trace 流 → `GPO 9F35=E2`、`GAC` 按 CDOL1 拆出全部 11 个 tag、`apdu_count=10`，均正确
 
+### 数据：新增案例 `CVM-PROC83-XP2`（amex / CVM 处理）
+- **测试目的**：检查是否能正确进行 CVM 处理
+- **案例**：`cases/amex/contactless/cases/CVM-PROC83-XP2.json`
+  - `kernel_params_ref: "CONF_16"` + `terminal_profile_ref: "PROFILE_01"`
+  - profile：AID `A000000025010403`、`aip=1880`、`afl=08010100`、
+    `pdol=9F6E049F35019F370495059F34039F02069F0306`（含 9F6E + 9F35）、
+    `cdol1=9F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403`（**结尾是 9F34，无 9F35**）、
+    `cdol2=8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403`、
+    `cvmList=[{cvmCode:2, cvmCondition:0, applySucceedingCvm:2}]`（对应参考 `8E=00000000000000000200` 的 `02 00`）、
+    `9F07=FFC0`、`9F42=0978`、`5F25=101004`、`5F24=491231`、`9F70=1000`、`acBehavior=offline_declined`
+    （参考卡端 GAC 响应 `9F27=00`，AAC）
+  - `act`：`9F02=000000001500`、`9F03=000000000000`、`9C=00`
+  - **断言（按用户裁定仅看两处 9F34）**：`card.gac.cdol.9F34=3F0001`、
+    `out.datarecord.9F34=3F0001`
+- **用户裁定的口径**：参考日志里的 `95=8000900000` 与 GAC type **均正确**，仅 `9F34` 在 GAC 中为
+  `020000`（错误，应 `3F0001`）；9F34 错误时交易结果预期为**脱机拒绝**（本案例不写 outcome 断言）
+- **加载校验**：`CaseLibrary` 加载 0 告警
+- **待确认（实现侧，未改动）**：卡端 `DefaultEmvKernel.buildCvmList()` 生成的 `8E` 与参考格式不一致
+  —— 每规则编成 **3 字节**（`cvmCode, cvmCondition, applySucceedingCvm`）而非 EMV 的 2 字节
+  （bit7 应 OR 进 cvmCode），且金额只补 `amount X`(4B)、缺 `amount Y`(4B)；
+  参考 `8E` 为 `00000000 00000000 0200`。**本次仅新增案例，未改卡端代码。**
+
 ### 数据：新增案例 `CPO-PROC94-XP2`（amex / Terminal Type modify）
 - **测试目的**：PDOL 含 `9F35` 且不含 `9F6E` 时，终端是否正确上送 Terminal Type - Modified
 - **案例**：`cases/amex/contactless/cases/CPO-PROC94-XP2.json`

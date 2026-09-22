@@ -1,0 +1,143 @@
+{
+  "case_id": "CVM-PROC83-XP2",
+  "title": "AMEX contactless CVM 处理（GAC 与上送报文的 9F34 应为 3F0001）",
+  "summary": "检查是否能正确进行 CVM 处理：GENERATE AC 命令的 CDOL1 数据里 9F34 应为 3F0001，且 POS 上送报文的 DataRecord.9F34 也应为 3F0001。终端使用配置 CONF_16 + PROFILE_01。参考日志中 GAC 的 9F34 实际为 020000（错误）、tag 95=8000900000 与 GAC type 均正确；9F34 错误时的交易结果预期为脱机拒绝（按用户裁定，本案例断言只覆盖两处 9F34 的值）。",
+  "brand": "amex",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "CVM-PROC83-XP2",
+    "name": "AMEX CVM processing (CVM-PROC83.XP2)",
+    "network": "AMEX",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000025010403",
+        "label": "AMEX",
+        "priority": 0
+      }
+    ],
+    "pan": "3400000100000009",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "USER1",
+    "track2EquivalentData": "333430303030303130303030303030393d34393132323031",
+    "applicationLabel": "AMEX",
+    "applicationVersionNumber": "0001",
+    "aip": "1880",
+    "afl": "08010100",
+    "issuerCountryCode": "0620",
+    "cvmList": [
+      {
+        "cvmCode": 2,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 2
+      }
+    ],
+    "pdol": "9F6E049F35019F370495059F34039F02069F0306",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cdol2": "8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "applicationUsageControl": "FFC0",
+    "applicationCurrencyCode": "0978",
+    "applicationEffectiveDate": "101004",
+    "iacDefault": "0000000000",
+    "iacDenial": "0000000000",
+    "iacOnline": "0000000000",
+    "cardInterfaceAndPaymentCapabilities": "1000",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "cardholderName",
+          "cdol1",
+          "cdol2",
+          "applicationVersionNumber",
+          "applicationUsageControl",
+          "issuerCountryCode",
+          "applicationCurrencyCode",
+          "cvmList",
+          "applicationEffectiveDate",
+          "expiryDate",
+          "pan",
+          "panSequenceNumber",
+          "iacDefault",
+          "iacDenial",
+          "iacOnline",
+          "track2"
+        ]
+      }
+    ],
+    "acBehavior": "offline_declined"
+  },
+  "kernel_params_ref": "CONF_16",
+  "terminal_profile_ref": "PROFILE_01",
+  "transaction": {
+    "operator_instructions": {
+      "amount": "15.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "tap the phone on the POS reader when it shows the amount"
+    },
+    "expected_values": {
+      "amount": "15.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "9F02",
+        "value": "000000001500"
+      },
+      {
+        "id": "9F03",
+        "value": "000000000000"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS terminal configured with CONF_16 + PROFILE_01",
+    "card PDOL contains 9F6E and 9F35; CDOL1 ends with 9F34 (no 9F35)"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes card profile (AID A000000025010403, CVM List 8E, CDOL1 ending with 9F34) and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "operator completes the transaction for 15.00 EUR on the POS",
+      "expect": "POS sends GPO, READ RECORD then GENERATE AC and returns the CTEL2 out"
+    },
+    {
+      "step": 3,
+      "action": "host judges the APDU trace: 9F34 inside the GENERATE AC CDOL1 data must be 3F0001",
+      "expect": "card.gac.cdol.9F34 == 3F0001"
+    },
+    {
+      "step": 4,
+      "action": "host judges the POS out payload: DataRecord.9F34 must be 3F0001",
+      "expect": "out.datarecord.9F34 == 3F0001"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "card.gac.cdol.9F34",
+      "op": "eq",
+      "expect": "3F0001"
+    },
+    {
+      "path": "out.datarecord.9F34",
+      "op": "eq",
+      "expect": "3F0001"
+    }
+  ]
+}

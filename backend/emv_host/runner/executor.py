@@ -34,6 +34,7 @@ from typing import Any, Awaitable, Callable
 from ..cases import CaseLibrary, TestCase
 from ..cases.models import KernelParams
 from ..judge.asserter import assert_result
+from ..judge.card_apdu import build_card_view
 from ..judge.outcome import build_result
 from ..protocol.connection import ConnectionClosed
 from ..protocol.messages import (
@@ -424,7 +425,7 @@ class RunExecutor:
         session = self._session
         await self.log("trace", f"[android] trace case={case_id} "
                                 f"attempt={attempt_id}: {message}")
-        if not self.trace_enabled or not session:
+        if not session:
             return
         if not case_id or not attempt_id:
             return
@@ -434,6 +435,13 @@ class RunExecutor:
         if not frame.get("in_case", True):
             return
         if attempt_id != session.current_attempt_id:
+            return
+        # v2 (2026-09-20): the APDU trace is a *judging source*, so the collected
+        # stream is kept for `card.*` assertions regardless of --trace-enabled;
+        # that switch now only gates persistence to trace/<case_id>.jsonl.
+        if isinstance(message, dict) and message.get("event") == "apdu":
+            session.card_apdus.setdefault("apdus", []).append(message)
+        if not self.trace_enabled:
             return
         self.store.write_trace(session.run, case_id, attempt_id, {
             "at": time.time(), "message": message,
@@ -971,7 +979,9 @@ class RunExecutor:
         """
         try:
             result = build_result(signal_data if isinstance(signal_data, list)
-                                  else [], card=session.card_apdus or None)
+                                  else [],
+                                  card=build_card_view(
+                                      session.card_apdus.get("apdus")))
         except ValueError as exc:
             self.store.write_quarantine(session.run, {
                 "at": time.time(), "reason": str(exc), "frame": frame})

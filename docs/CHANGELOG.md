@@ -5,6 +5,36 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-20（P2：卡端 APDU 判定接线 + 新案例 CPO-PROC94-XP2）
+
+### 功能：卡端 APDU 判定接线（`card.*` 断言）
+- **背景**：设计（`protocol-v2-design.md`）声明 trace 恒开且作为判定源，但实现里
+  `session.card_apdus` 无写入者、trace 只落盘不判定（报告 §11 G2）→ `card.*` 断言恒 missing
+- **改动**：
+  - 新增 `backend/emv_host/judge/card_apdu.py`：把卡端 trace 流构造成可判定视图 ——
+    `select_aid`（含 FCI 里的 `9F38` PDOL）、`read_record`（记录里的 `8C`/`8D`）、
+    `gpo.pdol.{tag}`、`gac.cdol.{tag}`、`apdu_count`、`commands[]`；
+    TLV 解析**递归下探 constructed tag**（`6F`→`A5`→`9F38`），DOL 模板按 EMV 规则识别多字节 tag
+  - `runner/executor.py`：`_on_trace()` 把 APDU 条目写入 `session.card_apdus`
+    （**不再受 `--trace-enabled` 门控** —— 该开关现在只控制落盘，符合"trace 是判定源"）；
+    `_judge()` 用 `build_card_view()` 构造 `card` 视图传给 `build_result()`
+- **断言示例**：`{"path": "card.gpo.pdol.9F35", "op": "eq", "expect": "E2"}`
+- **本地校验**（无设备）：用参考 APDU 合成 trace 流 → `GPO 9F35=E2`、`GAC` 按 CDOL1 拆出全部 11 个 tag、`apdu_count=10`，均正确
+
+### 数据：新增案例 `CPO-PROC94-XP2`（amex / Terminal Type modify）
+- **测试目的**：PDOL 含 `9F35` 且不含 `9F6E` 时，终端是否正确上送 Terminal Type - Modified
+- **案例**：`cases/amex/contactless/cases/CPO-PROC94-XP2.json`
+  - `kernel_params_ref: "CONF_16"` + `terminal_profile_ref: "PROFILE_01"`（PROFILE_01 的 `term` 含 `9F3501 22`）
+  - profile：AID `A000000025010403`、`pdol=9F35019F370495059F34039F02069F0306`、
+    `cdol1=9F02069F03069F1A0295055F2A029A039C019F37049F6E049F34039F3501`、
+    `cdol2=8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403`、
+    `aip=0880`、`afl=08010100`（取自参考 APDU 的 GPO 响应）
+  - `act`：`9F02=000000001500`、`9F03=000000000000`、`9C=00`
+  - 断言：`card.gpo.pdol.9F35=E2`（处理过的）、`card.gac.cdol.9F35=22`（未处理，PROFILE_01 配置值）、
+    `outcome=approved`、`online=offline`、`resp_code=00`
+- **加载校验**：`CaseLibrary` 加载 0 告警（其余 37 条为既有 CAPK DF03 告警，与本案无关）
+- **未做**：真机联调验证（本次仅接线 + 新增案例）
+
 ## 2026-09-18（用例编辑器改 ACT + `act` 校验补齐）
 
 ### 校验：新增 `validate_act`（v2 交易数据此前无校验）

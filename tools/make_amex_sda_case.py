@@ -257,10 +257,10 @@ def capk_entry(ca: dict, serial_hex: str) -> dict:
 
 def patch_conf(entry: dict, dry_run: bool) -> tuple[int, bool]:
     conf = json.loads(CONF_FILE.read_text(encoding="utf-8"))
-    before = len(conf["caps"])
+    replaced = any(str(c.get("key_index", "")).upper() == CA_KEY_INDEX
+                   for c in conf["caps"])
     conf["caps"] = [c for c in conf["caps"]
                     if str(c.get("key_index", "")).upper() != CA_KEY_INDEX]
-    replaced = len(conf["caps"]) != before
     conf["caps"].append(entry)
     if not dry_run:
         CONF_FILE.write_text(json.dumps(conf, ensure_ascii=False, indent=2) + "\n",

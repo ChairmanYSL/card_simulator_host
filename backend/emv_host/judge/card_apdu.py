@@ -23,8 +23,11 @@ Layout::
       "apdu_count": 12,
       "select_aid": {"command": "<hex>", "response": "<hex>",
                      "pdol": {...}, "cdol1": {...}, "afl": "..."},
-      "gpo": {"command": "<hex>", "response": "<hex>", "pdol": {"9F35": "E2", ...}},
+      "gpo": {"command": "<hex>", "response": "<hex>", "pdol": {"9F35": "E2", ...},
+              "aip": "5880", "afl": "1701010008010100"},
       "gac": {"command": "<hex>", "response": "<hex>", "cdol": {"9F35": "22", ...}},
+      "read_record": {"command": ..., "cdol1": ..., "cdol2": ...,
+                      "records": {"<SFI>": {"<record>": {"<TAG>": "<hex>"}}}},
       "commands": [{"cla": "00", "ins": "A4", "data": "...", "raw": "..."}, ...],
     }
 
@@ -136,6 +139,21 @@ def _tlv_payload(command_data_hex: str) -> str:
     return data
 
 
+def _gpo_response_fields(body_hex: str) -> tuple[str, str, dict[str, str]]:
+    """GPO response -> (AIP, AFL, parsed TLVs).
+
+    Format 1 (``80 <len> <AIP><AFL>``) carries the AIP/AFL as raw bytes, format
+    2 (``77 <len> <TLVs>``) as TLV-coded objects (Book 3 §6.5.8.4).
+    """
+    body = (body_hex or "").upper()
+    if body.startswith("80") and len(body) >= 4:
+        length = int(body[2:4], 16)
+        value = body[4:4 + length * 2]
+        return value[:4], value[4:], {}
+    tlvs = parse_tlv(body)
+    return tlvs.get("82", ""), tlvs.get("94", ""), tlvs
+
+
 def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     """Turn the per-attempt trace stream into the judgeable ``card`` view."""
     if not trace_messages:
@@ -212,14 +230,37 @@ def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, An
             "response_tlvs": tlvs,
         }
 
+    # --- every READ RECORD exchange: record TLVs per (SFI, record number) ---
+    # SDA cases need this: the terminal reads the certificate record (tag 90 +
+    # 9F32 + 92, first AFL entry) and the record carrying the SSAD (tag 93).
+    records: dict[str, dict[str, dict[str, str]]] = {}
+    for command, response in entries:
+        if command is None or response is None:
+            continue
+        cla, ins, p1, p2, _data = _apdu_fields(str(command.get("data_hex", "")))
+        if cla != "00" or ins != "B2":
+            continue
+        body = str(response.get("data_hex", ""))
+        body = body[:-4] if len(body) >= 4 else body
+        sfi = int(p2, 16) >> 3
+        records.setdefault(str(sfi), {})[str(int(p1, 16))] = parse_tlv(body)
+    if records:
+        view.setdefault("read_record", {})["records"] = records
+
     # --- GPO (80 A8): split its PDOL data against the card's 9F38 -----------
     gpo_cmd = _find("A8")
     if gpo_cmd is not None:
         _cla, _ins, _p1, _p2, data = _apdu_fields(str(gpo_cmd.get("data_hex", "")))
         pdol_template = (view.get("select_aid") or {}).get("pdol", "")
+        response = _response_for(gpo_cmd)
+        body = response[:-4] if len(response) >= 4 else response
+        aip, afl, response_tlvs = _gpo_response_fields(body)
         view["gpo"] = {
             "command": gpo_cmd.get("data_hex", ""),
-            "response": _response_for(gpo_cmd),
+            "response": response,
+            "aip": aip,
+            "afl": afl,
+            "response_tlvs": response_tlvs,
             "pdol_template": pdol_template,
             "pdol": split_by_template(pdol_template, _tlv_payload(data))
                     if pdol_template else {},

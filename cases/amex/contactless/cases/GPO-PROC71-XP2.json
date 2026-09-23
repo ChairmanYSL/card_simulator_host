@@ -1,0 +1,206 @@
+{
+  "case_id": "GPO-PROC71-XP2",
+  "title": "GPO 处理（终端正确处理 GPO 返回的卡片数据 + SDA）",
+  "summary": "GPO 响应 AIP=5880（卡片支持 SDA）、AFL=17010100 08010100（第一条指向证书记录）；终端读取证书记录（8F/9F32/90/92）与应用记录，用 CONF_01 的测试 CA 公钥恢复签发者公钥、校验 SSAD（93），完成静态数据认证后应脱机批准（acBehavior=offline_approved → TC）。",
+  "brand": "amex",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "GPO-PROC71-XP2",
+    "name": "AMEX GPO 处理（GPO.PROC71.XP2）",
+    "network": "AMEX",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000025010403",
+        "label": "AMEX",
+        "priority": 0
+      }
+    ],
+    "pan": "3400000200000008",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "USER1",
+    "track2EquivalentData": "333430303030303230303030303030383D34393132323031",
+    "applicationLabel": "AMEX",
+    "applicationVersionNumber": "0001",
+    "aip": "5880",
+    "afl": "1701010008010100",
+    "issuerCountryCode": "0620",
+    "pdol": "9F6E049F35019F370495059F34039F02069F0306",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cdol2": "8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cvmList": [
+      {
+        "cvmCode": 2,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      }
+    ],
+    "applicationUsageControl": "FFC0",
+    "applicationCurrencyCode": "0978",
+    "applicationEffectiveDate": "101004",
+    "iacDefault": "0000000000",
+    "iacDenial": "0000000000",
+    "iacOnline": "0000000000",
+    "cardInterfaceAndPaymentCapabilities": "1000",
+    "rsaKeyId": "sda-issuer-gpo71",
+    "caPublicKeyIndex": "0A",
+    "issuerPublicKeyExponent": "010001",
+    "issuerPublicKeyCertificate": "1A1D4FCA8E7AF0D575560BF599BB9CB00678C1A2028C8FEAEB5AF005B94C844806693E1467B268A2B3ED87CBE7AA0F48AA427C10C3ED49254DB824861FA2A2F3F3608C34717B5A9F1BD3F59DC848F130D2C56EDA3ECFC6A22BB701819DCE1D4640C83DA8B7FF30622F0023642272435C4CF34ECF2CEEBE921E66543663C3D562",
+    "issuerPublicKeyRemainder": "AAD1F1782139FCCBA8D123DC7694EC596F8054D3BD1E71597A03CA03DBC8485A6706075D",
+    "dataAuthenticationCode": "0139",
+    "acBehavior": "offline_approved",
+    "records": [
+      {
+        "sfi": 2,
+        "record": 1,
+        "fields": [
+          "caPublicKeyIndex",
+          "issuerPublicKeyExponent",
+          "issuerPublicKeyCertificate",
+          "issuerPublicKeyRemainder"
+        ]
+      },
+      {
+        "sfi": 2,
+        "record": 2,
+        "fields": [
+          "sda"
+        ]
+      },
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "cardholderName",
+          "cdol1",
+          "cdol2",
+          "cardInterfaceAndPaymentCapabilities",
+          "applicationVersionNumber",
+          "applicationUsageControl",
+          "issuerCountryCode",
+          "applicationCurrencyCode",
+          "cvmList",
+          "applicationEffectiveDate",
+          "expiryDate",
+          "pan",
+          "panSequenceNumber",
+          "iacDefault",
+          "iacDenial",
+          "iacOnline",
+          "track2"
+        ]
+      }
+    ]
+  },
+  "kernel_params_ref": "CONF_01",
+  "terminal_profile_ref": "PROFILE_01",
+  "keys": {
+    "symmetric_keys": [],
+    "rsa_keys": [
+      {
+        "id": "sda-issuer-gpo71",
+        "public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDThGmuD/+Xuo7tcb9HaesYl9Njc43GpvvRyX0M2SXLbBOMzWjOhWhkJ9HDkqLcFJRW7VluEW9pNsV634gbyXQ+jvlJP7Gmox6r4dcaGpTKiPPwXoijQ79W3g3QeqrR8XghOfzLqNEj3HaU7FlvgFTTvR5xWXoDygPbyEhaZwYHXQIDAQAB",
+        "private_key": "MIICeQIBADANBgkqhkiG9w0BAQEFAASCAmMwggJfAgEAAoGBANOEaa4P/5e6ju1xv0dp6xiX02Nzjcam+9HJfQzZJctsE4zNaM6FaGQn0cOSotwUlFbtWW4Rb2k2xXrfiBvJdD6O+Uk/saajHqvh1xoalMqI8/BeiKNDv1beDdB6qtHxeCE5/Muo0SPcdpTsWW+AVNO9HnFZegPKA9vISFpnBgddAgMBAAECgYEAnTCKWREKoXfDQDKINEpCrMQoFICLnFX8Tquugx3dOI/Y94qvmMsMCWKOQQl4fpXMp8076NCMO2S43dfBDuVnvLujF7nvDWaKT90uhvj7jTqC0la1gDwvLk4Ezhv+HtG3AYm7ZUBGzFAX1QoDQ9oUdvVcPD4+sY2C4seRUJX9kAECQQD1uHnZ+kFzjg/hZC5k/aH+gMJSNN2joG98DrT50u2r3a6O8UshcNw6YrZeCiACMO4/5eY8fS57mUMKju5JFq7tAkEA3F2jg0iuaEqwUIU7kJLApUcLQ8q8njCCekj3rCyxDlGvN1bx6w4h1geQVVSeupB2wxdQxuVe1F05JhIa1os8MQJBAJIhbp36nXgaUUlqqci3qeJQMsBu3izUWdi+alR0Y5IlWQ17ZIHzu5UhZXFRti13agkoMR9iFwW8ZMlfrUhcLBUCQQDIhvlFfT0gMF8TVromTDS78dNBZFqRhMkm6AFhDuYrho9wR1ErOZf2wLlJvRAX61/3Fd9ursjFbPOVPkJn2xnxAkEArl29MA2/Wk5ufih1ZUCWu7l5xGiQ6FpGkKNJQpcsuHzShBH+MW/0w89w6Y8nSDJwCLqcYwh2HW1idl86++lQTg=="
+      }
+    ]
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "15.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "tap the phone on the POS reader when it shows 15.00 EUR"
+    },
+    "expected_values": {
+      "amount": "15.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "9F02",
+        "value": "000000001500"
+      },
+      {
+        "id": "9F03",
+        "value": "000000000000"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS loaded with CONF_01 (which now carries the test CA key index 0A) + PROFILE_01 (9F33=000888 → SDA supported by the terminal)",
+    "card AIP=5880 selects SDA in the kernel (no CDA: AIP byte1 bit1 = 0)",
+    "the CVM list mirrors the reference (8E=00000000000000000200)"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes card profile (AID A000000025010403, PDOL with 9F6E+9F35, SDA material) + issuer key and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "operator completes the 15.00 EUR transaction",
+      "expect": "POS sends GPO (AIA) then reads SFI 2 rec 1-2 and SFI 1 rec 1"
+    },
+    {
+      "step": 3,
+      "action": "host judges the APDU trace: GPO response AIP/AFL and the certificate/SSAD records",
+      "expect": "card.gpo.aip=5880, card.gpo.afl=1701010008010100, records carry 8F=0A, 90 and 93"
+    },
+    {
+      "step": 4,
+      "action": "host asserts the transaction outcome",
+      "expect": "offline approved (outcome=approved, online=offline, resp_code=00) → SDA verified by the terminal"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "card.gpo.aip",
+      "op": "eq",
+      "expect": "5880"
+    },
+    {
+      "path": "card.gpo.afl",
+      "op": "eq",
+      "expect": "1701010008010100"
+    },
+    {
+      "path": "card.read_record.records.2.1.90",
+      "op": "present"
+    },
+    {
+      "path": "card.read_record.records.2.1.8F",
+      "op": "eq",
+      "expect": "0A"
+    },
+    {
+      "path": "card.read_record.records.2.2.93",
+      "op": "present"
+    },
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "offline"
+    },
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    }
+  ]
+}

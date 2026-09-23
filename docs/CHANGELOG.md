@@ -5,6 +5,51 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-23（案例：AMEX `GPO-PROC71-XP2` 含真实 SDA + 卡端 APDU 判定视图扩展）
+
+### 数据：新增案例 `GPO-PROC71-XP2`（amex / GPO 处理 + 静态数据认证 SDA）
+- **测试目的**：检查终端能否正确处理 GPO 返回的卡片数据；授权金额 15.00、其他金额 0.00、
+  交易类型 00 购买；终端使用 `CONF_01` + `PROFILE_01`；**通过标准：脱机批准**
+- **参考数据（用户提供）**：AIP `5880`（b7=1 → 卡片支持 SDA）、GPO 响应
+  `770E 8202 5880 9408 17010100 08010100`、READ RECORD `00B2010C00` 的
+  `70 81B0 …`（tag 57/5A 在参考里被屏蔽成全 F，本案例换成真实 PAN + 构造的二磁道）
+- **内核判据核对（以 `E:\Work\ZT\Expresspay` **V4.2.3 最新提交**为准）**：
+  - `emv_offline_data_auth()`（`emv_offline_data_authentication.c:1395`）：`aip[0]&0x40`
+    且 `9F33[2]&0x80` → 走 SDA（AIP 5880 ✓、`PROFILE_01` 的 9F33=`000888` ✓）
+  - `verify_ssad()`（`:669`）：`93` 长度必须 = 签发者模长；恢复后必须 `6A 03 … BC`；
+    hash = SHA1(`03|01|DAC|BB×(NI−26)` ‖ 静态数据 ‖（若有 `9F4A` 再补 2B AIP)）
+  - `retrieve_issuer_pk()`（`:581`）：`90`+`9F32` 必须存在，`92` 仅在模长 > `NCA−36` 时需要；
+    `retrieve_pk_from_icc()`（`:158`）校验 `6A 02 … BC`、`buf[11]=buf[12]=01`、
+    hash（表 6 元素 2..10 ‖ 余数 ‖ 指数）、证书 MMYY 未过期、Issuer Identifier 与 PAN 相容
+  - `retrieve_capk()`（`:93`）：按 (卡片 AID 的 RID, `8F` 索引) 查 CAPK；
+    若开校验则 checksum = `HASH(RID‖index‖modulus‖exponent)`（指数=3 用 1 字节，否则 3 字节）
+  - 静态数据按 AFL 第 4 字节累积（`emv_read_application_data.c:455-484`，SFI 1–10 只取 value）
+  - **纠正**：参考 AFL `17 01 01 00 08 01 01 00` 在 **V4.2.0** 会被
+    `express_CheckReadAFL()` 的"SFI 低 3 位必须为 0"拒掉（参考日志的 `ERR(-1222)`），
+    但 **V4.2.3 已把该检查注释掉**（`emv_read_application_data.c:188-192`，
+    注释原文 `// GPO_PROC_71 request`）→ 参考 AFL 可直接使用（用户裁定 a）
+- **SDA 密钥链（用户裁定 b：直接往 CONF_01 追加测试 CA 公钥）**：
+  - 生成器 `tools/make_amex_sda_case.py` 生成 1024-bit CA 与签发者密钥对（e=65537），
+    把 CA 公钥作为 **第 9 条 CAPK**（RID `A000000025`、KI `0A`、checksum 按内核规则）追加进
+    `cases/amex/pos_configs/CONF_01.json`（`index.json` 的 capk 计数同步 8→9）；
+    签发者私钥随案例 `keys.rsa_keys` 下发，卡端运行时签 `93`
+  - 产出：`90`=128B（容量 `NCA−36`=92B + `92` 余数 36B）、`9F32`=`010001`、`8F`=`0A`
+  - 自检：工具内置 `selfcheck()` 完整复刻内核 `retrieve_pk_from_icc`+`verify_ssad`
+    （用 CA 公钥恢复 `90`、用签发者公钥恢复 `93`、比对 hash/DAC/模长/有效期），生成时强制通过
+  - 报告落 `tmp/sda_report.json`（含模长、checksum、90/92/93、DAC、期望 SSAD hash）
+- **断言（通过标准 + 数据核对）**：`card.gpo.aip=5880`、`card.gpo.afl=1701010008010100`、
+  `card.read_record.records.2.1.8F=0A`、`card.read_record.records.2.1.90 present`、
+  `card.read_record.records.2.2.93 present`、`outcome=approved`、`online=offline`、`resp_code=00`
+- **本地校验（无设备）**：`tmp/check_gpo_proc71.py` 用合成 trace（参考 GPO 响应 + 本案例
+  证书/SSAD 字节）跑判定引擎，5 条 `card.*` 断言全部 PASS，verdict=PASS
+- **未做**：未上机、未部署（需要 APK + 设备跑一轮才能确认端到端）
+
+### 功能：卡端 APDU 判定视图扩展（`judge/card_apdu.py`）
+- **新增**：`gpo.aip` / `gpo.afl`（GPO 响应，兼容 `77` TLV 与 `80` 原始两种格式，
+  新增 `_gpo_response_fields()`）、`read_record.records.<SFI>.<记录号>.<TAG>`
+  （**所有** READ RECORD 交换，此前只取第一条）
+- **验证**：`tmp/check_gpo_proc71.py`（见上）与后端 `pytest` **211 passed** ✓
+
 ## 2026-09-22（生成器 v2 迁移、CVM Rule b7 口径、`QPB-B-002-01` 参数恢复 / 9F66 通道、`QPB-I-010-01` 改判）
 
 ### 工具：`tools/gen_cases.py` 迁移到协议 v2（用户裁定 B）

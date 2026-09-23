@@ -10,10 +10,11 @@
       "file": "CONF_01.json",
       "source": "CONF_01.xml",
       "aids": 1,
-      "capk": 8,
+      "capk": 9,
       "drl": 30,
       "exception_file": 1,
-      "term": true
+      "term": true,
+      "note": "capk includes one locally generated test CA key (index 0A) for GPO-PROC71-XP2 SDA"
     },
     {
       "id": "CONF_01_IOP",

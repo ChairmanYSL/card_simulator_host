@@ -5,6 +5,20 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-22（案例修正：`CVM-PROC83-XP2` 的 CVM Rule b7 口径）
+
+### 数据：`CVM-PROC83-XP2` 的 `applySucceedingCvm` 2 → 1
+- **改动**：`cases/amex/contactless/cases/CVM-PROC83-XP2.json` 的
+  `cvmList[0].applySucceedingCvm` 由 `2` 改为 `1`（其余字段不变）
+- **依据**：EMV 4.4 Book 3 §10.5 + Annex C3 —— CVM List = `amount X`(4B) + `amount Y`(4B) +
+  若干 **2 字节** CV Rule；CV Rule 首字节 b7 = **1** "Apply succeeding CV Rule if this CVM is
+  unsuccessful" / **0** "Fail cardholder verification if this CVM is unsuccessful"。
+  参考卡端 `8E=00000000000000000200` 的 CV Rule 首字节是 `02`（b7 = 0），故取 `1`
+- **影响面**：host 侧无断言/判定读取该字段（仅透传），上一节 `## 2026-09-20` 中
+  `applySucceedingCvm:2` 的描述是当时提交 `5db03cb` 的快照，此处不改写历史
+- **卡端实现**：`DefaultEmvKernel.buildCvmList()` 的 2 字节 CV Rule 编码同步修正
+  （卡端 commit `10bbe1c`，记录见卡端仓库 `docs/change-log.md`）
+
 ## 2026-09-20（P2：卡端 APDU 判定接线 + 新案例 CPO-PROC94-XP2）
 
 ### 功能：卡端 APDU 判定接线（`card.*` 断言）

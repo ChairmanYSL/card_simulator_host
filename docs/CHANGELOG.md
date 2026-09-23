@@ -5,7 +5,38 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
-## 2026-09-22（案例修正：CVM Rule b7 口径、`QPB-B-002-01` 参数恢复 / 9F66 通道、`QPB-I-010-01` 改判）
+## 2026-09-22（生成器 v2 迁移、CVM Rule b7 口径、`QPB-B-002-01` 参数恢复 / 9F66 通道、`QPB-I-010-01` 改判）
+
+### 工具：`tools/gen_cases.py` 迁移到协议 v2（用户裁定 B）
+- **背景**：v2 之后 `pos_params` 已不再下发（`models.py:471-476`；执行器只读
+  `transaction.act`，`executor.py:806-807`），而生成器仍按 v1 口径产出 `pos_params`
+  以及**已死的** `tags.gen_ac.*` / `amount` 断言。一旦重新生成案例，会同时重现
+  「交易参数根本没下发（ACT 为空）」与「坏 oracle 必失败」两类缺陷
+- **改动**：
+  1. 新增 `to_act()`（复用 `tools/pos_params_to_act.py` 的 `convert()`，
+     `extras="drop"`、`exponent="yes"`），**7 处**写 `transaction` 的位置由
+     `pos_params` 改为 `act`；
+  2. 断言路径 v1→v2：`tags.gen_ac.*` → `out.datarecord.*`（易变 tag 用 `present`），
+     删除死的 `amount` 断言（`004`；v2 判定视图没有该字段，见 `judge/outcome.py:143-155`）；
+  3. `003`（online）模板经 `online=True` 追加 `DF8101="01"`，离线模板一律不带；
+  4. **删除 `005` 模板**（用户裁定 c：不再生成「declined 档案却断言 approved」的反例）；
+  5. `QPB-B-002-01` 增加 `kernel_params_ref: "CONF_UP_01"`（9F66 仍不进 ACT）；
+     `QPB-I-010-01` 的断言与说明按 2026-09-22 裁定改为 `outcome=online_request` 等；
+  6. 顺带修 `main()` 的一处**阻塞性**回归：`366f95c` 的 scheme→brand 重命名把
+     `brand`（配置 dict）与 `brand_key`（字符串）合并成 `brand = brand_key`，
+     `main()` 必然 `TypeError: string indices must be integers`（`0fb2c40` 修了 9 处
+     同类冲突、漏了这处）。**即生成器自 2026-09-16 起实际无法运行**，这也解释了
+     为什么 09-20 那次 `pos_params`→`ACT` 是手工迁移的
+- **验证**（`cases_root` 指向 `tmp/gen_check3`，全程不动仓库 `cases/`）：
+  生成 **28 例**、exit=0；`CaseLibrary` 载入仅 1 条 issue，且是**预期内**的
+  「`CONF_UP_01` 不在 scratch 树的命名配置库」（该模块由审核方手工维护，生成器不写）；
+  7 个 `brand.json` 与仓库现有文件**逐字段相同**；
+  `QPB-B-002-01` / `QPB-B-002/group` / `QPB-I-010-01` / `QPB-I-010/group`
+  四文件与仓库现有文件**逐字段相同**（⇒ 重新生成对这四个文件幂等）；
+  全库 0 处 `transaction.pos_params`、0 处空 `act`、0 处 `tags.*`/`amount` 断言、
+  0 个 `*005*` 文件
+- **未改**：`brand.json` 的 `pos_params` 模板保留（`protocol.md:471` 记为 legacy
+  展示用、不上线，且 7 个 brand.json 与生成结果一致）；AID/CAPK/DRL/EXCEPTION_FILE 未触及
 
 ### 数据：`QPB-B-002-01` 的 `9F66=36804000` 改由命名模块 `CONF_UP_01` 经 `CONFIG.TERM` 投递
 - **用户裁定**：建 unionpay 命名 CONF 模块（只含 `term`）并由案例引用

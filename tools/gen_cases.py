@@ -4,9 +4,9 @@ Usage:  python tools/gen_cases.py [cases_root]
 
 v2 layout: profiles are EMBEDDED in each executable case JSON (bound to the
 case, id auto = case_id); brand.json carries a ``card_template`` (default card
-for the add-case page) and a ``pos_params`` template (brand-specific POS-side
-transaction parameters auto-added per case).  There is no shared profiles/
-directory any more.
+for the add-case page) and a legacy ``pos_params`` template, whose tag list is
+ENCODED into each case's v2 ``transaction.act`` (see below).  There is no shared
+profiles/ directory any more.
 
 Safety: this tool NEVER deletes whole brand directories.  Each brand keeps a
 ``.gen_cases_manifest.json`` listing the files the generator owns; a rerun only
@@ -17,8 +17,20 @@ the demo ids WOULD be overwritten by design.
 
 PANs are generated Luhn-valid and unique per case.  Demo data is synthetic;
 online cases assume a test acquirer host / whitelist (see brand.json
-environment_assumptions).  Values inside pos_params are informational strings
-that the POS app interprets by tag.
+environment_assumptions).
+
+POS transaction data is protocol-v2 ``act``: a list of ``{"id", "value"}``
+items whose ``value`` is an **uppercase hex string** (EMV tag -> encoded bytes).
+The legacy ``pos_params`` tag list is still the *source* of those items, but it
+is encoded, not copied: ``transaction.pos_params`` is retained for legacy case
+data and is NOT sent to the POS any more (backend/emv_host/cases/models.py:471
+-476), while the runner reads only ``case.transaction.act``
+(backend/emv_host/runner/executor.py:806-807).  A case that still carried
+``pos_params`` alone therefore delivered an EMPTY ``act`` and every transaction
+ran with POS defaults.  The encoder is reused from
+``tools/pos_params_to_act.py`` (design section 5).  ``brand.json`` keeps its
+``pos_params`` template, which is legacy display-only data
+(docs/protocol.md:471) and never reaches the wire.
 """
 
 from __future__ import annotations
@@ -26,6 +38,14 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+
+# ``tools/`` is sys.path[0] when this file is run as a script, but not when it
+# is imported as a module -- make the sibling encoder importable either way.
+_TOOLS_DIR = Path(__file__).resolve().parent
+if str(_TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_DIR))
+
+from pos_params_to_act import convert as _convert_pos_params  # noqa: E402
 
 # -- manifest bookkeeping (non-destructive regeneration) ----------------------
 _gen_root: Path | None = None
@@ -175,8 +195,10 @@ BRANDS = {
     },
 }
 
-# brand -> POS transaction parameter template (POS-side, tag-keyed;
-# per-brand requirements differ: add/remove tags as needed)
+# brand -> POS transaction parameter template.  Legacy shape ({tag,name,value},
+# human-readable values) and kept only as the *source* of each case's ACT items
+# and as brand.json's display-only legacy template (docs/protocol.md:471); the
+# wire carries the encoded ``act`` list produced by ``to_act()`` below.
 POS_PARAMS = {
     "visa": [
         {"tag": "9F02", "name": "amount", "value": "100.00"},
@@ -216,6 +238,39 @@ POS_PARAMS = {
     ],
 }
 
+
+def to_act(pos_params: list[dict], *, online: bool = False) -> list[dict]:
+    """Legacy ``pos_params`` tag list -> protocol-v2 ``transaction.act`` items.
+
+    Reuses the library encoder ``tools/pos_params_to_act.py:convert()`` (design
+    section 5) instead of re-implementing it: ``9F02`` -> 6-byte BCD amount in
+    minor units, ``5F2A``/``9F1A`` -> 2-byte BCD, ``9C``/``9F53``/``5F57``/
+    ``9A``/``9F21`` -> hex passthrough, ``5F36`` appended from the currency
+    exponent.
+
+    ``extras="drop"`` is the design's rule: ``EXTRA_TERMINAL_TAGS`` =
+    ``{"9F1A", "9F33"}`` are terminal parameters and must not ride in ACT
+    (docs/change-notice-v2-pos.md:77-78).  ``exponent="yes"`` emits ``5F36``.
+
+    ``online=True`` appends ``DF8101="01"`` -- the host<->POS convention for
+    "simulate test-host online approval", delivered via ACT
+    (docs/change-notice-v2-pos.md:79; POS keeps real behaviour when absent).
+    Only genuinely online cases may carry it.
+    """
+    warnings: list[str] = []
+
+    def warn(msg: str) -> None:
+        warnings.append(msg)
+
+    act = _convert_pos_params(pos_params, extras="drop", exponent="yes",
+                              warn=warn)
+    if online:
+        act.append({"id": "DF8101", "value": "01"})
+    for msg in warnings:
+        print(f"  ! ACT 编码警告: {msg}")
+    return act
+
+
 CASE_SPECS = [
     {
         "suffix": "001", "title": "offline approved (TC)",
@@ -224,7 +279,12 @@ CASE_SPECS = [
             {"path": "resp_code", "op": "eq", "expect": "00"},
             {"path": "outcome", "op": "eq", "expect": "approved"},
             {"path": "online", "op": "eq", "expect": "offline"},
-            {"path": "tags.gen_ac.9F26", "op": "present"},
+            # v2 judging view: build_result exposes only
+            # out/outcome/online/resp_code/card (judge/outcome.py:143-155), so
+            # the old tags.gen_ac.* path was a dead oracle; card data of the
+            # transaction now lives in out.datarecord.<TAG>.  9F26 is the
+            # volatile AC -> existence only, never eq.
+            {"path": "out.datarecord.9F26", "op": "present"},
         ],
     },
     {
@@ -250,20 +310,19 @@ CASE_SPECS = [
         "behavior": "offline_approved",
         "expect": [
             {"path": "resp_code", "op": "eq", "expect": "00"},
-            {"path": "tags.gen_ac.9F26", "op": "present"},
-            {"path": "tags.gen_ac.9F10", "op": "present"},
-            {"path": "tags.gen_ac.5F2A", "op": "eq", "expect": "0156"},
-            {"path": "amount", "op": "eq", "expect": "100.00"},
+            # volatile cryptogram / issuer authentication data -> presence only
+            {"path": "out.datarecord.9F26", "op": "present"},
+            {"path": "out.datarecord.9F10", "op": "present"},
+            {"path": "out.datarecord.5F2A", "op": "eq", "expect": "0156"},
+            # the legacy {"path": "amount"} rule was dropped: the v2 judging
+            # view has no `amount` key at all (judge/outcome.py:143-155).
         ],
     },
-    {
-        "suffix": "005", "title": "DEMO expected-failure (declined card, expect approve)",
-        "behavior": "offline_declined",
-        "expect": [
-            {"path": "resp_code", "op": "eq", "expect": "00"},
-            {"path": "outcome", "op": "eq", "expect": "approved"},
-        ],
-    },
+    # The former "005" template (DEMO expected-failure: declined card, expect
+    # approve) was DELETED by user ruling: no *-CL-005 case is generated any
+    # more.  Its behaviour/expectation pair was self-contradictory by
+    # construction (acBehavior=offline_declined vs expected approved), so it is
+    # removed rather than kept as a permanent red case.
 ]
 
 MODES = {
@@ -351,7 +410,13 @@ def gen_case(brand_key: str, brand_conf: dict, mode: str, spec: dict,
                 "currency": "156",
                 "entry_mode": mode,
             },
-            "pos_params": [dict(p) for p in pos_params],
+            # v2: the wire carries `act` only (models.py:471-476,
+            # executor.py:806-807).  `online_request` is the online template
+            # (003): it needs DF8101="01" so the POS simulates test-host
+            # approval; offline templates must NOT carry it
+            # (docs/change-notice-v2-pos.md:79).
+            "act": to_act(pos_params,
+                          online=spec["behavior"] == "online_request"),
             "kernel_params": None,
         },
         "preconditions": [
@@ -381,7 +446,12 @@ def main(root: str) -> None:
     prefix_map = {"visa": "VISA", "mastercard": "MC", "unionpay": "UPI",
                   "jcb": "JCB", "amex": "AMEX", "discover": "DISC",
                   "pure": "PURE"}
-    for brand_key, brand in BRANDS.items():
+    for brand_key, brand_conf in BRANDS.items():
+        # ``brand`` is the brand KEY (a str, e.g. "visa") and ``brand_conf`` is
+        # its BRANDS entry.  The two were collapsed by the scheme->brand rename
+        # (366f95c) into ``brand = brand_key``, which clobbered the config dict
+        # and made main() die with "string indices must be integers"; the F1
+        # rename fix (0fb2c40) missed this last collision.
         brand = brand_key
         case_prefix = prefix_map[brand_key]
         pos_params = POS_PARAMS[brand_key]
@@ -396,11 +466,14 @@ def main(root: str) -> None:
 
         write(brand_root / "brand.json", {
             "brand": brand_key,
-            "display_name": brand["display_name"],
-            "description": f"{brand['display_name']} demo case library",
+            "display_name": brand_conf["display_name"],
+            "description": f"{brand_conf['display_name']} demo case library",
             "entry_modes": ["contactless"],
             "suite_policy": {"on_failure": "stop", "retry_count": 1},
-            "card_template": card_template(brand, brand),
+            "card_template": card_template(brand_conf, brand),
+            # legacy, display-only brand default (docs/protocol.md:471): v2
+            # cases get their data through `act`, this template never reaches
+            # the POS.
             "pos_params": pos_params,
             "environment_assumptions":
                 "online cases require a test acquirer host / card whitelist; "
@@ -411,27 +484,28 @@ def main(root: str) -> None:
         if brand_key in full_demo_brands:
             for mode in ("contactless",):
                 for spec in CASE_SPECS:
-                    case = gen_case(brand_key, brand, mode, spec, brand,
+                    case = gen_case(brand_key, brand_conf, mode, spec, brand,
                                     case_prefix, pos_params)
                     write(brand_root / mode / "cases" / f"{case['case_id']}.json",
                           case)
         else:
             # 新增卡组（JCB/AMEX/DISCOVER/PURE）：骨架 + 1 个冒烟用例
-            _gen_smoke_case(brand_root, brand, brand, case_prefix, pos_params)
+            _gen_smoke_case(brand_root, brand_conf, brand, case_prefix,
+                            pos_params)
 
         # PPSE 分组演示：总案例 OPBD-001 + 4 个子案例（各内嵌 PPSE 变体档案）
         if brand_key == "visa":
-            _gen_ppse_group(brand_root, brand, brand, pos_params)
+            _gen_ppse_group(brand_root, brand_conf, brand, pos_params)
 
         # v1.1 N12: 指令不响应（静默）演示 —— UnionPay 卡组
         if brand_key == "unionpay":
-            _gen_no_response_cases(brand_root, brand, brand, pos_params)
+            _gen_no_response_cases(brand_root, brand_conf, brand, pos_params)
             # UnionPay QPB.I.010.00: 交易不能联机完成（分组演示）
-            _gen_qpb_i_010_group(brand_root, brand, brand, pos_params)
+            _gen_qpb_i_010_group(brand_root, brand_conf, brand, pos_params)
             # UnionPay QPB.B.002.00: 状态检查请求（分组演示）
-            _gen_qpb_b_002_group(brand_root, brand, brand, pos_params)
+            _gen_qpb_b_002_group(brand_root, brand_conf, brand, pos_params)
             # UnionPay QPB.D.001.00: 使用 PPSE 目录选择方式（总案例 + 4 子案例）
-            _gen_qpb_d_001_group(brand_root, brand, brand, pos_params)
+            _gen_qpb_d_001_group(brand_root, brand_conf, brand, pos_params)
 
         _write_manifest(brand_root)
         _gen_root = None
@@ -469,7 +543,9 @@ def _gen_smoke_case(brand_root: Path, brand_conf: dict, brand: str,
             "expected_values": {
                 "amount": "100.00", "currency": "156", "entry_mode": mode,
             },
-            "pos_params": [dict(p) for p in pos_params],
+            # v2: `act` only; this smoke case is offline-approved (TC), so the
+            # online marker DF8101="01" is deliberately absent.
+            "act": to_act(pos_params),
             "kernel_params": None,
         },
         "preconditions": [
@@ -517,7 +593,9 @@ def _gen_no_response_cases(brand_root: Path, brand_conf: dict, brand: str,
                 },
                 "expected_values": {"amount": "100.00", "currency": "156",
                                     "entry_mode": mode},
-                "pos_params": [dict(p) for p in pos_params],
+                # v2: `act` only.  Both cases here are terminal-side failure
+                # demos (silent GPO), never an online approval -> no DF8101.
+                "act": to_act(pos_params),
                 "kernel_params": None,
             },
             "preconditions": [
@@ -560,10 +638,13 @@ def _gen_qpb_i_010_group(brand_root: Path, brand_conf: dict, brand: str,
       第5字节第6-5位为 '10' —— 9F10 样例值由用例提供方给定，原样透传
       （值取自真实回放/规范样例，位序按银联规范，真机联调以 POS 回放核对）；
     * '联机交易不能完成（主机没有响应）'由 POS 侧环境构造（联机通道不可用），
-      host 只能断言 POS 回传的 transaction_result；
-    * profile.acBehavior=online_request：卡片应答 ARQC，促使 POS 发起联机授权，
-      联机失败后读写器应拒绝交易；
-    * 通过标准映射（用户约定）：outcome=declined 且 resp_code ∈ {05,91,16,80}。
+      host 只能断言 POS 上报的 OUT；**2026-09-22 用户裁定（v2 口径）**：v2 下 POS
+      如实上报「请求联机」、联机结果由上位机（测试主机）裁定，故期望为
+      outcome=online_request（不再是 v1 的 declined）；
+    * profile.acBehavior=online_request：卡片应答 ARQC（9F27 前缀 80），促使 POS
+      发起联机授权；本案例**故意不下发 DF8101=01**，POS 不模拟在线批准；
+    * 通过标准映射（用户裁定）：outcome=online_request、online=online、
+      out.datarecord.9F27 前缀 80（ARQC）。
     """
     cases_dir = brand_root / "contactless" / "cases"
     group_dir = cases_dir / "QPB-I-010"
@@ -592,12 +673,15 @@ def _gen_qpb_i_010_group(brand_root: Path, brand_conf: dict, brand: str,
                                  "第5字节第6-5位为 '10'）",
              "expect": "读写器按卡片返回的数据继续交易"},
             {"step": 5, "action": "联机交易不能完成（发卡行/主机没有返回响应）",
-             "expect": "读写器拒绝交易并提示商户和持卡人交易被拒绝"},
+             "expect": "读写器如实上报「请求联机」，由上位机（测试主机）裁定联机结果"},
         ],
         "pass_criteria": [
-            "读写器应拒绝交易，读写器应提示商户和持卡人交易被拒绝。",
-            "本 host 断言映射（用户约定）：POS transaction_result 的 "
-            "outcome=declined，resp_code ∈ {05, 91, 16, 80}。",
+            "读写器在无法完成联机时应给持卡人明确结果，且对上位机如实上报本次交易状态。",
+            "本 host 断言映射（2026-09-22 用户裁定，v2 口径）：POS OUT 的 "
+            "outcome=online_request、online=online、out.datarecord.9F27 前缀 80（ARQC）。",
+            "**改判说明**：v1 时代本用例断言 outcome=declined / resp_code∈{05,91,16,80}；"
+            "v2 联机语义改为「POS 上报请求联机、由上位机裁定」，故判定口径按用户裁定改为 "
+            "online_request（被改的是**判定口径**，不是卡片行为）。",
         ],
     })
 
@@ -606,8 +690,11 @@ def _gen_qpb_i_010_group(brand_root: Path, brand_conf: dict, brand: str,
     write(group_dir / f"{case_id}.json", {
         "case_id": case_id,
         "title": "交易不能联机完成（读写器拒绝交易）",
-        "summary": "GPO 响应含 9F10（第5字节第6-5位='10'）；联机主机无响应；"
-                   "读写器应拒绝交易（档案随案例内嵌）",
+        "summary": "GPO 响应含 9F10（第5字节第6-5位='10'）；本案例故意不下发 "
+                   "DF8101=01，POS 不模拟在线批准（POS KernelDriver.java:455-458 "
+                   "走「真实行为」分支）；按 v2 口径判定 POS 如实上报「请求联机」"
+                   "——OPS Status=ONLINE REQUEST、outcome=online_request，联机结果由"
+                   "上位机/测试主机裁定（档案随案例内嵌）",
         "brand": brand,
         "entry_mode": "contactless",
         "profile": embedded_profile(brand_conf, brand, case_id,
@@ -618,12 +705,16 @@ def _gen_qpb_i_010_group(brand_root: Path, brand_conf: dict, brand: str,
             "operator_instructions": {
                 "amount": "100.00", "currency": "CNY",
                 "entry_mode": "contactless", "pin_hint": "none",
-                "notes": "将手机贴到 POS 读卡器；POS 将尝试联机授权，但测试环境"
-                         "后台不响应，读写器应拒绝交易并提示商户/持卡人",
+                "notes": "将手机贴到 POS 读卡器；本案例不下发 DF8101=01，POS 不"
+                         "模拟在线批准；按 v2 口径判定 POS 上报「请求联机」"
+                         "（OPS=ONLINE REQUEST / outcome=online_request）",
             },
             "expected_values": {"amount": "100.00", "currency": "156",
                                 "entry_mode": "contactless"},
-            "pos_params": [dict(p) for p in pos_params],
+            # v2: `act` only.  This is the "online cannot complete -> reader
+            # declines" scenario, so DF8101="01" (simulate online approval)
+            # must NOT be present.
+            "act": to_act(pos_params),
             "kernel_params": None,
         },
         "preconditions": [
@@ -639,14 +730,20 @@ def _gen_qpb_i_010_group(brand_root: Path, brand_conf: dict, brand: str,
             {"step": 2, "action": "主机向 POS 下发交易参数（tag 列表）",
              "expect": "POS 应用参数后进入交易"},
             {"step": 3, "action": "操作员在 POS 发起 100.00 元交易；卡片返回 GPO "
-                                  "响应（含 9F10），终端尝试联机但主机无响应",
-             "expect": "读写器拒绝交易并提示商户和持卡人，POS 回传 declined 结果"},
+                                  "响应（含 9F10），本案例未下发 DF8101=01，终端不"
+                                  "模拟在线结果",
+             "expect": "POS 如实上报请求联机：outcome=online_request"
+                       "（OPS Status=ONLINE REQUEST），联机结果由上位机裁定"
+                       "（2026-09-22 用户裁定的 v2 口径）"},
         ],
         "timeout_seconds": 180,
         "retry_on_fail": 0,
         "expected_results": [
-            {"path": "outcome", "op": "eq", "expect": "declined"},
-            {"path": "resp_code", "op": "any_of", "expect": ["05", "91", "16", "80"]},
+            # 2026-09-22 用户裁定（v2 口径）：POS 上报请求联机、由上位机裁定联机
+            # 结果，故期望 online_request（v1 的 declined / resp_code 已废止）。
+            {"path": "outcome", "op": "eq", "expect": "online_request"},
+            {"path": "online", "op": "eq", "expect": "online"},
+            {"path": "out.datarecord.9F27", "op": "prefix", "expect": "80"},
         ],
     })
 
@@ -664,7 +761,13 @@ def _gen_qpb_b_002_group(brand_root: Path, brand_conf: dict, brand: str,
       本 demo 实测样例 9F66=36804000（字节2=0x80）；若内核其它字节有差异，
       断言可改 regex ^..80（host 无位运算，用全值 eq 或正则表达）；
     * 终局（用户约定）：acBehavior=online_request 回 ARQC，联机批准
-      （outcome=approved / online=online / resp_code=00，需测试收单主机）。
+      （outcome=approved / online=online / resp_code=00，需测试收单主机）；
+    * v2 断言路径：9F66 断言原本写在已死的 tags.gpo.9F66 上（v2 判定视图无
+      tags.* / amount，judge/outcome.py:143-155），现迁到 out.datarecord.9F66
+      （期望值不变）。9F66 属终端级 tag，规范要求经 CONFIG.TERM 下发而不进
+      ACT（docs/change-notice-v2-pos.md:78）；裁定结果：案例改挂
+      kernel_params_ref=CONF_UP_01（term 9F6604368040009F1A0201569F7A0101），
+      由命名 POS 配置库提供。该模块由审核方维护，生成器不写入。
     """
     cases_dir = brand_root / "contactless" / "cases"
     group_dir = cases_dir / "QPB-B-002"
@@ -701,8 +804,12 @@ def _gen_qpb_b_002_group(brand_root: Path, brand_conf: dict, brand: str,
         "pass_criteria": [
             "读写器应在终端交易属性（标签 9F66）中表示请求联机密文，即字节2位8='1'"
             "（本 demo 期望 9F66=36804000）。",
-            "本 host 断言映射（用户约定）：result.tags.gpo.9F66=36804000；"
-            "outcome=approved、online=online、resp_code=00（需测试收单主机）。",
+            "本 host 断言映射（2026-09-22 修正为 v2 口径）："
+            "out.datarecord.9F66=36804000、outcome=approved、online=online、"
+            "resp_code=00。",
+            "9F66 属终端级 tag：按《POS 端协议 v2 变更通知》§3 一律由 `CONFIG.TERM` "
+            "投递（本案例引用命名模块 `CONF_UP_01`），不下发 ACT；`DF8101=01` 由 "
+            "ACT 下发，表示「模拟测试主机在线批准」。",
         ],
     })
 
@@ -713,13 +820,22 @@ def _gen_qpb_b_002_group(brand_root: Path, brand_conf: dict, brand: str,
         "title": "状态检查请求（9F66 请求联机密文）",
         "summary": "金额 0.01（一个货币单位，低于各限额）；FCI 带 9F38 PDOL 请求 "
                    "9F66；终端 TTQ 9F66=36804000（字节2位8='1'）请求联机密文并联机"
-                   "批准（档案随案例内嵌）",
+                   "批准。TTQ 由命名模块 `CONF_UP_01` 经 `CONFIG.TERM` 投递，联机"
+                   "批准由 ACT 的 `DF8101=01` 模拟（档案随案例内嵌）",
         "brand": brand,
         "entry_mode": "contactless",
         "profile": embedded_profile(brand_conf, brand, case_id,
                                     "状态检查请求（9F66 请求联机密文）",
                                     "online_request", 9,
                                     extra={"pdol": pdol_9f66}),
+        # 9F66 (TTQ) is a TERMINAL-level tag and must NOT travel in ACT
+        # (docs/change-notice-v2-pos.md:78); it is delivered via CONFIG.TERM by
+        # the named CONF module referenced here (user ruling), whose term is
+        # 9F6604368040009F1A0201569F7A0101.  This generator deliberately does
+        # NOT create that module: cases/unionpay/pos_configs/CONF_UP_01.json is
+        # maintained by the reviewer, so the ref only resolves against the real
+        # cases root.
+        "kernel_params_ref": "CONF_UP_01",
         "transaction": {
             "operator_instructions": {
                 "amount": "0.01", "currency": "CNY",
@@ -730,11 +846,14 @@ def _gen_qpb_b_002_group(brand_root: Path, brand_conf: dict, brand: str,
             },
             "expected_values": {"amount": "0.01", "currency": "156",
                                 "entry_mode": "contactless"},
-            "pos_params": [
+            # v2 ACT: 9F02 -> 6B BCD (0.01 -> 000000000001), 5F2A -> 0156,
+            # 5F36 exponent 02.  9F33 is dropped from ACT by design.
+            # DF8101="01" marks the test-host online approval this case expects.
+            "act": to_act([
                 {"tag": "9F02", "name": "amount", "value": "0.01"},
                 {"tag": "5F2A", "name": "currency", "value": "156"},
                 {"tag": "9F33", "name": "terminal_capabilities", "value": "E0F0C8"},
-            ],
+            ], online=True),
         },
         "preconditions": [
             "手机 NFC 已开启，模拟 app 保持前台",
@@ -742,21 +861,28 @@ def _gen_qpb_b_002_group(brand_root: Path, brand_conf: dict, brand: str,
             "（读写器非接触脱机限额，若前者不存在则用终端最低限额）",
             "模拟卡 SELECT AID 响应含 9F38 PDOL（请求 9F37/9F02/5F2A/9F66），"
             "需支持该字段的安卓模拟实现 + 真实 POS",
-            "联机批准需测试收单主机/卡 BIN 白名单（同 UPI-CL-003 环境假设；"
-            "真实生产主机将拒绝假密文 ARQC）",
+            "终端 TTQ 需为 36804000：本案例引用 `CONF_UP_01`"
+            "（`cases/unionpay/pos_configs/`），其 `term` 含 `9F66=36804000`；"
+            "POS 侧 `setTerminalParam` 为**整条覆盖**，故该模块同时保留设备出厂 "
+            "TERM 的 `9F1A`/`9F7A`",
+            "联机批准在本 demo 由 `DF8101=01`（ACT）模拟测试主机在线批准，"
+            "**不依赖真实收单主机/卡 BIN 白名单**",
         ],
         "test_plan": [
             {"step": 1, "action": "主机下发卡片档案（acBehavior=online_request；"
                                   "FCI 含 9F38 PDOL 请求 9F66）并启动模拟",
              "expect": "安卓上报 emulating"},
-            {"step": 2, "action": "主机向 POS 下发交易参数（金额 0.01 等）",
+            {"step": 2, "action": "主机先下发 CONFIG（引用 CONF_UP_01，含 TERM "
+                                  "9F66=36804000），再下发 ACT 交易参数"
+                                  "（金额 0.01、DF8101=01）",
              "expect": "POS 应用参数后进入交易"},
             {"step": 3, "action": "操作员在 POS 发起 0.01 元交易（一个货币单位，"
                                   "低于各限额）",
              "expect": "POS 按 PDOL 组 GPO 命令（含 TTQ 9F66），9F66 字节2位8='1'"
                       "（期望 36804000）请求联机密文"},
-            {"step": 4, "action": "交易联机批准（测试收单主机）",
-             "expect": "POS 回传 approved/online 结果及 tags.gpo.9F66"},
+            {"step": 4, "action": "交易联机批准（DF8101=01 → POS 模拟测试主机"
+                                  "在线批准）",
+             "expect": "POS 上报 approved/online 及 out.datarecord.9F66=36804000"},
         ],
         "timeout_seconds": 180,
         "retry_on_fail": 0,
@@ -764,9 +890,15 @@ def _gen_qpb_b_002_group(brand_root: Path, brand_conf: dict, brand: str,
             {"path": "resp_code", "op": "eq", "expect": "00"},
             {"path": "outcome", "op": "eq", "expect": "approved"},
             {"path": "online", "op": "eq", "expect": "online"},
+            # 9F66 (TTQ) is a TERMINAL-level tag: docs/change-notice-v2-pos.md:78
+            # requires it to travel via CONFIG.TERM, never in ACT, so this case
+            # cannot deliver it through the wire.  The assertion is kept, moved
+            # off the dead tags.gpo.* judging path onto out.datarecord.9F66
+            # (judge/outcome.py:143-155); the value now arrives through the
+            # case's kernel_params_ref=CONF_UP_01 (CONFIG.TERM, user ruling).
             # 9F66 字节2位8='1'（请求联机密文）；实测样例 36804000，若内核其它
             # 字节有差异可将该规则改为 regex ^..80
-            {"path": "tags.gpo.9F66", "op": "eq", "expect": "36804000"},
+            {"path": "out.datarecord.9F66", "op": "eq", "expect": "36804000"},
         ],
     })
 
@@ -869,7 +1001,10 @@ def _gen_qpb_d_001_group(brand_root: Path, brand_conf: dict, brand: str,
                 },
                 "expected_values": {"amount": "100.00", "currency": "156",
                                     "entry_mode": "contactless"},
-                "pos_params": [dict(p) for p in pos_params],
+                # v2: `act` only.  These sub-cases exercise the PPSE selection
+                # path (approved / terminated), not an online approval -> no
+                # DF8101.
+                "act": to_act(pos_params),
                 "kernel_params": None,
             },
             "preconditions": ["手机 NFC 已开启，模拟 app 保持前台"],
@@ -981,7 +1116,9 @@ def _gen_ppse_group(brand_root: Path, brand_conf: dict, brand: str,
                 },
                 "expected_values": {"amount": "100.00", "currency": "156",
                                     "entry_mode": "contactless"},
-                "pos_params": [dict(p) for p in pos_params],
+                # v2: `act` only.  PPSE FCI variations (approved / terminated),
+                # never an online approval -> no DF8101.
+                "act": to_act(pos_params),
                 "kernel_params": None,
             },
             "preconditions": ["手机 NFC 已开启，模拟 app 保持前台"],

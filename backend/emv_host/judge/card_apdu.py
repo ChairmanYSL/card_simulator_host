@@ -54,6 +54,31 @@ def _apdu_fields(raw_hex: str) -> tuple[str, str, str, str, str]:
     return cla, ins, p1, p2, data
 
 
+def _read_tag(blob: str, index: int) -> tuple[str, int]:
+    """Read one tag at ``index`` using the kernel's own rule.
+
+    The FIRST byte decides whether the tag is multi-byte ((byte & 0x1F) == 0x1F,
+    the kernel's ``has_subsequent``) and further bytes are consumed while b8 is
+    set (``another_byte_follow``) — see
+    Expresspay/submodule/emvco/src/emvtlv.c:17-18.  Applying the ``& 0x1F`` test
+    to every byte instead reads ``9F5F 01`` as a three-byte tag, while the
+    kernel and the card both treat it as ``9F5F`` with length 01.
+    """
+    tag = blob[index:index + 2]
+    index += 2
+    if len(tag) < 2:
+        return tag, index
+    if (int(tag, 16) & 0x1F) == 0x1F:
+        # The kernel consumes ONE byte first (do-while) and only then tests b8,
+        # so 5F 2D is the two-byte tag 5F2D and 9F 5F 01 is 9F5F (len 01).
+        while index + 2 <= len(blob) and len(tag) < 8:
+            tag += blob[index:index + 2]
+            index += 2
+            if not (int(tag[-2:], 16) & 0x80):
+                break
+    return tag, index
+
+
 def parse_tlv(tlv_hex: str) -> dict[str, str]:
     """TLV -> {tag: value}; descends into constructed tags (6F / A5 / 70 / 77 ...).
 
@@ -68,14 +93,7 @@ def parse_tlv(tlv_hex: str) -> dict[str, str]:
     def walk(blob: str) -> None:
         i = 0
         while i + 4 <= len(blob):
-            tag = blob[i:i + 2]
-            i += 2
-            # EMV: a tag continues while (byte & 0x1F) == 0x1F (9F / DF / 5F ...).
-            while (int(tag[-2:], 16) & 0x1F) == 0x1F:
-                if i + 2 > len(blob):
-                    return
-                tag += blob[i:i + 2]
-                i += 2
+            tag, i = _read_tag(blob, i)
             if i + 2 > len(blob):
                 return
             length = int(blob[i:i + 2], 16)
@@ -103,15 +121,17 @@ def split_template(template_hex: str) -> list[tuple[str, int]]:
     out: list[tuple[str, int]] = []
     i = 0
     while i + 4 <= len(raw):
-        tag = raw[i:i + 2]
-        i += 2
-        while (int(tag[-2:], 16) & 0x1F) == 0x1F:
-            if i + 2 > len(raw):
-                return out
-            tag += raw[i:i + 2]
-            i += 2
+        tag, i = _read_tag(raw, i)
+        if i + 2 > len(raw):
+            return out
         length = int(raw[i:i + 2], 16)
         i += 2
+        if length & 0x80:  # long form: the low 7 bits count the length bytes
+            count = length & 0x7F
+            if count > 4 or i + count * 2 > len(raw):
+                return out
+            length = int(raw[i:i + count * 2], 16)
+            i += count * 2
         out.append((tag, length))
     return out
 

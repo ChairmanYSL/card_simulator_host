@@ -1,0 +1,212 @@
+{
+  "case_id": "GPO-PROC151-XP2",
+  "title": "GPO 处理（长 PDOL：52 项 / 100 字节 GPO 数据）",
+  "summary": "FCI 的 9F38 PDOL 含 52 项、共 100 字节（除常规 tag 外还有 9F50–9F7F、BF10/BF11 等终端不一定支持的 tag）；终端应据此组出正好 100 字节的 GPO 命令数据——已知 tag 填终端值、未知 tag 补零——并按 GPO 响应（AIP=0880，不支持 SDA/DDA）继续交易，最终以 TC 脱机批准（档案随案例内嵌；PDOL 由日志内核自身的 DOL 解析序列重建，见 preconditions）。",
+  "brand": "amex",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "GPO-PROC151-XP2",
+    "name": "AMEX GPO 处理（GPO.PROC151.XP2）",
+    "network": "AMEX",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000025010403",
+        "label": "Personal Account",
+        "priority": 0
+      }
+    ],
+    "pan": "340000040000001",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "USER1",
+    "track2EquivalentData": "3334303030303034303030303030313D34393132323031",
+    "applicationLabel": "AMEX",
+    "applicationVersionNumber": "0001",
+    "aip": "0880",
+    "afl": "08010100",
+    "issuerCountryCode": "0620",
+    "pdol": "9F6E049F35019F370495059F34039F02069F03069F50029F51019F52019F53019F54019F55019F56019F57019F58019F59019F5A089F5B069F5C019F5D019F5E019F5F019F60019F61019F62019F63019F64019F65019F66019F68019F69019F6A019F6B019F6C019F6F049F70029F71039F72019F73019F74019F75019F76019F78019F79089F7A019F7B019F7C019F7E019F7F01BF1001BF1101",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cdol2": "8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cvmList": [
+      {
+        "cvmCode": 2,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 1,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 30,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 31,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      }
+    ],
+    "applicationUsageControl": "FF00",
+    "applicationCurrencyCode": "0978",
+    "applicationEffectiveDate": "101004",
+    "iacDefault": "0000000000",
+    "iacDenial": "0000000000",
+    "iacOnline": "0000000000",
+    "cardInterfaceAndPaymentCapabilities": "0000",
+    "languagePreference": "ENFR",
+    "acBehavior": "offline_approved",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "cardholderName",
+          "cdol1",
+          "cdol2",
+          "cardInterfaceAndPaymentCapabilities",
+          "applicationVersionNumber",
+          "applicationUsageControl",
+          "issuerCountryCode",
+          "applicationCurrencyCode",
+          "cvmList",
+          "applicationEffectiveDate",
+          "expiryDate",
+          "pan",
+          "panSequenceNumber",
+          "iacDefault",
+          "iacDenial",
+          "iacOnline",
+          "track2"
+        ]
+      }
+    ]
+  },
+  "kernel_params_ref": "CONF_01",
+  "terminal_profile_ref": "PROFILE_01",
+  "transaction": {
+    "operator_instructions": {
+      "amount": "15.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "tap the phone on the POS reader when it shows 15.00 EUR"
+    },
+    "expected_values": {
+      "amount": "15.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "9F02",
+        "value": "000000001500"
+      },
+      {
+        "id": "9F03",
+        "value": "000000000000"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS terminal configured with CONF_01 + PROFILE_01 (the reference log's TERM is byte-identical to GPO-PROC71-XP2's)",
+    "the FCI PDOL is reconstructed: the reference log's 9F38 has 9 masked bytes (FFFFFFFFFFFFFFFF01) where the kernel's own emvdol_packet trace reads 9F5B(6) 9F5C(1) 9F5D(1) — the reconstruction makes the 52 entries total exactly the 100 bytes of the logged GPO data and splits that data with zero leftover",
+    "the reference log masks tag 5A/57 to all Fs, so a real AMEX PAN + track 2 are constructed (same approach as GPO-PROC71-XP2)",
+    "AIP 0880 carries no SDA/DDA bit: this case exercises GPO data handling only (no offline data authentication)"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes the card profile (AID A000000025010403, 52-entry PDOL, AIP 0880, AFL 08010100) and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "operator completes the 15.00 EUR transaction",
+      "expect": "POS sends GET PROCESSING OPTIONS with 100 bytes of PDOL data, then reads SFI 1 record 1 and sends GENERATE AC (TC)"
+    },
+    {
+      "step": 3,
+      "action": "host judges the GPO data tag by tag against the 52-entry PDOL: known tags carry terminal values, unsupported tags are zero filled",
+      "expect": "card.gpo.pdol.9F6E=18000003, 9F35=22, 9F02=000000001500, 9F03=000000000000, 9F34=000000, and an unsupported tag such as 9F79 is all zeroes"
+    },
+    {
+      "step": 4,
+      "action": "host asserts the GPO response and the outcome",
+      "expect": "card.gpo.aip=0880, card.gpo.afl=08010100, offline approved (outcome=approved, online=offline, resp_code=00)"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "card.gpo.aip",
+      "op": "eq",
+      "expect": "0880"
+    },
+    {
+      "path": "card.gpo.afl",
+      "op": "eq",
+      "expect": "08010100"
+    },
+    {
+      "path": "card.gpo.pdol.9F6E",
+      "op": "eq",
+      "expect": "18000003"
+    },
+    {
+      "path": "card.gpo.pdol.9F35",
+      "op": "eq",
+      "expect": "22"
+    },
+    {
+      "path": "card.gpo.pdol.9F02",
+      "op": "eq",
+      "expect": "000000001500"
+    },
+    {
+      "path": "card.gpo.pdol.9F03",
+      "op": "eq",
+      "expect": "000000000000"
+    },
+    {
+      "path": "card.gpo.pdol.9F34",
+      "op": "eq",
+      "expect": "000000"
+    },
+    {
+      "path": "card.gpo.pdol.9F79",
+      "op": "eq",
+      "expect": "0000000000000000"
+    },
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "offline"
+    },
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    }
+  ]
+}

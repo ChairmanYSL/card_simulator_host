@@ -5,7 +5,49 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
-## 2026-09-23（案例：AMEX `GPO-PROC71-XP2` 含真实 SDA + 卡端 APDU 判定视图扩展）
+## 2026-09-23（案例：AMEX `GPO-PROC151-XP2`（长 PDOL）与 `GPO-PROC71-XP2`（含真实 SDA）；卡端 APDU 判定视图扩展 + tag 解析修复）
+
+### 数据：新增案例 `GPO-PROC151-XP2`（amex / GPO 处理：52 项长 PDOL）
+- **参考**：`refernce/GPO PROC 151 XP2EMV.txt`（UTF-16LE，device 侧 `AMEXEMVCORE`）
+- **与 71 案例的区别**：FCI 的 `9F38` 是 **52 项 / 100 字节**的长 PDOL（除常规 tag 外还有
+  `9F50`–`9F7F`、`BF10`/`BF11` 等终端未必支持的 tag），终端必须据此组出**正好 100 字节**的
+  GPO 命令数据（已知 tag 填终端值、未知 tag 补零）；**AIP=`0880` 不含 SDA/DDA**，
+  故本案例不需要 SDA 材料（终端应记 "ODA not performed"）
+- **终端配置**：`CONF_01` + `PROFILE_01`（日志 TERM 与 71 日志逐字节相同，117B = 80B + 37B）
+- **两处日志被屏蔽、必须重建（都有独立印证）**：
+  1. **PDOL**：日志 `9F38` 中有 9 字节被替换为 `FFFFFFFFFFFFFFFF01`；日志里**内核自身的
+     `emvdol_packet` 解析序列**（52 行 `tag/reqlen`）给出真实条目 `9F5B(6) 9F5C(1) 9F5D(1)`
+     → 重建后 52 项**正好 100 字节 = 终端 GPO 数据长度**，且用它切分日志的 GPO 数据
+     **零剩余字节**（两处独立事实互相印证）
+  2. **5A / 57** 在日志里被屏蔽为全 F → 构造真实 Amex PAN（Luhn 校验 `340000040000001`）
+     + 二磁道（与 `GPO-PROC71-XP2` 同做法）
+- **档案其余字段照日志**：AID `A000000025010403`（FCI `50`="Personal Account"、`5F2D`="ENFR"）、
+  `AFL=08010100`、cdol1/cdol2、`8E` 原样 18 字节（`00000000 00000000 4203 4103 5E03 1F03 0000`
+  → `cvmList=[{2,3,2},{1,3,2},{0x1E,3,2},{0x1F,3,1},{0,0,1}]`，正好复验修好的 8E 编码）、
+  记录内容（5F20=USER1、9F70=0000、9F08=0001、9F07=FF00、5F28=0620、9F42=0978、5F25=101004、
+  5F24=491231、5F34=00、9F0D/0E/0F=0）；`acBehavior=offline_approved`（日志 GAC P1=0x40 → TC）；
+  `act`：`9F02=000000001500`、`9F03=000000000000`、`9C=00`
+- **断言（用户裁定 b：最小集 + GPO 数据核对）**：`card.gpo.aip=0880`、`card.gpo.afl=08010100`、
+  `card.gpo.pdol.9F6E=18000003`、`9F35=22`、`9F02=000000001500`、`9F03=000000000000`、
+  `9F34=000000`、`9F79=0000000000000000`（未知 tag 补零）、`outcome=approved`、
+  `online=offline`、`resp_code=00`
+- **本地校验（无设备）**：`tmp/check_gpo_proc151.py` 用**日志真实 APDU 流**（仅把 FCI 的 PDOL
+  换成重建值）跑判定引擎 → 8 条 `card.*` 断言**全 PASS**
+- **备注**：日志 GAC 的 `9F34=3F0000` 是 V4.2.0 的已知缺陷（V4.2.3 应为 `3F0001`）；
+  按裁定 b 本案例不断言 GAC 的 9F34
+- **未做**：未上机、未部署
+
+### 修复：`judge/card_apdu.py` 的 tag 解析规则改为内核同款
+- **问题**：原实现把"下一位是否继续读 tag"也按 `(byte & 0x1F) == 0x1F` 判定，于是
+  `9F5F 01` 被读成 3 字节 tag `9F5F01`（正确应为 2 字节 tag `9F5F` + 长度 01）。
+  `GPO-PROC151-XP2` 的 PDOL 里同时出现 `9F5F`/`9F7F`/`BF10` 等 → 模板切分错位
+- **修复**：新增 `_read_tag()`，按内核 `emvtlv.c:17-18` 的规则——首字节
+  `has_subsequent = (b & 0x1F) == 0x1F` 决定是否多字节，之后 do-while **先吃一字节**、
+  再按 `another_byte_follow = b & 0x80` 续读；`parse_tlv`/`split_template` 共用它；
+  `split_template` 同时补上长格式长度（低 7 位 = 长度字节数）支持
+- **验证**：新增 `backend/tests/test_card_apdu.py`（5 例：tag 规则、52 项 PDOL 切分=100 字节、
+  FCI 递归下探、GPO `77`/`80` 两种响应格式 + `read_record.records` 映射）；
+  后端 `pytest` **216 passed** ✓
 
 ### 数据：新增案例 `GPO-PROC71-XP2`（amex / GPO 处理 + 静态数据认证 SDA）
 - **测试目的**：检查终端能否正确处理 GPO 返回的卡片数据；授权金额 15.00、其他金额 0.00、

@@ -1,0 +1,19 @@
+{
+  "brand": "unionpay",
+  "version": "unionpay-demo-1",
+  "note": "UnionPay demo POS config library. Hand-authored (no vendor source XML), unlike the Amex set. Loaded by backend/emv_host/cases/loader.py (index.json is metadata only).",
+  "configs": [
+    {
+      "id": "CONF_UP_01",
+      "kind": "conf",
+      "file": "CONF_UP_01.json",
+      "source": "hand-authored per user ruling 2026-09-22",
+      "aids": 0,
+      "capk": 0,
+      "drl": 0,
+      "exception_file": 0,
+      "term": true,
+      "note": "term only: the device factory TERM (assets/emv/params TERM= 9F6604360000809F1A0201569F7A0101) with 9F66 (TTQ) overridden to 36804000 so the reader requests an online cryptogram (QPB-B-002-01). 9F1A/9F7A are kept because the POS applies CONFIG.TERM with setTerminalParam, i.e. the whole terminal parameter set is replaced."
+    }
+  ]
+}

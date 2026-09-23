@@ -30,6 +30,7 @@
   ],
   "pass_criteria": [
     "读写器应在终端交易属性（标签 9F66）中表示请求联机密文，即字节2位8='1'（本 demo 期望 9F66=36804000）。",
-    "本 host 断言映射（用户约定）：result.tags.gpo.9F66=36804000；outcome=approved、online=online、resp_code=00（需测试收单主机）。"
+    "本 host 断言映射（2026-09-22 修正为 v2 口径）：out.datarecord.9F66=36804000、outcome=approved、online=online、resp_code=00。",
+    "9F66 属终端级 tag：按《POS 端协议 v2 变更通知》§3 一律由 `CONFIG.TERM` 投递（本案例引用命名模块 `CONF_UP_01`），不下发 ACT；`DF8101=01` 由 ACT 下发，表示「模拟测试主机在线批准」。"
   ]
 }

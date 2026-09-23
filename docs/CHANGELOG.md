@@ -5,7 +5,44 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
-## 2026-09-22（案例修正：`CVM-PROC83-XP2` 的 CVM Rule b7 口径 + `QPB-B-002-01` 参数恢复）
+## 2026-09-22（案例修正：CVM Rule b7 口径、`QPB-B-002-01` 参数恢复 / 9F66 通道、`QPB-I-010-01` 改判）
+
+### 数据：`QPB-B-002-01` 的 `9F66=36804000` 改由命名模块 `CONF_UP_01` 经 `CONFIG.TERM` 投递
+- **用户裁定**：建 unionpay 命名 CONF 模块（只含 `term`）并由案例引用
+- **新增**：`cases/unionpay/pos_configs/CONF_UP_01.json`（`aids/caps/drl/exception_file`
+  全空，只有 `term`）+ `cases/unionpay/pos_configs/index.json`（元数据，loader 忽略，
+  与 amex 一致；该目录**不在**生成器 manifest 内，重生成不会删）
+- **`term` 内容的依据（关键，不只是"只发 9F66"）**：POS 侧 CONFIG.TERM 的落地是
+  `setTerminalParam`，POS 自己的注释写明是「**整条覆盖**」（`EmvService.java:592`、
+  `:635-643`），而每笔交易的终端参数基础是 `termCurrent()` = **host CONFIG.TERM 优先、
+  否则设备出厂 TERM**（`EmvService.java:527-531`，调用点 `PosController.java:242`
+  → `TxnSpec.build(ctx, emvService.termCurrent())`）。因此若只发 `9F66`，会把设备出厂
+  TERM 里的 `9F1A`/`9F7A` 一起抹掉。设备出厂 TERM 已在安卓 assets 里核实：
+  `app/src/main/assets/emv/params` 的 `TERM=` 段 = `9F6604360000809F1A0201569F7A0101`。
+  故模块 `term` = **出厂 TERM 原样 + 仅覆盖 9F66**：
+  `9F6604368040009F1A0201569F7A0101` —— 与 v1 的
+  `TxnSpec.buildTerminal(baseTerm=出厂TERM, …, ttqHex=36804000)` 合并结果等价
+- **案例**：`QPB-B-002-01` 增加案例级 `kernel_params_ref: "CONF_UP_01"`（位置与 amex 案例一致，
+  在 `profile` 之后、`transaction` 之前）；`act` 保留上一条恢复的 `DF8101=01`；
+  断言不变（`out.datarecord.9F66 eq 36804000`）
+- **已知副作用（已记录）**：该案例因此会下发 CONFIG，而 `_config_frame` 按 D1 恒带
+  `DRL=""`/`EXCEPTION_FILE=""` = 清空 POS 这两张表；设备出厂为空表，且 POS 每次收到
+  CONFIG 都会 `clearCardBlack`/`clearCertBlack`，故无新增风险
+- **验证**：`CaseLibrary` 加载 unionpay **0 issue**；`case.kernel_params.term` 组合结果
+  与预期一致（脚本输出见提交说明）
+
+### 数据：`QPB-I-010-01` 改判为 `outcome=online_request`（用户裁定 b）
+- **裁定**：承认 v2 语义——POS 把「请求联机」如实上报、联机结果由上位机（测试主机）裁定，
+  本案例不再要求 `declined`
+- **改动**：`expected_results` 由 `outcome eq declined` + `resp_code any_of [05,91,16,80]`
+  改为 `outcome eq online_request` + `online eq online` + `out.datarecord.9F27 prefix 80`；
+  `summary` / `operator_instructions.notes` / `test_plan` 步骤 3-5 与
+  `QPB-I-010/group.json` 的 `pass_criteria` 同步改写
+- **改动依据（直接观测，2026-09-20 落盘结果）**：`OPS.raw=3000F00030F0FF00`（Status=3
+  ONLINE REQUEST）、`outcome=online_request`、`online=online`、`resp_code=00`、`9F27=80`（ARQC）
+- **口径变更标注**（AGENTS.md「Label oracle changes」）：改的是**判定口径**，不是卡片行为；
+  v1 时代的 `declined` 判定与 v2 的「上报请求联机」语义冲突，按用户裁定以后者为准
+- **验证**：`CaseLibrary` 加载 unionpay **0 issue**
 
 ### 数据：`QPB-B-002-01` 恢复 `ACT DF8101="01"`（09-15 生成器重写时丢失）
 - **改动**：`cases/unionpay/contactless/cases/QPB-B-002/QPB-B-002-01.json` 的
@@ -21,7 +58,8 @@
 - **口径依据**：`docs/change-notice-v2-pos.md:79`（host 通过 `ACT` 下发 `DF8101="01"`）、
   `docs/protocol.md:539`、`docs/reply-to-pos-v2-confirmation.md:15`（POS 已确认接受）
 - **未改**：`9F66` 是终端级 tag，按 `docs/change-notice-v2-pos.md:78` **一律走
-  `CONFIG.TERM`**、不是 `ACT` 项；本案例投递 `9F66=36804000` 的方式待用户裁定
+  `CONFIG.TERM`**、不是 `ACT` 项；本案例投递 `9F66=36804000` 的方式当时待裁定
+  （同节第一条已按用户裁定实现：命名模块 `CONF_UP_01`）
 - **验证**：`CaseLibrary` 重新加载该案例无新增 issue
 
 ### 数据：`CVM-PROC83-XP2` 的 `applySucceedingCvm` 2 → 1

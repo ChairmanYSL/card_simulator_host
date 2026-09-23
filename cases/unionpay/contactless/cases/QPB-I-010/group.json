@@ -30,11 +30,12 @@
     {
       "step": 5,
       "action": "联机交易不能完成（发卡行/主机没有返回响应）",
-      "expect": "读写器拒绝交易并提示商户和持卡人交易被拒绝"
+      "expect": "读写器如实上报「请求联机」，由上位机（测试主机）裁定联机结果"
     }
   ],
   "pass_criteria": [
-    "读写器应拒绝交易，读写器应提示商户和持卡人交易被拒绝。",
-    "本 host 断言映射（用户约定）：POS transaction_result 的 outcome=declined，resp_code ∈ {05, 91, 16, 80}。"
+    "读写器在无法完成联机时应给持卡人明确结果，且对上位机如实上报本次交易状态。",
+    "本 host 断言映射（2026-09-22 用户裁定，v2 口径）：POS OUT 的 outcome=online_request、online=online、out.datarecord.9F27 前缀 80（ARQC）。",
+    "**改判说明**：v1 时代本用例断言 outcome=declined / resp_code∈{05,91,16,80}；v2 联机语义改为「POS 上报请求联机、由上位机裁定」，故判定口径按用户裁定改为 online_request（被改的是**判定口径**，不是卡片行为）。"
   ]
 }

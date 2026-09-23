@@ -1,7 +1,7 @@
 {
   "case_id": "QPB-I-010-01",
   "title": "交易不能联机完成（读写器拒绝交易）",
-  "summary": "GPO 响应含 9F10（第5字节第6-5位='10'）；联机主机无响应；读写器应拒绝交易（档案随案例内嵌）",
+  "summary": "GPO 响应含 9F10（第5字节第6-5位='10'）；本案例故意不下发 DF8101=01，POS 不模拟在线批准（POS KernelDriver.java:455-458 走「真实行为」分支）；按 v2 口径判定 POS 如实上报「请求联机」——OPS Status=ONLINE REQUEST、outcome=online_request，联机结果由上位机/测试主机裁定（档案随案例内嵌）",
   "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
@@ -49,7 +49,7 @@
       "currency": "CNY",
       "entry_mode": "contactless",
       "pin_hint": "none",
-      "notes": "将手机贴到 POS 读卡器；POS 将尝试联机授权，但测试环境后台不响应，读写器应拒绝交易并提示商户/持卡人"
+      "notes": "将手机贴到 POS 读卡器；本案例不下发 DF8101=01，POS 不模拟在线批准；按 v2 口径判定 POS 上报「请求联机」（OPS=ONLINE REQUEST / outcome=online_request）"
     },
     "expected_values": {
       "amount": "100.00",
@@ -90,8 +90,8 @@
     },
     {
       "step": 3,
-      "action": "操作员在 POS 发起 100.00 元交易；卡片返回 GPO 响应（含 9F10），终端尝试联机但主机无响应",
-      "expect": "读写器拒绝交易并提示商户和持卡人，POS 回传 declined 结果"
+      "action": "操作员在 POS 发起 100.00 元交易；卡片返回 GPO 响应（含 9F10），本案例未下发 DF8101=01，终端不模拟在线结果",
+      "expect": "POS 如实上报请求联机：outcome=online_request（OPS Status=ONLINE REQUEST），联机结果由上位机裁定（2026-09-22 用户裁定的 v2 口径）"
     }
   ],
   "timeout_seconds": 180,
@@ -100,17 +100,17 @@
     {
       "path": "outcome",
       "op": "eq",
-      "expect": "declined"
+      "expect": "online_request"
     },
     {
-      "path": "resp_code",
-      "op": "any_of",
-      "expect": [
-        "05",
-        "91",
-        "16",
-        "80"
-      ]
+      "path": "online",
+      "op": "eq",
+      "expect": "online"
+    },
+    {
+      "path": "out.datarecord.9F27",
+      "op": "prefix",
+      "expect": "80"
     }
   ]
 }

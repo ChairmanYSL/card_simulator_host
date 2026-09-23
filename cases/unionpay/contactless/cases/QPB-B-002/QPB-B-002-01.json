@@ -1,7 +1,7 @@
 {
   "case_id": "QPB-B-002-01",
   "title": "状态检查请求（9F66 请求联机密文）",
-  "summary": "金额 0.01（一个货币单位，低于各限额）；FCI 带 9F38 PDOL 请求 9F66；终端 TTQ 9F66=36804000（字节2位8='1'）请求联机密文并联机批准（档案随案例内嵌）",
+  "summary": "金额 0.01（一个货币单位，低于各限额）；FCI 带 9F38 PDOL 请求 9F66；终端 TTQ 9F66=36804000（字节2位8='1'）请求联机密文并联机批准。TTQ 由命名模块 `CONF_UP_01` 经 `CONFIG.TERM` 投递，联机批准由 ACT 的 `DF8101=01` 模拟（档案随案例内嵌）",
   "brand": "unionpay",
   "entry_mode": "contactless",
   "profile": {
@@ -43,6 +43,7 @@
     "acBehavior": "online_request",
     "pdol": "9F37049F02065F2A029F6604"
   },
+  "kernel_params_ref": "CONF_UP_01",
   "transaction": {
     "operator_instructions": {
       "amount": "0.01",
@@ -79,7 +80,8 @@
     "手机 NFC 已开启，模拟 app 保持前台",
     "POS 支持状态检查；金额 0.01 需低于 POS 非接交易最低限额/相关最低限额（读写器非接触脱机限额，若前者不存在则用终端最低限额）",
     "模拟卡 SELECT AID 响应含 9F38 PDOL（请求 9F37/9F02/5F2A/9F66），需支持该字段的安卓模拟实现 + 真实 POS",
-    "联机批准需测试收单主机/卡 BIN 白名单（同 UPI-CL-003 环境假设；真实生产主机将拒绝假密文 ARQC）"
+    "终端 TTQ 需为 36804000：本案例引用 `CONF_UP_01`（`cases/unionpay/pos_configs/`），其 `term` 含 `9F66=36804000`；POS 侧 `setTerminalParam` 为**整条覆盖**，故该模块同时保留设备出厂 TERM 的 `9F1A`/`9F7A`",
+    "联机批准在本 demo 由 `DF8101=01`（ACT）模拟测试主机在线批准，**不依赖真实收单主机/卡 BIN 白名单**"
   ],
   "test_plan": [
     {
@@ -89,7 +91,7 @@
     },
     {
       "step": 2,
-      "action": "主机向 POS 下发交易参数（金额 0.01 等）",
+      "action": "主机先下发 CONFIG（引用 CONF_UP_01，含 TERM 9F66=36804000），再下发 ACT 交易参数（金额 0.01、DF8101=01）",
       "expect": "POS 应用参数后进入交易"
     },
     {
@@ -99,8 +101,8 @@
     },
     {
       "step": 4,
-      "action": "交易联机批准（测试收单主机）",
-      "expect": "POS 回传 approved/online 结果及 tags.gpo.9F66"
+      "action": "交易联机批准（DF8101=01 → POS 模拟测试主机在线批准）",
+      "expect": "POS 上报 approved/online 及 out.datarecord.9F66=36804000"
     }
   ],
   "timeout_seconds": 180,

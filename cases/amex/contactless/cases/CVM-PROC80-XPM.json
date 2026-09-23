@@ -1,0 +1,182 @@
+{
+  "case_id": "CVM-PROC80-XPM",
+  "title": "AMEX contactless CVM 处理（See Phone：上手机完成 CVM 后二次挥卡，脱机批准）",
+  "summary": "Expresspay Mobile「See Phone」流程：AIP=18C0（byte2 bit8 = 支持移动/CDCVM）、CVM List 16B（X/Y=0 + 4203/5E03/5F03/4100）。首次读卡时卡端在 GPO 应答里给 9F71=010001（移动 CVM 未完成），内核 emv_cardholder_verification.c:894（mob_cvm_res[2]==0x01 且 gExpressmobileagain==0）置 gExpressmobileagain=1 并返回 EMV_REQ_SEEPHONE=107；POS 必须提示持卡人「See Phone」、非接下电 1.5s 后重新检卡上电，并**继续同一内核上下文**（不能重新 initialize/preprocess，否则 gExpressmobileagain 丢失会再次要上手机）。第二次读卡时卡端给 9F71=010002（移动 CVM 已完成），内核跳过 See Phone 分支进入 CVM_Processing(FALSE)：因 CVMRLEF=0 且 CVM List 含 5F03（No CVM required，condition=03），内核优先取该规则（emv_cardholder_verification.c:674-704），express_CheckIfSupportCVM(0x1F) 判 9F33[1]&0x08=0x08 → 支持 → performCVM 返回 CV_SUCCESS → 9F34=5F0302，随后 GENERATE AC 走 TC（acBehavior=offline_approved）→ 交易结果应为脱机批准。参考日志（CVM PROC 80 XPM「二次拍卡没上电」）只到 NXT(107)/emv_process ret=107 就再无 APDU —— 即旧版 POS 未处理 107，本案例即以「二次读卡走完 GAC 并脱机批准」为通过条件。",
+  "brand": "amex",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "CVM-PROC80-XPM",
+    "name": "AMEX CVM processing (CVM-PROC80.XPM)",
+    "network": "AMEX",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000025010403",
+        "label": "Personal Account",
+        "priority": 1
+      }
+    ],
+    "pan": "340000080000002",
+    "panSequenceNumber": 0,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "USER1",
+    "track2EquivalentData": "3334303030303038303030303030323D34393132323031",
+    "applicationLabel": "Personal Account",
+    "applicationVersionNumber": "0001",
+    "aip": "18C0",
+    "afl": "08010101",
+    "issuerCountryCode": "0620",
+    "pdol": "9F6E049F35019F370495059F34039F02069F0306",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cdol2": "8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cvmList": [
+      {
+        "cvmCode": 2,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 30,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 31,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 1,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 2
+      }
+    ],
+    "applicationUsageControl": "FFC0",
+    "applicationCurrencyCode": "0978",
+    "applicationEffectiveDate": "101004",
+    "iacDefault": "0000000000",
+    "iacDenial": "0000000000",
+    "iacOnline": "0000000000",
+    "cardInterfaceAndPaymentCapabilities": "1000",
+    "languagePreference": "ENFR",
+    "acBehavior": "offline_approved",
+    "mobileCvmResult": "010001",
+    "mobileCvmResultRetap": "010002",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "cardholderName",
+          "cdol1",
+          "cdol2",
+          "cardInterfaceAndPaymentCapabilities",
+          "applicationVersionNumber",
+          "applicationUsageControl",
+          "issuerCountryCode",
+          "applicationCurrencyCode",
+          "cvmList",
+          "applicationEffectiveDate",
+          "expiryDate",
+          "pan",
+          "panSequenceNumber",
+          "iacDefault",
+          "iacDenial",
+          "iacOnline",
+          "track2"
+        ]
+      }
+    ]
+  },
+  "kernel_params_ref": "CONF_01",
+  "terminal_profile_ref": "PROFILE_02",
+  "transaction": {
+    "operator_instructions": {
+      "amount": "15.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "15.00 EUR: 第一次挥卡后 POS 应提示 See Phone；在手机上完成验证后再次挥卡（第二次）"
+    },
+    "expected_values": {
+      "amount": "15.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "9F02",
+        "value": "000000001500"
+      },
+      {
+        "id": "9F03",
+        "value": "000000000000"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS terminal configured with CONF_01 + PROFILE_02; PROFILE_02's term (9F33=200888, 9F6E=9C800003) is the module that reproduces the reference log's 9F33=200888/9F6E=9C800003 and makes express_CheckIfSupportCVM(0x1F) true (9F33[1]&0x08)",
+    "CVMRLEF must be 0 for this amount: the log prints 'in emv_cardholder_verify_temp g_emv_cnxt->CVMRLEF = 0' before NXT(107); a CVM limit of 0 (CVM-PROC101's PROFILE_02 use) would instead take the 8.2.2 branch",
+    "the card profile carries the two-step 9F71 sequence (mobileCvmResult=010001 on the first GPO of the emulation session, mobileCvmResultRetap=010002 from the second on); the GPO counter survives the field power-down between the two taps and is reset per emulation session (start_emulation/profile load)",
+    "the reference log masks PAN (5A=FFFFFFFFFFFFFFFF) and Track2 (57=FF…19B), so the profile uses a Luhn-valid test PAN (340000080000002, checked by the case loader) with panSequenceNumber 0 (log 5F34=00) and a derived ASCII track2; every other profile value is taken verbatim from the log (AID FCI 50/5F2D/9F38 and record 8C/8D/9F70/9F08/9F07/5F28/9F42/8E/5F25/5F24)",
+    "expected CVM Results after the re-tap: 5F0302 — emv_cardholder_verify → CVM_Processing(FALSE) picks the 5F03 (No CVM required) rule because CVMRLEF=0, its condition 03 is supported (9F33[1]&0x08) and express_PerformCVM(0x1F) returns CV_SUCCESS (emv_cardholder_verification.c:597-599, 674-704)"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes the card profile (AIP 18C0, CVM List 4203/5E03/5F03/4100, 9F71 sequence) with CONF_01 + PROFILE_02 and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "operator taps the phone once; the kernel returns EMV_REQ_SEEPHONE(107)",
+      "expect": "the card's first GPO response carries 9F71=010001 and the POS shows the See Phone prompt"
+    },
+    {
+      "step": 3,
+      "action": "POS powers the field down, waits ~1.5s, re-detects the card and continues the SAME kernel context (no re-initialize)",
+      "expect": "the card's second GPO response carries 9F71=010002 and the flow reaches GENERATE AC"
+    },
+    {
+      "step": 4,
+      "action": "host judges the CTEL2 out of the second read",
+      "expect": "outcome=approved / online=offline / resp_code=00 and the DataRecord 9F34 = 5F0302"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "offline"
+    },
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    },
+    {
+      "path": "out.datarecord.9F34",
+      "op": "eq",
+      "expect": "5F0302",
+      "severity": "warn"
+    },
+    {
+      "path": "card.gpo.response_tlvs.9F71",
+      "op": "eq",
+      "expect": "010001",
+      "severity": "warn"
+    }
+  ]
+}

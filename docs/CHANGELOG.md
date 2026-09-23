@@ -5,6 +5,37 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-23（案例：AMEX `CVM-PROC80-XPM`（Expresspay Mobile See Phone / 二次挥卡））
+
+### 数据：新增案例 `CVM-PROC80-XPM`（amex / CVM 处理：See Phone 后二次读卡走完 GAC）
+- **参考**：`refernce/CVM PROC 80 XPMEMVXPMEMV二次拍卡没上电.txt`（UTF-16LE，device 侧 `AMEXEMVCORE`；
+  完整 3 条 APDU：AID SELECT FCI / GPO / READ RECORD，随后 `emv_cardholder_verify_temp - 1201 NXT(107)`、
+  `emv_process ret = 107` 之后**再无任何 APDU**）
+- **档案取值全部来自日志**：AID FCI（`50`=`Personal Account`、`5F2D`=ENFR、`9F38` 20B PDOL、`87`=01）、
+  记录（`5F20`=USER1、`8C`/`8D`、`9F70`=1000、`9F08`=0001、`9F07`=FFC0、`5F28`=0620、`9F42`=0978、
+  `8E`=16B `0000000000000000 4203 5E03 5F03 4100`、`5F25`=101004、`5F24`=491231、`5F34`=00）、
+  GPO 应答（AIP `18C0`、AFL `08010101`）；金额由 PDOL 数据 `…000000001500` 得 **15.00**；
+  日志把 `5A`/`57` 屏蔽为 FF，档案改用同族测试 PAN + 派生 ASCII track2（其余逐字节照抄）
+- **机制（内核 V4.2.3 `submodule/emvco/src/emv_cardholder_verification.c`，逐行核对）**：
+  1. `emv_cardholder_verify()` 8.2.5.1：`AIP_MOB_SUPPORT()` 成立（AIP `18C0` 的 byte2 bit8）且
+     `9F71[0]&0x3F==0x01` 时，若 `9F71[2]==0x01` 且 `gExpressmobileagain==0`
+     → 置 `gExpressmobileagain=1` 并 `return outcome_try_again()` = **107 `EMV_REQ_SEEPHONE`**（:894-898）
+  2. 收单端必须提示 See Phone、下电后重新挥卡，并**保持同一内核上下文**（重新 initialize 会丢失
+     `gExpressmobileagain`，第二次仍会要上手机）
+  3. 第二次读卡 `9F71[2]==0x02`：不再要手机，续走 `CVM_Processing(FALSE)`；因 `CVMRLEF=0`
+     且 CVM List 含 `5F03`（`No CVM required`），内核**优先取该规则**（:674-704）→
+     `express_CheckIfSupportCVM(0x1F)` 判 `9F33[1]&0x08`（PROFILE_02 的 `9F33=200888` → 真）
+     → `express_PerformCVM(0x1F)` 返回 `CV_SUCCESS`（:597-599）→ **`9F34 = 5F0302`** → `TC`
+- **卡端配合（同轮，card_simulator）**：档案新增 `mobileCvmResult`/`mobileCvmResultRetap`（Room v7→v8），
+  内核按**每 emulation 会话**的 GPO 次序下发 `9F71`：首次 `010001`、第二次起 `010002`
+  （计数不随 `reset()` 清零——两次挥卡之间必然丢场；只在 `setProfile()`/start_emulation 清零）
+- **判定口径（用户裁定）**：通过条件 = `outcome=approved` + `online=offline` + `resp_code=00`；
+  另加两条 **warn（不计入通过条件，仅作机制证据）**：`out.datarecord.9F34 = 5F0302`、
+  `card.gpo.response_tlvs.9F71 = 010001`（首次 GPO 必须要求上手机）；`warn` 在 host 侧计入
+  `PASSING = {PASS, WARN}`，不改变本条用例的通过/失败判定
+- **验证**：host `pytest` 216 passed（含用例库加载/校验）
+- **未上机**：本轮只落代码/用例/文档；卡端 APK 未构建、POS 2.1.5 未装机
+
 ## 2026-09-23（案例：AMEX `CVM-PROC101-XPM`（CVMRLEF=1）、`GPO-PROC151-XP2`（长 PDOL）、`GPO-PROC71-XP2`（含真实 SDA）；卡端 APDU 判定视图扩展 + tag 解析修复）
 
 ### 数据：新增案例 `CVM-PROC101-XPM`（amex / CVM 处理：CVMRLEF=1 + Fail CVM processing）

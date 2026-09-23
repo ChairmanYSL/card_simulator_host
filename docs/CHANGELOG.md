@@ -5,7 +5,24 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
-## 2026-09-22（案例修正：`CVM-PROC83-XP2` 的 CVM Rule b7 口径）
+## 2026-09-22（案例修正：`CVM-PROC83-XP2` 的 CVM Rule b7 口径 + `QPB-B-002-01` 参数恢复）
+
+### 数据：`QPB-B-002-01` 恢复 `ACT DF8101="01"`（09-15 生成器重写时丢失）
+- **改动**：`cases/unionpay/contactless/cases/QPB-B-002/QPB-B-002-01.json` 的
+  `transaction.act` 增加 `{"id":"DF8101","value":"01"}`（其余条目不变）
+- **背景/证据**：`574b568`（2026-09-15「gen_cases emits kernel_params + manifest
+  path guard (T7)」）用生成器重写案例文件时，把手写的 `pos_params`
+  `DF8101="01"` 与 `9F66=36804000` 一并删除 —— `git diff a3c3791 574b568 -- cases`
+  可见 4 处 `- "tag": "DF8101"`（`QPB-B-002-01` 另有 `- "tag": "9F66"`）。
+  缺 `DF8101` 时 POS 走「无 DF8101 → 真实在线失败」分支
+  （POS `KernelDriver.java:455-458`），OUT 为 `OPS=ONLINE REQUEST` + `resp_code=00`，
+  与 2026-09-20 全量清单中 `outcome eq approved actual=online_request`
+  的 4 例（`MC/VISA/UPI-CL-003` + `QPB-B-002-01`）完全吻合，**不是"联机流程未实现"**
+- **口径依据**：`docs/change-notice-v2-pos.md:79`（host 通过 `ACT` 下发 `DF8101="01"`）、
+  `docs/protocol.md:539`、`docs/reply-to-pos-v2-confirmation.md:15`（POS 已确认接受）
+- **未改**：`9F66` 是终端级 tag，按 `docs/change-notice-v2-pos.md:78` **一律走
+  `CONFIG.TERM`**、不是 `ACT` 项；本案例投递 `9F66=36804000` 的方式待用户裁定
+- **验证**：`CaseLibrary` 重新加载该案例无新增 issue
 
 ### 数据：`CVM-PROC83-XP2` 的 `applySucceedingCvm` 2 → 1
 - **改动**：`cases/amex/contactless/cases/CVM-PROC83-XP2.json` 的

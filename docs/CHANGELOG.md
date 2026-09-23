@@ -5,7 +5,46 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
-## 2026-09-23（案例：AMEX `GPO-PROC151-XP2`（长 PDOL）与 `GPO-PROC71-XP2`（含真实 SDA）；卡端 APDU 判定视图扩展 + tag 解析修复）
+## 2026-09-23（案例：AMEX `CVM-PROC101-XPM`（CVMRLEF=1）、`GPO-PROC151-XP2`（长 PDOL）、`GPO-PROC71-XP2`（含真实 SDA）；卡端 APDU 判定视图扩展 + tag 解析修复）
+
+### 数据：新增案例 `CVM-PROC101-XPM`（amex / CVM 处理：CVMRLEF=1 + Fail CVM processing）
+- **参考**：`refernce/CVM PROC 101 XPMEMV_cvm9f34不错.txt`（UTF-16LE，device 侧 `AMEXEMVCORE`；
+  只有 3 条 APDU：READ RECORD 响应 + GAC 命令/响应，**没有 FCI/GPO**）
+- **与 `CVM-PROC83-XP2` 的分工**：同为 CVM 处理，本条走「Reader CVM Limit Reached or Exceeded」
+  （`CVMRLEF=1`）分支
+- **正确 `9F34` 的推导（用户要求：先按规范 + 代码推理，再设通过条件）**
+  1. **规范**：EMV 4.4 **Book 4 Annex A4 / Table 33（CVM Results）** —— byte1 = "Last CVM of the
+     CVM List **actually performed** … ('3F' if no CVM is performed)"；byte2 = 该 CVM 的
+     condition code "**or '00' if no actual CVM was performed**"；byte3 = `0`/`1`/`2`，并且
+     "**set to '1' if no CVM Condition Code was satisfied or if the CVM Code was not recognised
+     or not supported**"
+  2. **输入（日志）**：`8E` = 24B（`4203 1F03` + 6×`0000`）、`CVMRLEF=1`（行 112）、`9F35=22`、
+     `9F6E=9C804003`、`9F33=200888`、金额 55.00
+  3. **V4.2.3 代码路径**：`CVMRLEF=1` → `CVM_Processing(TRUE)`（skip_nocvm）；`(method&0x1F)==0x1F`
+     的 `1F03` 被**跳过**；`4203` 的 condition `03` → `express_CheckIfSupportCVM(0x42)` 查
+     `9F6E[1] & 0x40 == 0` → **不支持** → 跳过；`0000`（condition `00` = Always）→
+     `express_PerformCVM` 返回 `CV_FAIL_ALWALS` → **V4.2.3 写 `cvm_res = 3F 00 01`**
+     （`emv_cardholder_verification.c:745-756`；循环后的 `!needcvm` 分支 `:792-799` 同样）
+  4. ⇒ **正确值 = `3F 00 01`**（无实际执行的 CVM + 失败）。日志的 `00 00 01` 把 byte1 写成了
+     `Fail CVM processing` 的规则码 `0x00`——那不是"实际执行过的 CVM"，违反 Table 33，
+     即 V4.2.0 的同一处缺陷（V4.2.3 已修）
+- **终端配置（由日志反推）**：`CONF_01` + **`PROFILE_02`** —— 只有 PROFILE_02 的 term
+  （`9F3303200888…9F6E049C800003…DF810A0400000000`）能**同时**复现日志的 `9F33=200888` 与
+  `9F6E=9C804003`（后者 = 其 `9C800003` 在 `CVMRLEF=1` 时由内核 `|=0x40` 得到，
+  `emv_processing_restrictions.c:243-247`）；`CONF_01` 的 `9F1A=0620`/`5F2A=0978` 与日志 GAC 一致
+- **档案**：CVM List 24B 原样（8 条规则）；金额 55.00 → `act 9F02=000000005500`（日志 GAC）；
+  AIP `1880`（依据：日志 TVR byte1=`0x80` → 无 ODA；风险管理层与 CVM 阶段确实执行 → TRM/CVM 位）、
+  AFL `08010100`、PDOL 沿用 `CVM-PROC83-XP2`（日志无 FCI）；记录其余内容照日志
+  （9F70=1800、9F07=FFC0、9F08=0001、5F28=0620、9F42=0978、5F25=101004、5F24=491231、
+  cdol1/cdol2 原样），`acBehavior=offline_approved`（日志 CID=`0x40` TC）
+- **断言（用户裁定 a，与 `CVM-PROC83-XP2` 同口径）**：`card.gac.cdol.9F34 = 3F0001`、
+  `out.datarecord.9F34 = 3F0001`
+- **本地校验（无设备）**：`tmp/check_cvm_proc101.py` 双向验证 —— 用日志原始 GAC
+  （`9F34=000001`）跑 → **FAIL**（证明该案例确实能抓到 V4.2.0 的缺陷）；把 GAC 的 9F34 换成
+  `3F0001` → **PASS** ✓
+- **加载校验**：`CaseLibrary` 0 issue；后端 `pytest` **216 passed**
+- **命名备注**：按用户指定用 `CVM-PROC101-XPM`（同族其它案例为 `-XP2`）
+- **未做**：未上机、未部署
 
 ### 数据：新增案例 `GPO-PROC151-XP2`（amex / GPO 处理：52 项长 PDOL）
 - **参考**：`refernce/GPO PROC 151 XP2EMV.txt`（UTF-16LE，device 侧 `AMEXEMVCORE`）

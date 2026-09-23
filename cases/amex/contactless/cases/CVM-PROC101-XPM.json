@@ -1,0 +1,183 @@
+{
+  "case_id": "CVM-PROC101-XPM",
+  "title": "CVM 处理（CVM List 4203/1F03 + Fail CVM，CVMRLEF=1）",
+  "summary": "CVM List 为 24 字节（X/Y 金额 + 8 条 CV Rule：4203、1F03、6×0000），交易金额 55.00 使终端判定「Reader CVM Limit Reached or Exceeded」（CVMRLEF=1，PROFILE_02 的 CVM 限额为 0）；终端在 CVMRLEF=1 时不处理 No CVM required 规则，且其 Enhanced Contactless Reader Capabilities（9F6E[1]&0x40=0）不支持联机 PIN，故 4203 被跳过、1F03 被跳过、落到 0000（Fail CVM processing，condition=Always）→ 无任何 CVM 被实际执行、验证失败，正确的 CVM Results（9F34）应为 3F 00 01（EMV 4.4 Book 4 Annex A4 表 33；档案随案例内嵌）。",
+  "brand": "amex",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "CVM-PROC101-XPM",
+    "name": "AMEX CVM 处理（CVM.PROC101.XPM）",
+    "network": "AMEX",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000025010403",
+        "label": "AMEX",
+        "priority": 0
+      }
+    ],
+    "pan": "340000060000006",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "USER1",
+    "track2EquivalentData": "3334303030303036303030303030363D34393132323031",
+    "applicationLabel": "AMEX",
+    "applicationVersionNumber": "0001",
+    "aip": "1880",
+    "afl": "08010100",
+    "issuerCountryCode": "0620",
+    "pdol": "9F6E049F35019F370495059F34039F02069F0306",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cdol2": "8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cvmList": [
+      {
+        "cvmCode": 2,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 31,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      }
+    ],
+    "applicationUsageControl": "FFC0",
+    "applicationCurrencyCode": "0978",
+    "applicationEffectiveDate": "101004",
+    "iacDefault": "0000000000",
+    "iacDenial": "0000000000",
+    "iacOnline": "0000000000",
+    "cardInterfaceAndPaymentCapabilities": "1800",
+    "languagePreference": "ENFR",
+    "acBehavior": "offline_approved",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "cardholderName",
+          "cdol1",
+          "cdol2",
+          "cardInterfaceAndPaymentCapabilities",
+          "applicationVersionNumber",
+          "applicationUsageControl",
+          "issuerCountryCode",
+          "applicationCurrencyCode",
+          "cvmList",
+          "applicationEffectiveDate",
+          "expiryDate",
+          "pan",
+          "panSequenceNumber",
+          "iacDefault",
+          "iacDenial",
+          "iacOnline",
+          "track2"
+        ]
+      }
+    ]
+  },
+  "kernel_params_ref": "CONF_01",
+  "terminal_profile_ref": "PROFILE_02",
+  "transaction": {
+    "operator_instructions": {
+      "amount": "55.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "tap the phone on the POS reader when it shows 55.00 EUR"
+    },
+    "expected_values": {
+      "amount": "55.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "9F02",
+        "value": "000000005500"
+      },
+      {
+        "id": "9F03",
+        "value": "000000000000"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS terminal configured with CONF_01 + PROFILE_02: PROFILE_02's term (9F33=200888, 9F6E=9C800003, DF810A=00000000) is the only module that reproduces the log's 9F33=200888 and 9F6E=9C804003 (the kernel ORs 0x40 into 9F6E byte 3 when CVMRLEF=1)",
+    "amount 55.00 with PROFILE_02's CVM limit of 0 makes the terminal take the 'Reader CVM Limit Reached or Exceeded' path (CVMRLEF=1, log line 'g_emv_cnxt->CVMRLEF = 1')",
+    "the card's 9F6E/9F33 do not support Enciphered PIN online (9F6E[1] & 0x40 = 0), so CV Rule 4203 (condition 03) is skipped; with CVMRLEF=1 the kernel also skips No CVM required rules (1F03); the first applicable rule is 0000 (Fail CVM processing, condition Always)",
+    "expected CVM Results: 3F 00 01 - EMV 4.4 Book 4 Annex A4 Table 33 sets byte 1 to the CVM Code actually performed ('3F' if none), byte 2 to its condition ('00' if none) and byte 3 to '1' when no CVM could be performed; the reference log's 00 00 01 is the V4.2.0 defect fixed in V4.2.3 (emv_cardholder_verification.c:745-756 and 792-799 write 3F 00 01)",
+    "the log carries no FCI/GPO, so PDOL/AFL/AIP follow the sibling CVM-PROC83-XP2 case and the log's TVR byte 1 = 0x80 (no ODA) plus its TRM/CVM stages"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes the card profile (CVM List 4203/1F03/0000..., AIP 1880) with CONF_01 + PROFILE_02 and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "operator completes the 55.00 EUR transaction",
+      "expect": "POS reads the record, processes the CVM list with CVMRLEF=1 and sends GENERATE AC"
+    },
+    {
+      "step": 3,
+      "action": "host judges the CVM Results the terminal put in the GENERATE AC CDOL1 data",
+      "expect": "card.gac.cdol.9F34 = 3F0001 (no CVM performed, verification failed)"
+    },
+    {
+      "step": 4,
+      "action": "host judges the CVM Results reported back in the POS OUT DataRecord",
+      "expect": "out.datarecord.9F34 = 3F0001"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "card.gac.cdol.9F34",
+      "op": "eq",
+      "expect": "3F0001"
+    },
+    {
+      "path": "out.datarecord.9F34",
+      "op": "eq",
+      "expect": "3F0001"
+    }
+  ]
+}

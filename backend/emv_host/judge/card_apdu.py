@@ -174,6 +174,27 @@ def _gpo_response_fields(body_hex: str) -> tuple[str, str, dict[str, str]]:
     return tlvs.get("82", ""), tlvs.get("94", ""), tlvs
 
 
+def _hex_byte(value: Any) -> str:
+    """Normalise a CLA/INS/P1/P2 field to upper-case hex.
+
+    The Android side reports these as **integers** (``{cla: 128, ins: 168}`` for
+    GPO), while the trace schema and the case assertions use hex strings.  The
+    first device run of the amex group (2026-09-24) showed every ``card.gpo.*``
+    and ``card.gac.*`` assertion missing for exactly this reason: the lookups
+    compared ``"A8"`` with ``168``.
+    """
+    if isinstance(value, bool):
+        return str(int(value))
+    if isinstance(value, int):
+        return f"{value:02X}"
+    text = str(value or "").strip().upper()
+    if text.startswith("0X"):
+        text = text[2:]
+    if len(text) == 1 and text.isalnum():
+        text = "0" + text
+    return text
+
+
 def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     """Turn the per-attempt trace stream into the judgeable ``card`` view."""
     if not trace_messages:
@@ -200,8 +221,8 @@ def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, An
 
     def _find(ins: str, cla: str = "80") -> dict[str, Any] | None:
         for command, _response in entries:
-            if command and str(command.get("cla", "")).upper() == cla \
-                    and str(command.get("ins", "")).upper() == ins:
+            if command and _hex_byte(command.get("cla", "")) == cla \
+                    and _hex_byte(command.get("ins", "")) == ins:
                 return command
         return None
 

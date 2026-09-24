@@ -202,23 +202,47 @@ def compute_capk_checksum(rid: str, key_index: str, modulus: str,
     return hashlib.sha1(material).hexdigest().upper()
 
 
+#: DF07 Key Algorithm Indicator on the wire.  EMV/Expresspay define 01 = RSA,
+#: and the device's own factory CAPK asset (KS8226 ``assets/emv/params``) writes
+#: 01 for every RSA key.  The vendor CONF vectors carry ``key_alg: 0``, and the
+#: KS8226 kernel rejects such an entry: the 2026-09-24 joint run showed all nine
+#: CONF_01 CAPK adds returning -1 (``updateCAPKParam(...)=-1`` x9 -> CONFIG
+#: rejected, ``config_rejected``), while the asset's DF07=01 entries load fine
+#: (``CAPKadded=20 skipped=9 rc=0``).
+KEY_ALG_RSA = 1
+
+#: DF05 expiry encoding the KS8226 kernel takes.  The factory asset writes the
+#: date as 8 ASCII bytes (``3230343431323331`` = "20441231"); the vendor CONF
+#: vectors declare ``bcd3`` (3 packed bytes) and the kernel rejects those adds
+#: as well (same joint run).  Only ``raw`` (vendor samples that are not calendar
+#: dates, e.g. the UnionPay "PHWWIPQI") is passed through verbatim.
+DF05_KERNEL_ENCODING = "ascii8"
+
+
 def encode_capk(cap: "CapkParam") -> str:
     """Encode one ``capk[]`` entry in the mandatory POS element order.
 
-    ``DF05`` is written in the encoding the entry declares (C2; default ascii8).
-    When ``cap.checksum`` is empty the SHA1 is computed here, so callers may
-    supply only the key material.  DF03 covers RID|index|modulus|exponent only,
-    so changing the DF05 encoding never changes the checksum.
+    ``DF05`` is written as 8 ASCII bytes (the encoding the KS8226 asset uses,
+    see ``DF05_KERNEL_ENCODING``); a vector that declares ``raw`` keeps its
+    verbatim bytes.  When ``cap.checksum`` is empty the SHA1 is computed here,
+    so callers may supply only the key material.  DF03 covers
+    RID|index|modulus|exponent only, so the DF05 encoding never changes it.
+
+    ``DF07``: a ``key_alg`` of 0 (as in the vendor test vectors) is written as
+    01 = RSA (see ``KEY_ALG_RSA``).
     """
     checksum = cap.checksum.strip().upper() or compute_capk_checksum(
         cap.rid, cap.key_index, cap.modulus, cap.exponent)
-    expiry_hex = encode_expiry(cap.expiry, cap.expiry_encoding, cap.expiry_raw)
+    expiry_encoding = (cap.expiry_encoding
+                       if cap.expiry_encoding == "raw" else DF05_KERNEL_ENCODING)
+    expiry_hex = encode_expiry(cap.expiry, expiry_encoding, cap.expiry_raw)
+    key_alg = cap.key_alg or KEY_ALG_RSA
     return "".join((
         tlv(TAG_RID, cap.rid),
         tlv(TAG_KEY_INDEX, cap.key_index),
         tlv(TAG_EXPIRY, expiry_hex),
         tlv(TAG_HASH_ALG, f"{cap.hash_alg:02X}"),
-        tlv(TAG_KEY_ALG, f"{cap.key_alg:02X}"),
+        tlv(TAG_KEY_ALG, f"{key_alg:02X}"),
         tlv(TAG_MODULUS, cap.modulus),
         tlv(TAG_EXPONENT, cap.exponent),
         tlv(TAG_CHECKSUM, checksum),

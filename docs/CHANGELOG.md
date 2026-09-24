@@ -5,6 +5,58 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-24（三方联调首轮：CONFIG 被判 NO 的两处根因 —— CAPK DF05/DF07 编码 + keys 空段）
+
+### 修复：capk[] 的 DF07 写 01（RSA）、DF05 恒写 8 字节 ASCII —— 否则 POS 全部 CAPK 添加失败
+- **现象**（真机，卡端 1.0.35 / POS 2.1.6，amex `CAA1-PROC13-XP2`）：
+  `EmvService: CONFIG 应用失败: AID=1/1 CAPK=0/9 TERM=117B DRL=30/30 EXF=1/1
+  err=updateCAPKParam(9F0605A0)=-1;…(×9);clearCardBlack=-1;clearCertBlack=-1;`
+  → POS 回 `config_ack=NO` → host 记 `config_rejected`（未挥卡即失败）
+- **根因**：CONF 向量里的 `key_alg=0`、`expiry_encoding=bcd3` 被逐字写进 wire，
+  而 KS8226 内核要的是 `DF07=01`（RSA）与 `DF05` = 8 字节 ASCII（设备自带
+  `assets/emv/params` 的 CAPK 恒为 `9F2201 04 DF0508 3230343431323331 DF060101 DF070101`，
+  该资产灌装日志为 `CAPKadded=20 skipped=9 rc=0`）
+- **修复**（`protocol/kernel_tlv.py`）：新增 `KEY_ALG_RSA=1`、`DF05_KERNEL_ENCODING="ascii8"`；
+  `encode_capk()` 把 `key_alg=0` 写成 01，DF05 恒按 8 字节 ASCII 写（仅 `raw` 原样透传，
+  用于非日期的厂商样本如银联 `PHWWIPQI`）；DF03 不受影响（仍只覆盖 RID|索引|模数|指数）
+- **验证**：真机复跑 `CAA1-PROC13-XP2` → `retrieve_capk ret = 0`、`retrieve_issuer_pk = 0`、
+  `retrieve_icc_pk = 0`（我们生成的测试 CA/签发者/ICC 链被内核全部接受）；
+  host `pytest` 216 passed（`test_df05_encoding_option_is_honoured` 已按新口径改写，
+  并新增 raw 透传与 DF07 断言）
+
+### 修复：card_config.keys 不再下发空段 —— 否则卡端三阶段导入整份放弃
+- **现象**：真机 `CAA1-PROC13-XP2` 卡端 `CDA signing failed … No RSA key pair found for
+  keyId: cda-icc-caa1` → 卡回 6F00 → 内核 `deal_gac_resp ret = 111` → `END(111)`
+  （POS 按 CID=0x40 兜底成 APPROVED，掩盖了失败）
+- **根因**：host 把 `keys.certificates` 的默认空对象 `{}` 也发了出去，而卡端
+  `JsonKeyImporter` 对「存在但无可用内容」的 `certificates` 记一条校验错误，
+  三阶段导入随即**不写任何密钥**；调用方又忽略返回值 → 静默失败
+- **修复**（`runner/executor.py`）：`keys` 载荷丢弃 `symmetric_keys`/`rsa_keys`/`certificates`
+  中的空段，整份为空时 `keys=None`
+- **卡端配套**（card_simulator 1.0.36/vc38）：`TestSessionController` 不再忽略
+  `KeyImportResult`，有错误即 `card_config` 回 NO 并报 `key import failed: …`，
+  成功时打印 `keys imported (symmetric=n, rsa=n, certificates=…)`
+- **验证**：真机复跑 `CAA1-PROC13-XP2` → 卡端 `keys imported (rsa=1)` →
+  `process_cda ret = 0`、`trans_result = 101`、`STATUS[101]`、POS `retcode=101` →
+  host 判 `outcome=approved / online=offline / resp_code=00` 且
+  **`out.datarecord.9F4C = 0001` present**（内核只在 TDHC 比对通过后才存 9F4C →
+  卡端 CDA 构造与终端验签口径在真机对齐）
+
+### 修复：`card.*` 判定视图接线（两端 cla/ins 表示不一致导致 gpo/gac 恒缺失）
+- **现象**：真机 amex 首轮 5 条用例失败，**失败断言清一色是 `card.*`**
+  （`card.gpo.aip/afl/pdol.*`、`card.gac.cdol.*`、`card.read_record.*` 全部 `actual=None`），
+  而结果类断言（outcome/online/resp_code）全部 PASS —— 说明交易本身正常、只有判定视图缺字段
+- **根因**：卡端 trace 里 `cla`/`ins`/`p1`/`p2` 是**整数**（GPO = `{cla:128, ins:168}`），
+  而 `judge/card_apdu.py` 的 `_find()` 用**十六进制字符串**比较（`"80"`/`"A8"`）→
+  GPO(0xA8) 与 GENERATE AC(0xAE) 一律找不到 → `card.gpo.*`/`card.gac.*` 恒 missing
+  （SELECT AID/READ RECORD 走 `data_hex` 解析，所以那两项正常）
+- **修复**（`judge/card_apdu.py`）：新增 `_hex_byte()` 归一化（int → `%02X`，字符串去 `0x`、补零），
+  `_find()` 改用它比较 cla/ins；新增单测 `test_build_card_view_accepts_integer_cla_ins_from_the_device`
+- **验证**：真机复跑 amex 全组 → `CAA1-PROC13-XP2` / `CVM-PROC83-XP2` / `CVM-PROC101-XPM` /
+  `GPO-PROC151-XP2` **PASS**（CVM-PROC101 的 `card.gac.cdol.9F34 = 3F0001` 在真机确认）；
+  剩余 3 条 FAIL 均有具体实际值（见同日 `logs/joint_debug/` 与本文档后续条目）；
+  host `pytest` 217 passed
+
 ## 2026-09-24（案例：AMEX `CAA1-PROC03-XP2`（CDA + 联机 ARQC，DF8101=01 模拟在线批准））
 
 ### 数据：新增案例 `CAA1-PROC03-XP2`（amex / CAA1 处理：ARQC → 联机批准）

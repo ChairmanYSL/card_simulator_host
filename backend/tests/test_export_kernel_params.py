@@ -167,16 +167,29 @@ def test_df05_encoding_option_is_honoured(tmp_path):
         data = json.loads((out_dir / f"{brand}.json").read_text(encoding="utf-8"))
         assert data["caps"][0]["expiry_encoding"] == expected
 
-    # and the host re-encodes each into the documented DF05 bytes
+    # The importer records the asset's own encoding, but the wire form is always
+    # the one the KS8226 kernel accepts: 8 ASCII bytes (DF05_KERNEL_ENCODING).
+    # The 2026-09-24 joint run showed every CAPK add carrying a bcd3 DF05 being
+    # rejected with -1, while the factory asset's ascii8 entries load fine.
     from emv_host.cases.models import KernelParams
     from emv_host.protocol.kernel_tlv import decode_tlv_map, encode_capk
     from emv_host.cases.models import CapkParam
-    for brand, wire in (("a8", "3230343431323331"),
-                         ("b4", "20441231"),
-                         ("b3", "441231")):
+    for brand in ("a8", "b4", "b3"):
         data = json.loads((out_dir / f"{brand}.json").read_text(encoding="utf-8"))
         entry = CapkParam.model_validate(data["caps"][0])
-        assert decode_tlv_map(encode_capk(entry))["DF05"] == wire, brand
+        assert decode_tlv_map(encode_capk(entry))["DF05"] == "3230343431323331", brand
+
+    # A raw sample (not a calendar date) still goes out verbatim.
+    raw = CapkParam(rid="A000000333", key_index="01", expiry="", expiry_encoding="raw",
+                    expiry_raw="50485757495051", hash_alg=1, key_alg=1,
+                    modulus="BB" * 64, exponent="03", checksum="")
+    assert decode_tlv_map(encode_capk(raw))["DF05"] == "50485757495051"
+
+    # DF07: the vendor vectors' 0 is written as 01 (RSA).
+    assert decode_tlv_map(encode_capk(CapkParam(
+        rid="A000000333", key_index="01", expiry="20441231", expiry_encoding="bcd3",
+        hash_alg=1, key_alg=0, modulus="BB" * 64, exponent="03",
+        checksum="")))["DF07"] == "01"
 
 
 def test_missing_asset_is_reported(tmp_path):

@@ -81,6 +81,30 @@ def test_build_card_view_gpo_tlv_format_and_record_map():
     assert view["read_record"]["records"]["2"]["1"]["90"] == "AA" * 8
 
 
+def test_build_card_view_accepts_integer_cla_ins_from_the_device():
+    """The Android trace reports cla/ins as integers.
+
+    Device payload for GPO: ``{"cla":128,"ins":168,...}`` (0x80/0xA8).  The
+    first amex joint run (2026-09-24) lost every ``card.gpo.*``/``card.gac.*``
+    assertion because the lookups compared those ints with "80"/"A8".
+    """
+    def dev(cla: int, ins: int, p1: int, p2: int, data_hex: str = "") -> dict:
+        return {"event": "apdu", "direction": "COMMAND", "cla": cla, "ins": ins,
+                "p1": p1, "p2": p2, "data_hex": data_hex}
+
+    gpo_response = tlv("77", tlv("82", "0980") + tlv("94", "080101011001010020010100"))
+    trace = [
+        dev(0x00, 0xA4, 0x04, 0x00, "00A4040008A000000025010403"),
+        {"event": "apdu", "direction": "RESPONSE",
+         "data_hex": tlv("6F", tlv("84", "A000000025010403")) + "9000"},
+        dev(0x80, 0xA8, 0x00, 0x00, "80A80000028300"),
+        {"event": "apdu", "direction": "RESPONSE", "data_hex": gpo_response + "9000"},
+    ]
+    view = build_card_view(trace)
+    assert view["gpo"]["aip"] == "0980"
+    assert view["gpo"]["afl"] == "080101011001010020010100"
+
+
 def test_build_card_view_gpo_raw_format():
     # Format 1: 80 <len> <AIP><AFL>, no TLV coding (Book 3 6.5.8.4).
     trace = [

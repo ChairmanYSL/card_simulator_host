@@ -715,13 +715,28 @@ class RunExecutor:
         if not profile.id:
             profile.id = case.case_id  # defensive; loader already normalizes
 
+        # v1.1 N2: the keys bundle.  Empty sections are dropped instead of sent
+        # as `[]`/`{}`: the card's JsonKeyImporter treats a present-but-empty
+        # `certificates` object as a validation error and then (three-phase
+        # import) writes NO key at all, which silently broke the ICC private key
+        # of the AMEX CDA case in the 2026-09-24 joint run
+        # ("No RSA key pair found for keyId: cda-icc-caa1").
+        keys_payload: dict[str, Any] | None = None
+        if keys is not None:
+            keys_payload = keys.model_dump(mode="json")
+            for section in ("symmetric_keys", "rsa_keys", "certificates"):
+                if not keys_payload.get(section):
+                    keys_payload.pop(section, None)
+            if not keys_payload:
+                keys_payload = None
+
         config_frame = make_frame(
             MSG_CONFIG_PUSH,
             config_type=CONFIG_TYPE_CARD,
             case_id=case.case_id,
             attempt_id=attempt_id,
             profile=profile.model_dump(mode="json"),  # canonical camelCase schema
-            keys=None if keys is None else keys.model_dump(mode="json"),  # v1.1 N2
+            keys=keys_payload,
             timeout_seconds=case.timeout_seconds,
             trace_enabled=self.trace_enabled,  # v1.2 R1
         )

@@ -5,6 +5,49 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-24（案例：AMEX `CAA1-PROC13-XP2`（CDA 联合动态数据认证，应脱机批准）+ 生成器）
+
+### 数据：新增案例 `CAA1-PROC13-XP2`（amex / CAA1 处理：CDA 应脱机批准）
+- **参考**：`refernce/CAA1 PROC 13 XP2EMV应该批准，错误中止.txt`（UTF-16LE，device 侧
+  `AMEXEMVCORE`）；档案取值逐字段来自日志：AID FCI（`50`=`Personal Account`、`5F2D`=ENFR、
+  `87`=01、`9F38` 20B PDOL）、`82`=**0980**（byte1 bit1=CDA、bit5=CVM）、`94`=三条 AFL
+  （`08010101 10010100 20010100`，仅 SFI 1/1 参与 ODA）、SFI 1/1 记录（`5F20`/`8C`/`8D`/
+  `9F70`=1000/`9F08`=0001/`9F07`=FFC0/`5F28`=0620/`9F42`=0978/`8E` 18B=`4203 4103 5E03 1F03 0000`/
+  `5F25`/`5F24`/`5A`/`5F34`=00/IAC/`57`）、SFI 2/1（`8F`=01、`9F4A`=82、`90`+`92`+`9F32`）、
+  SFI 4/1（`9F46`+`9F47`+`9F48`）、GENERATE AC（P1=**0x50** = TC + CDA 请求；CDOL1 36B；
+  应答 `77{9F27=40, 9F36, 9F4B(128B), 9F10}`）、金额 15.00；终端 = `CONF_01` + `PROFILE_02`
+  （日志 TERM 逐字节：`9F33=200888` → 终端支持 CDA、`9F6E=9C800003`、`9F35=22`）
+- **日志为何「错误中止」（根因，可复核）**：该笔的 `parse_gac_resp` 报
+  `GAC resp doesnt contain 9F27 or 9F36 or 9F26` → `analyze_gac_resp ret = 111` → `END(111)`。
+  日志中 `appdata_save tag=[9F4B] value=9F27…9F10…`（把「应答去掉 SDAD 的其余 TLV」存回 9F4B）
+  是旧内核把 CDA auth value 存进了 9F4B；V4.2.3 已改为 `TAG_CDAAUTH_VALUE = 0xBC`
+  （`emv_tag.h:534`），且 77 模板分支只要求 9F27/9F36（`emv_terminal_action_analysis.c:435-453`），
+  故按最新内核该笔应走完 CDA 并脱机批准 —— 即本案例的期望结果
+- **正确期望结果的推导（用户要求：先推理再设通过条件）**：
+  1. `emv_offline_data_auth`：`AIP_CDA_SUPPORT()`（aip[0]&0x01，AIP=0980 ✓）且
+     `9F33[2]&0x08`（200888 ✓）→ `da_cda_performed = TRUE`（日志 `Term and Card all support CDA`）
+  2. `process_dda`：CAPK(01) → tag 90+92+9F32 → 9F46+9F47+9F48 依次恢复成功（日志 ret=0）
+  3. 首笔 GENERATE AC 请求 CDA → 卡端回 9F4B（Book 2 Table 18 可恢复块，签名数据含
+     Table 19 的 ICC Dynamic Data，其 TDHC = SHA1(PDOL 数据 ‖ CDOL1 数据 ‖ 应答 TLV 去掉 9F4B)）
+  4. `process_cda`：CID 与 9F27 一致、SDAD 哈希一致、TDHC 一致 → 校验通过 →
+     TC（CID=0x40）→ `EMV_ACCEPTED_OFFLINE` → **脱机批准**（`outcome=approved`/`online=offline`/`resp_code=00`）
+- **通过条件**：三条结果 + `out.datarecord.9F4C` **present**（pass）。后者是必需的机制断言：
+  `process_cda` 只在 TDHC 比对通过后才存 9F4C（`emv_offline_data_authentication.c:1279`），
+  否则「CDA 失败 → 内核 102 → POS 按 102+TC 兜底判 APPROVED」会把失败伪装成通过；
+  另有两条 warn：`card.gac.response` 含 9F4B、`out.datarecord.9F4B` present
+- **工具**：`tools/make_amex_cda_case.py` —— 生成 CA/签发者/ICC 三级密钥链（1024bit，e=65537），
+  按 Book 2 §5/§6.5 构造 90/92/9F32 与 9F46/9F47/9F48（ICC 证书哈希 = `recovered[1..len-22] ‖
+  9F48 ‖ 9F47 ‖ 静态数据(§10.3) ‖ AIP`），把测试 CA 公钥写进 `CONF_01`（**索引 01**，即日志卡端 `8F`；
+  校验和按内核口径 `SHA1(RID‖索引‖模数‖指数)`，已用 CONF_31 厂商密钥反推验证），
+  `selfcheck` 在 Python 里重放「终端验签 + CDA 往返」
+- **证据**：`tmp/verify_cda_ref_log.py` 用参考日志的**真实卡**数据离线复核了 CDA 构造 ——
+  tag 90 恢复+哈希 ✓、SDAD 可恢复块与哈希 ✓（`6A 05 01 LDD`、NDD=8、CID=40、
+  AC=`0102030405060708`、恢复出的 TDHC=`865769ACC4616CD89CA151CEBE3E75626E8540A5`）、
+  TDHC 公式（PDOL‖CDOL1‖应答去 9F4B）✓；唯一未能复现的是该**旧内核**的 9F46 证书哈希
+  （其静态数据组合与本版本源码不同，日志行号亦差 27 行，属旧构建差异）
+- **验证**：host `pytest` 全绿（新增案例可加载、无 issue）
+- **未上机**：本轮只落代码/用例/工具/文档；卡端 APK 未构建、POS 2.1.6 未装机
+
 ## 2026-09-23（案例：AMEX `CVM-PROC80-XPM`（Expresspay Mobile See Phone / 二次挥卡））
 
 ### 数据：新增案例 `CVM-PROC80-XPM`（amex / CVM 处理：See Phone 后二次读卡走完 GAC）

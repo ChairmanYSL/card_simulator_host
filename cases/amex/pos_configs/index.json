@@ -14,7 +14,7 @@
       "drl": 30,
       "exception_file": 1,
       "term": true,
-      "note": "capk includes one locally generated test CA key (index 0A) for GPO-PROC71-XP2 SDA"
+      "note": "capk index 01 is a locally generated test CA key for CAA1-PROC13-XP2 (CDA)"
     },
     {
       "id": "CONF_01_IOP",

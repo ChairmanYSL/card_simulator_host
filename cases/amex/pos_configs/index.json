@@ -14,7 +14,7 @@
       "drl": 30,
       "exception_file": 1,
       "term": true,
-      "note": "capk index 01 is a locally generated test CA key for CAA1-PROC13-XP2 (CDA)"
+      "note": "capk index 01 is a locally generated test CA key for CAA1-PROC13-XP2 / CAA1-PROC03-XP2 (CDA)"
     },
     {
       "id": "CONF_01_IOP",

@@ -5,6 +5,34 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-09-24（案例：AMEX `CAA1-PROC03-XP2`（CDA + 联机 ARQC，DF8101=01 模拟在线批准））
+
+### 数据：新增案例 `CAA1-PROC03-XP2`（amex / CAA1 处理：ARQC → 联机批准）
+- **参考**：`refernce/CAA1 PROC 03 XP2EMV_错误中止.txt`（UTF-16LE，device 侧 `AMEXEMVCORE`；
+  与 `CAA1 PROC 13` 同一张卡：AID FCI / 三条 AFL / 三个记录 / AIP=0980 / TERM 全部一致）
+- **与 `CAA1-PROC13-XP2` 的唯一实质差别**：首笔 GENERATE AC（P1 同为 0x50 = TC + CDA 请求）
+  的**卡端应答 CID = 0x80 = ARQC**（`77 8197 9F27 01 80 9F36 02 0001 9F4B 8180 … 9F10 07 06010103900002`，
+  IAD 与 PROC13 的 `06010103000000` 不同），即卡端要求联机；日志仍以
+  `parse_gac_resp - 353 GAC resp doesnt contain 9F27 or 9F36 or 9F26` → `analyze_gac_resp ret = 111`
+  → `END(111)` 中止（同一旧内核缺陷：CDA auth value 被存进 9F4B；V4.2.3 为 0xBC）
+- **正确期望结果的推导**：ARQC → 内核 `emv_pre_complete` 回 `EMV_REQ_GO_ONLINE` →
+  本笔用 POS 联调约定 `DF8101=01`（`TxnContext`，与 unionpay `QPB-B-002` 同机制）模拟在线批准
+  （`setOnlineResult(EMV_ONLINE_SUCC_ACCEPT)`）→ 卡端第二笔 GENERATE AC（CDOL2）按终端请求回 TC
+  并同样带 CDA 签名（9F4B）→ `process_cda` 验签通过 → 完成码 103 + DF8101=01 → `APPROVED`，
+  故通过条件 = `outcome=approved` / **`online=online`** / `resp_code=00` + `out.datarecord.9F4C` present
+  （与 `QPB-B-002-01` 的 `online=online` 口径一致）
+- **卡端配套（同轮，card_simulator）**：修掉两个联机流程缺陷 —— 第二笔 GENERATE AC 原被 `6985`
+  拒绝（状态守卫只认 `DATA_READ`）、`acBehavior` 原对每一笔都生效（第二笔仍回 ARQC）；
+  现第二笔按终端 P1 应答，CDA 签名按 Book 2 §6.6.1 覆盖 `PDOL ‖ CDOL1 ‖ CDOL2 ‖ 应答去 9F4B`
+- **工具**：`tools/make_amex_cda_case.py` 改为按 `CASE_SPECS` 同时生成 PROC13（offline_approved）
+  与 PROC03（online_request + DF8101=01）两条用例，共用同一条测试密钥链与 `CONF_01` 索引 01
+- **待真机确认（风险）**：第二笔 GENERATE AC 的 TDHC 口径按 Book 2 §6.6.1 实现（含 CDOL2 数据）；
+  V4.2.3 源码里 `process_cda` 的 CDOL2 分支取 `TAG_CDOL2_VALUE`(0xB8) 而源码中未见保存点
+  （`process_cdol()` 用 `OVERRIDDEN` 写的是 `0xB7`），故设备内核实际口径需真机取证 ——
+  `out.datarecord.9F4C`（pass）会把这个差异直接暴露为 FAIL，而不是被兜底掩盖
+- **验证**：host `pytest` 216 passed；两条案例加载无 issue
+- **未上机**：本轮只落代码/用例/工具/文档
+
 ## 2026-09-24（案例：AMEX `CAA1-PROC13-XP2`（CDA 联合动态数据认证，应脱机批准）+ 生成器）
 
 ### 数据：新增案例 `CAA1-PROC13-XP2`（amex / CAA1 处理：CDA 应脱机批准）

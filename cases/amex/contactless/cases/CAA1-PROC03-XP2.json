@@ -1,0 +1,233 @@
+{
+  "case_id": "CAA1-PROC03-XP2",
+  "title": "CAA1 处理（CDA + 联机 ARQC，模拟在线批准）",
+  "summary": "与 CAA1-PROC13-XP2 同一张卡（AID/档案/终端/AIP=0980 相同），差别在首笔 GENERATE AC 卡端返回 **ARQC（CID=80）**：参考日志应答 `77 8197 9F27 01 80 9F36 02 0001 9F4B 8180 … 9F10 07 06010103900002`，即卡端要求联机，随后内核同样以 `parse_gac_resp - 353 GAC resp doesnt contain 9F27 or 9F36 or 9F26` → `analyze_gac_resp ret = 111` → `END(111)` 错误中止（与 PROC13 同一旧版本内核缺陷：把 CDA auth value 存进了 9F4B；V4.2.3 为 0xBC）。正确流程：ARQC → 终端 EMV_REQ_GO_ONLINE → 本笔用 DF8101=01 模拟在线批准 → 卡端第二笔 GENERATE AC（CDOL2）按终端请求返回 TC → 联机批准（outcome=approved / online=online / resp_code=00），且第二笔同样带 CDA 签名（9F4B）并经终端验签（out.datarecord.9F4C 存在）。",
+  "brand": "amex",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "CAA1-PROC03-XP2",
+    "name": "AMEX CAA1 处理（CAA1-PROC03-XP2）",
+    "network": "AMEX",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A000000025010403",
+        "label": "Personal Account",
+        "priority": 1
+      }
+    ],
+    "pan": "373412345678904",
+    "panSequenceNumber": 0,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "USER1",
+    "track2EquivalentData": "3337333431323334353637383930343D34393132323031",
+    "applicationLabel": "Personal Account",
+    "applicationVersionNumber": "0001",
+    "aip": "0980",
+    "afl": "080101011001010020010100",
+    "issuerCountryCode": "0620",
+    "pdol": "9F6E049F35019F370495059F34039F02069F0306",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cdol2": "8A029F02069F03069F1A0295055F2A029A039C019F37049F6E049F3403",
+    "cvmList": [
+      {
+        "cvmCode": 2,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 1,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 30,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 2
+      },
+      {
+        "cvmCode": 31,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 1
+      },
+      {
+        "cvmCode": 0,
+        "cvmCondition": 0,
+        "applySucceedingCvm": 1
+      }
+    ],
+    "applicationUsageControl": "FFC0",
+    "applicationCurrencyCode": "0978",
+    "applicationEffectiveDate": "101004",
+    "iacDefault": "0000000000",
+    "iacDenial": "0000000000",
+    "iacOnline": "0000000000",
+    "cardInterfaceAndPaymentCapabilities": "1000",
+    "languagePreference": "ENFR",
+    "caPublicKeyIndex": "01",
+    "issuerPublicKeyCertificate": "9137173EA81D7131C1919D6B8FCD88D00FCABDED89C9AA0DB4979143440D198C79B7ACE83F4A4F4A9F4B29641467BD1A0EC92032C24BB9801AEBEE3BD0E86E26E61B505C9B6A6D4A44B23C445D36F03BB1BC39F4D8C441D179D17BECF8E4BDEBF45CFDCF63211D0C95E802A0AB8E848618B8BD4DEB22081E11D2FA4094125BE6",
+    "issuerPublicKeyRemainder": "B5D7812559FAAD3B60486501BC665645EBC14A42DF9B4D9BB549BDD4EE2F66EF55BE489B",
+    "issuerPublicKeyExponent": "010001",
+    "iccPrivateKeyId": "cda-icc-caa1",
+    "iccPublicKeyCertificate": "066A169ACACBC9FC2D2ECF3CB2D0A5285C49E188A544F50116E083A61843EBFA0F8B98C93F82B039C2B5E4FEE355C5DBF5ED02DF0752ABB9A5B3DE5AEAE0411D3A623ECA9276D02DE6ED3F8C9F0C565CFD49636409157A29BB8A370A7D9086C39B79B3EEB1963E47339C642D1FA3297E34ED1004AB34CEDB73B544D89AFDF204",
+    "iccPublicKeyExponent": "010001",
+    "iccPublicKeyRemainder": "15E159527F7DF6772B3DF4A0DF6D3394CCDBF368F341C9735DB702A45C232CDAEAA25C06A1CBCDBB7985",
+    "acBehavior": "online_request",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "cardholderName",
+          "cdol1",
+          "cdol2",
+          "cardInterfaceAndPaymentCapabilities",
+          "applicationVersionNumber",
+          "applicationUsageControl",
+          "issuerCountryCode",
+          "applicationCurrencyCode",
+          "cvmList",
+          "applicationEffectiveDate",
+          "expiryDate",
+          "pan",
+          "panSequenceNumber",
+          "iacDefault",
+          "iacDenial",
+          "iacOnline",
+          "track2"
+        ]
+      },
+      {
+        "sfi": 2,
+        "record": 1,
+        "fields": [
+          "caPublicKeyIndex",
+          "sdaTagList",
+          "issuerPublicKeyCertificate",
+          "issuerPublicKeyRemainder",
+          "issuerPublicKeyExponent"
+        ]
+      },
+      {
+        "sfi": 4,
+        "record": 1,
+        "fields": [
+          "iccPublicKeyCertificate",
+          "iccPublicKeyExponent",
+          "iccPublicKeyRemainder"
+        ]
+      }
+    ]
+  },
+  "kernel_params_ref": "CONF_01",
+  "terminal_profile_ref": "PROFILE_02",
+  "keys": {
+    "symmetric_keys": [],
+    "rsa_keys": [
+      {
+        "id": "cda-icc-caa1",
+        "public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDcCGN+X0CijPFMIkbByNEhPJgn4M/ogtbQtJvRWU4xNKNr8jY3r69SG3HVZJghGjE9a3fFUiG5F63NOfZR6CPLN37q/yMJDhCAjf6HQss8gAjwIa4H0xXhWVJ/ffZ3Kz30oN9tM5TM2/No80HJc123AqRcIyza6qJcBqHLzbt5hQIDAQAB",
+        "private_key": "MIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBANwIY35fQKKM8UwiRsHI0SE8mCfgz+iC1tC0m9FZTjE0o2vyNjevr1IbcdVkmCEaMT1rd8VSIbkXrc059lHoI8s3fur/IwkOEICN/odCyzyACPAhrgfTFeFZUn999ncrPfSg320zlMzb82jzQclzXbcCpFwjLNrqolwGocvNu3mFAgMBAAECgYA4Hl+Z3Jt0mfP1Egzv4dMM4hKAoUMFr1Ewm8/d/iQGQsGnh3gyjblufJd08JooXzDN1HoQtpjpR1PJsw3S6B0wfz/FIjoc6LHcVxZE97kRecMSiyCpgc3FQxvYwbKpO9dUk5zsioF1LswGqybEKvx4PL/bfQJSnBlac+/MPkm+wQJBAPhGZ5RwO/ygyXZhKNimmavI27od3IfvSsYUgzqG5ZrjL7RgT/cIN8MxRPNxRJzErxpZw/cZPArIqPKPdfRxlvUCQQDi4QZddkWS9ryjJUs1gL2uD2bv6iddmg0meBwwJagZybloSOUJfKyeF7eMAbkVYcTSX5K4zJPTTrerK90Zch5RAkAmJAq9jxBoGvtYKEzyG4X4Ef9PdE7wwx4ll/khAKA9TzGA8FrYhHaskeEZ1QjJXJ3Z2nh0eXfz4Ce0O73PM7QRAkEA4N4frOrYsn0TIrCIBpN/bNGfORNfyQozFnndlmr8XfLubUoymGCVxmvDZGUgyOyKY+iOR9OcgMd4i5OCJQJSwQJBAK0tbMJRm5IkPhcCGYtexUrh9lszeaVkIYg4m2ohCN3lBm5S/XzavfjPmaUN4QMS33S3glVE+FMOfro8wdeTGKw="
+      }
+    ]
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "15.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "tap the phone on the POS reader when it shows 15.00 EUR"
+    },
+    "expected_values": {
+      "amount": "15.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "9F02",
+        "value": "000000001500"
+      },
+      {
+        "id": "9F03",
+        "value": "000000000000"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      },
+      {
+        "id": "DF8101",
+        "value": "01"
+      }
+    ]
+  },
+  "preconditions": [
+    "phone NFC enabled and card simulator app in foreground",
+    "POS loaded with CONF_01 + PROFILE_02 (the log's TERM: 9F33=200888 → terminal CDA support, 9F6E=9C800003, 9F35=22)",
+    "card AIP=0980: byte 1 bit 1 = CDA supported, bit 5 = cardholder verification supported; the kernel starts ODA with 'Term and Card all support CDA' (AIP_CDA_SUPPORT && 9F33[2]&0x08)",
+    "the profile carries the ICC private key (cda-icc-caa1, pushed in keys.rsa_keys) plus the 9F46/9F47/9F48 certificate material, so the card can sign the 9F4B Signed Dynamic Application Data",
+    "the CA public key index 01 of this CONFIG is the locally generated test CA key of this case (the 8F of the profile names it); the per-case CONFIG clears and re-provisions the CAPK table (EmvService.applyCaseConfig), so index 01 is the test key for this run",
+    "the reference log masks the PAN (5A=FFFFFFFFFFFFFFFF); the profile uses a Luhn-valid test PAN with the log's issuer identifier 37341234 and PAN sequence 00 (log 5F34=00), everything else is the log's data",
+    "why the log aborted: in that (pre-V4.2.3) kernel build the CDA auth value tag collided with 9F4B, so the GENERATE AC response was re-parsed with a corrupted 9F4B -> 'GAC resp doesnt contain 9F27 or 9F36 or 9F26' -> analyze_gac_resp 111 -> END(111); V4.2.3 stores it under 0xBC (emv_tag.h:534) and parse_gac_resp accepts the 77 template",
+    "the pass criteria require out.datarecord.9F4C: it is only stored after the CDA hash check, so it proves verification instead of relying on the 102+TC -> APPROVED mapping",
+    "this case's card answers ARQC in the first GENERATE AC (acBehavior=online_request) and the transaction is completed with DF8101=01 (POS simulated online approval), exactly like the reference log"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "host pushes the card profile (AIP 0980, CDA certs) with CONF_01 + PROFILE_02 and starts emulation",
+      "expect": "android reports emulating"
+    },
+    {
+      "step": 2,
+      "action": "operator completes the 15.00 EUR transaction",
+      "expect": "the kernel reads the three records, recovers the issuer and ICC public keys (retrieve_capk/issuer/icc = 0) and requests CDA in the first GENERATE AC (P1=0x50)"
+    },
+    {
+      "step": 3,
+      "action": "host judges the GENERATE AC response of the card",
+      "expect": "9F4B (SDAD, length = ICC modulus) is present"
+    },
+    {
+      "step": 4,
+      "action": "host judges the POS out payload",
+      "expect": "outcome=approved / online=online / resp_code=00 (online approved (DF8101=01 simulation)) and out.datarecord.9F4C present (the kernel stored the ICC Dynamic Number, i.e. the CDA hash matched)"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "online"
+    },
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    },
+    {
+      "path": "out.datarecord.9F4C",
+      "op": "present"
+    },
+    {
+      "path": "card.gac.response",
+      "op": "contains",
+      "expect": "9F4B",
+      "severity": "warn"
+    },
+    {
+      "path": "out.datarecord.9F4B",
+      "op": "present",
+      "severity": "warn"
+    }
+  ]
+}

@@ -6,7 +6,7 @@
   "entry_mode": "contactless",
   "profile": {
     "id": "CAA1-PROC13-XP2",
-    "name": "AMEX CAA1 处理（CAA1.PROC13.XP2）",
+    "name": "AMEX CAA1 处理（CAA1-PROC13-XP2）",
     "network": "AMEX",
     "isActive": true,
     "aids": [
@@ -167,7 +167,8 @@
     "the CA public key index 01 of this CONFIG is the locally generated test CA key of this case (the 8F of the profile names it); the per-case CONFIG clears and re-provisions the CAPK table (EmvService.applyCaseConfig), so index 01 is the test key for this run",
     "the reference log masks the PAN (5A=FFFFFFFFFFFFFFFF); the profile uses a Luhn-valid test PAN with the log's issuer identifier 37341234 and PAN sequence 00 (log 5F34=00), everything else is the log's data",
     "why the log aborted: in that (pre-V4.2.3) kernel build the CDA auth value tag collided with 9F4B, so the GENERATE AC response was re-parsed with a corrupted 9F4B -> 'GAC resp doesnt contain 9F27 or 9F36 or 9F26' -> analyze_gac_resp 111 -> END(111); V4.2.3 stores it under 0xBC (emv_tag.h:534) and parse_gac_resp accepts the 77 template",
-    "the pass criteria require out.datarecord.9F4C: it is only stored after the CDA hash check, so it proves verification instead of relying on the 102+TC -> APPROVED mapping"
+    "the pass criteria require out.datarecord.9F4C: it is only stored after the CDA hash check, so it proves verification instead of relying on the 102+TC -> APPROVED mapping",
+    "this case's card answers TC (acBehavior=offline_approved): the offline approval path"
   ],
   "test_plan": [
     {

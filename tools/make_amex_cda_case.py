@@ -44,12 +44,56 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 CASE_DIR = REPO / "cases" / "amex" / "contactless" / "cases"
-CASE_FILE = CASE_DIR / "CAA1-PROC13-XP2.json"
 CONF_FILE = REPO / "cases" / "amex" / "pos_configs" / "CONF_01.json"
 INDEX_FILE = REPO / "cases" / "amex" / "pos_configs" / "index.json"
 KEY_FILE = REPO / "tmp" / "cda_keys" / "amex_caa1_proc13.json"
 
 CASE_ID = "CAA1-PROC13-XP2"
+CASE_IDS = ("CAA1-PROC13-XP2", "CAA1-PROC03-XP2")
+
+#: Per-case profile/expectation differences.  Both reference logs describe the
+#: same card (AID/records/TERM/AIP 0980) and ended in the same pre-V4.2.3 kernel
+#: abort; PROC03's card answers ARQC (CID 80) instead of TC, i.e. the online
+#: flow, which the POS completes with DF8101=01 (simulated online approval).
+CASE_SPECS = [
+    {
+        "case_id": "CAA1-PROC13-XP2",
+        "reference": "refernce/CAA1 PROC 13 XP2EMV应该批准，错误中止.txt",
+        "title": "CAA1 处理（CDA 联合动态数据认证，应脱机批准）",
+        "ac_behavior": "offline_approved",
+        "online_approval": False,
+        "summary": (
+            "CDA（组合 DDA/GENERATE AC）例：AIP=0980（byte1 bit1 = 支持 CDA）、AFL 三条（SFI 1/1 参与 ODA）。"
+            "终端用 CONF_01 的测试 CA 公钥恢复签发者公钥（90/92/9F32），再用签发者公钥恢复 ICC 公钥"
+            "（9F46/9F47/9F48），首次 GENERATE AC 的 P1=0x50（bit5=1 请求 CDA 签名）时卡端须在应答里给出 "
+            "9F4B（SDAD=Book2 Table18 可恢复块，签名数据含 Table19 的 ICC Dynamic Data，其 Transaction Data "
+            "Hash Code = SHA1(PDOL 数据 ‖ CDOL1 数据 ‖ GENERATE AC 应答 TLV 去掉 9F4B)）。终端校验通过后"
+            "交易应为脱机批准（TC），即 outcome=approved/online=offline/resp_code=00。"
+            "参考日志在该步错误中止（END(111)），本案例以「正确完成 CDA 并脱机批准」为通过条件。"
+        ),
+        "expect_online": "offline",
+        "expect_note": "offline approved TC",
+    },
+    {
+        "case_id": "CAA1-PROC03-XP2",
+        "reference": "refernce/CAA1 PROC 03 XP2EMV_错误中止.txt",
+        "title": "CAA1 处理（CDA + 联机 ARQC，模拟在线批准）",
+        "ac_behavior": "online_request",
+        "online_approval": True,
+        "summary": (
+            "与 CAA1-PROC13-XP2 同一张卡（AID/档案/终端/AIP=0980 相同），差别在首笔 GENERATE AC 卡端返回 "
+            "**ARQC（CID=80）**：参考日志应答 `77 8197 9F27 01 80 9F36 02 0001 9F4B 8180 … 9F10 07 06010103900002`，"
+            "即卡端要求联机，随后内核同样以 `parse_gac_resp - 353 GAC resp doesnt contain 9F27 or 9F36 or 9F26` → "
+            "`analyze_gac_resp ret = 111` → `END(111)` 错误中止（与 PROC13 同一旧版本内核缺陷：把 CDA auth value "
+            "存进了 9F4B；V4.2.3 为 0xBC）。正确流程：ARQC → 终端 EMV_REQ_GO_ONLINE → 本笔用 DF8101=01 模拟在线批准 "
+            "→ 卡端第二笔 GENERATE AC（CDOL2）按终端请求返回 TC → 联机批准（outcome=approved / online=online / "
+            "resp_code=00），且第二笔同样带 CDA 签名（9F4B）并经终端验签（out.datarecord.9F4C 存在）。"
+        ),
+        "expect_online": "online",
+        "expect_note": "online approved (DF8101=01 simulation)",
+    },
+]
+
 RID = "A000000025"
 CA_KEY_INDEX = "01"                 # 8F of the reference card
 CONF_ID = "CONF_01"                 # the log's AID/terminal parameter set
@@ -336,7 +380,7 @@ def patch_conf(ca: dict, dry_run: bool) -> tuple[int, bool]:
             if item["id"] == CONF_ID:
                 item["capk"] = len(conf["caps"])
                 item["note"] = ("capk index 01 is a locally generated test CA key "
-                                "for CAA1-PROC13-XP2 (CDA)")
+                                "for CAA1-PROC13-XP2 / CAA1-PROC03-XP2 (CDA)")
         INDEX_FILE.write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n",
                               encoding="utf-8")
     return len(conf["caps"]), replaced
@@ -345,26 +389,30 @@ def patch_conf(ca: dict, dry_run: bool) -> tuple[int, bool]:
 # --------------------------------------------------------------------------
 # case JSON
 # --------------------------------------------------------------------------
-def build_case(data: dict, cert90: str, rem92: str, cert46: str, rem48: str) -> dict:
+def build_case(data: dict, cert90: str, rem92: str, cert46: str, rem48: str,
+               spec: dict) -> dict:
+    case_id = spec["case_id"]
     pan = luhn_pan(PAN_PREFIX, PAN_BODY)
     track2 = f"{pan}={EXPIRY[:4]}201".encode("ascii").hex().upper()
+    act = [
+        {"id": "9F02", "value": "000000001500"},
+        {"id": "9F03", "value": "000000000000"},
+        {"id": "9C", "value": "00"},
+    ]
+    if spec["online_approval"]:
+        # POS convention: DF8101=01 = simulated online approval (see the
+        # unionpay QPB-B-002 demo); without it the POS answers the online
+        # request with a failure and the case would have to expect DECLINED.
+        act.append({"id": "DF8101", "value": "01"})
     return {
-        "case_id": CASE_ID,
-        "title": "CAA1 处理（CDA 联合动态数据认证，应脱机批准）",
-        "summary": (
-            "CDA（组合 DDA/GENERATE AC）例：AIP=0980（byte1 bit1 = 支持 CDA）、AFL 三条（SFI 1/1 参与 ODA）。"
-            "终端用 CONF_01 的测试 CA 公钥恢复签发者公钥（90/92/9F32），再用签发者公钥恢复 ICC 公钥"
-            "（9F46/9F47/9F48），首次 GENERATE AC 的 P1=0x50（bit5=1 请求 CDA 签名）时卡端须在应答里给出 "
-            "9F4B（SDAD=Book2 Table18 可恢复块，签名数据含 Table19 的 ICC Dynamic Data，其 Transaction Data "
-            "Hash Code = SHA1(PDOL 数据 ‖ CDOL1 数据 ‖ GENERATE AC 应答 TLV 去掉 9F4B)）。终端校验通过后"
-            "交易应为脱机批准（TC），即 outcome=approved/online=offline/resp_code=00。"
-            "参考日志在该步错误中止（END(111)），本案例以「正确完成 CDA 并脱机批准」为通过条件。"
-        ),
+        "case_id": case_id,
+        "title": spec["title"],
+        "summary": spec["summary"],
         "brand": "amex",
         "entry_mode": "contactless",
         "profile": {
-            "id": CASE_ID,
-            "name": "AMEX CAA1 处理（CAA1.PROC13.XP2）",
+            "id": case_id,
+            "name": f"AMEX CAA1 处理（{case_id}）",
             "network": "AMEX",
             "isActive": True,
             "aids": [{"aid": "A000000025010403", "label": "Personal Account",
@@ -399,7 +447,7 @@ def build_case(data: dict, cert90: str, rem92: str, cert46: str, rem48: str) -> 
             "iccPublicKeyCertificate": cert46,
             "iccPublicKeyExponent": EXPONENT_HEX,
             "iccPublicKeyRemainder": rem48,
-            "acBehavior": "offline_approved",
+            "acBehavior": spec["ac_behavior"],
             "records": [
                 {"sfi": 1, "record": 1, "fields": list(APP_RECORD_FIELDS)},
                 {"sfi": 2, "record": 1, "fields": list(CERT_RECORD_FIELDS)},
@@ -429,11 +477,7 @@ def build_case(data: dict, cert90: str, rem92: str, cert46: str, rem48: str) -> 
                 "currency": "978",
                 "entry_mode": "contactless",
             },
-            "act": [
-                {"id": "9F02", "value": "000000001500"},
-                {"id": "9F03", "value": "000000000000"},
-                {"id": "9C", "value": "00"},
-            ],
+            "act": act,
         },
         "preconditions": [
             "phone NFC enabled and card simulator app in foreground",
@@ -461,6 +505,12 @@ def build_case(data: dict, cert90: str, rem92: str, cert46: str, rem48: str) -> 
             "the pass criteria require out.datarecord.9F4C: it is only stored "
             "after the CDA hash check, so it proves verification instead of "
             "relying on the 102+TC -> APPROVED mapping",
+            (f"this case's card answers ARQC in the first GENERATE AC "
+             f"(acBehavior=online_request) and the transaction is completed with "
+             f"DF8101=01 (POS simulated online approval), exactly like the "
+             f"reference log" if spec["online_approval"] else
+             "this case's card answers TC (acBehavior=offline_approved): the "
+             "offline approval path"),
         ],
         "test_plan": [
             {"step": 1,
@@ -477,16 +527,16 @@ def build_case(data: dict, cert90: str, rem92: str, cert46: str, rem48: str) -> 
              "expect": "9F4B (SDAD, length = ICC modulus) is present"},
             {"step": 4,
              "action": "host judges the POS out payload",
-             "expect": "outcome=approved / online=offline / resp_code=00 "
-                       "(offline approved TC) and out.datarecord.9F4C present "
-                       "(the kernel stored the ICC Dynamic Number, i.e. the CDA "
-                       "hash matched)"},
+             "expect": (f"outcome=approved / online={spec['expect_online']} / "
+                        f"resp_code=00 ({spec['expect_note']}) and "
+                        f"out.datarecord.9F4C present (the kernel stored the ICC "
+                        f"Dynamic Number, i.e. the CDA hash matched)")},
         ],
         "timeout_seconds": 180,
         "retry_on_fail": 0,
         "expected_results": [
             {"path": "outcome", "op": "eq", "expect": "approved"},
-            {"path": "online", "op": "eq", "expect": "offline"},
+            {"path": "online", "op": "eq", "expect": spec["expect_online"]},
             {"path": "resp_code", "op": "eq", "expect": "00"},
             # Mechanism (pass): 9F4C is stored by the kernel's process_cda only
             # after the Transaction Data Hash Code matched
@@ -614,12 +664,16 @@ def main() -> int:
     problems = selfcheck(data, cert90, rem92, cert46, rem48, static_hex)
     caps, replaced = patch_conf(data["ca"], args.dry_run)
 
-    case = build_case(data, cert90, rem92, cert46, rem48)
-    if not args.dry_run:
-        CASE_FILE.write_text(json.dumps(case, ensure_ascii=False, indent=2) + "\n",
-                             encoding="utf-8")
+    written = []
+    for spec in CASE_SPECS:
+        case = build_case(data, cert90, rem92, cert46, rem48, spec)
+        path = CASE_DIR / f"{spec['case_id']}.json"
+        if not args.dry_run:
+            path.write_text(json.dumps(case, ensure_ascii=False, indent=2) + "\n",
+                            encoding="utf-8")
+        written.append((case["case_id"], path,
+                        [r["path"] for r in case["expected_results"]]))
 
-    print(f"case        : {CASE_ID} -> {CASE_FILE}")
     print(f"keys        : {KEY_FILE}")
     print(f"PAN         : {luhn_pan(PAN_PREFIX, PAN_BODY)} (BCD {pan_bcd}, PSN {PAN_SEQUENCE})")
     print(f"static data : {len(static_hex) // 2}B (SFI 1/1 value)")
@@ -629,6 +683,9 @@ def main() -> int:
           f"ICC NIC={NIC}B")
     print(f"CONF        : {caps} CAPKs (index {CA_KEY_INDEX} "
           f"{'replaced' if replaced else 'appended'})")
+    for case_id, path, rules in written:
+        print(f"case        : {case_id} -> {path}")
+        print(f"              rules: {', '.join(rules)}")
     print(f"selfcheck   : {'OK' if not problems else 'FAILED'}")
     for p in problems:
         print("  -", p)

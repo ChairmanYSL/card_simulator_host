@@ -1,0 +1,160 @@
+{
+  "case_id": "3M08-5132A",
+  "title": "MC 非接 ATM 现金交易（PPS_MC_ATM）—— GENERATE AC 卡片静默 → TRY AGAIN/END APPLICATION，重拍后联机",
+  "summary": "Mastercard 非接 L2 案例 3M08-5132A（参考日志 Log/3M08-5132A(PPS_MC_ATM).txt，TEI 自动跑、无 CONFIG → 用读写器内置 PPS_MC_ATM）。ATM 现金交易：9C=01、9F35=14（随 ACT 下发）、金额 15.00/其他 10.00；卡片 AIP=1880（无 SDA/DDA/CDA），PDOL 要 9F02/9F33/9C/9F03。**第一拍：卡片对 GENERATE AC 完全不应答（日志 `GAC SW = FFFFFFFF` 超时），读写器按 S13/超时路径收尾 —— DF8115 L1=01（超时）+ DF812D=000000 → `outcome_try_again_end_application`，即 TRY AGAIN/END APPLICATION 要求重拍**；第二拍卡片正常应答 ARQC（日志里读写器请求 P1=0x80），终端因 TVR b8（未做脱机认证）命中卡片 IAC-Online b8 而转联机 → 期望 ONLINE REQUEST。本案例用 `noResponseCommands:[{command:GENERATE_AC,times:1}]` 复现第一拍静默。",
+  "brand": "mastercard",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "3M08-5132A",
+    "name": "Mastercard ATM 现金（3M08-5132A）",
+    "description": "参考日志 3M08-5132A 的卡片数据（单候选 AID、PDOL 9F02/9F33/9C/9F03、AIP=1880、四条记录含空记录 SFI 2/2）；第一拍对 GENERATE AC 静默",
+    "network": "MASTERCARD",
+    "isActive": true,
+    "aids": [
+      {"aid": "A0000000041010", "label": "MASTERCARD", "priority": 1}
+    ],
+    "pan": "5413339000001513",
+    "panSequenceNumber": 0,
+    "applicationExpirationDate": "491231",
+    "applicationEffectiveDate": "120101",
+    "track2EquivalentData": "353431333333393030303030313531333D3439313232303130313233343037363435",
+    "applicationLabel": "MASTERCARD",
+    "applicationVersionNumber": "0002",
+    "aip": "1880",
+    "afl": "080101001001020118010200",
+    "pdol": "9F02069F33039C019F0306",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F33039F37049F35019F45029F34039F4005",
+    "cvmList": [
+      {"cvmCode": 30, "cvmCondition": 3, "applySucceedingCvm": 2},
+      {"cvmCode": 2, "cvmCondition": 3, "applySucceedingCvm": 2},
+      {"cvmCode": 31, "cvmCondition": 3, "applySucceedingCvm": 1}
+    ],
+    "applicationUsageControl": "0200",
+    "iacDefault": "F050840000",
+    "iacDenial": "0000000000",
+    "iacOnline": "F070848000",
+    "caPublicKeyIndex": "F1",
+    "issuerPublicKeyExponent": "03",
+    "issuerPublicKeyRemainder": "",
+    "issuerPublicKeyCertificate": "8628B3C6BCB6204C958A1A3DA2418CBA269C412389B43BA6FDDCD5D8BD5D03D4525438A52BFD816F05D4E54DAF946279ADD379E43C061CFA514A922CD3C49EFFA66418D0B106D25EB350210AD6D6554CC7455ED3357C0BC235EEB22C36DC64451950C64AE8A33FC29F5B577119701B274CC11DBB1BA24E310620049B0D25251CFDD534567EB1E31C57FF91E577B4F2AB71FB60A7963346686D38BB6EC027963CDA3F102336EBF8E025030AAEDCD1AAD1",
+    "acBehavior": "online_request",
+    "noResponseCommands": [
+      {"command": "GENERATE_AC", "times": 1}
+    ],
+    "records": [
+      {
+        "sfi": 2,
+        "record": 1,
+        "fields": ["caPublicKeyIndex", "issuerPublicKeyExponent", "issuerPublicKeyRemainder", "issuerPublicKeyCertificate"]
+      },
+      {"sfi": 2, "record": 2, "fields": []},
+      {"sfi": 3, "record": 1, "fields": ["pan", "panSequenceNumber"]},
+      {
+        "sfi": 3,
+        "record": 2,
+        "fields": ["track2", "expiryDate", "applicationEffectiveDate", "cdol1", "cvmList", "applicationUsageControl", "applicationVersionNumber", "iacDefault", "iacDenial", "iacOnline"]
+      }
+    ]
+  },
+  "kernel_params_ref": "PPS_MC_ATM",
+  "transaction": {
+    "operator_instructions": {
+      "amount": "15.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "第一次拍卡：卡片对 GENERATE AC 不响应，POS 应报 TRY AGAIN/END APPLICATION 并要求再拍；请在同一笔交易上再拍一次，第二拍应完成 GENERATE AC 并转联机"
+    },
+    "expected_values": {
+      "amount": "15.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {"id": "5F57", "value": ""},
+      {"id": "9F02", "value": "000000001500"},
+      {"id": "9F03", "value": "000000001000"},
+      {"id": "DF8104", "value": ""},
+      {"id": "DF8105", "value": ""},
+      {"id": "9F7C", "value": "1122334455667788990011223344556677889900"},
+      {"id": "9F53", "value": "46"},
+      {"id": "5F2A", "value": "0978"},
+      {"id": "5F36", "value": "02"},
+      {"id": "9A", "value": "260121"},
+      {"id": "9F21", "value": "104846"},
+      {"id": "9C", "value": "01"},
+      {"id": "9F35", "value": "14"}
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台",
+    "POS 下发 PPS_MC_ATM（文档 PAGE 48：Same as PPS_MChip1 except ATC B1=80 Cash / MC Terminal Type=14）",
+    "该机内置表与文档 Table 16 有两处数值差异（不影响本笔判定，金额 15.00 远低于两者）：DF19 150.00 vs 文档 100.00、DF21 2000.00 vs 文档 200.00；本案例按裁定用文档版配置",
+    "卡端必须支持「空记录」：AFL 第 2 项 `10 01 02 01` 要求读 SFI 2 records 1-2，日志 SFI 2/2 = `70 00`（见 docs/change-notice-card-empty-record.md）",
+    "第一拍静默由 noResponseCommands:[{command:GENERATE_AC,times:1}] 实现（计数按单次模拟会话；第二拍正常应答 ARQC）",
+    "本笔不需要密钥：AIP=1880 → 无 SDA/DDA/CDA（证书仅为惰性数据，按日志逐字节照抄）"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发档案（含空记录 SFI 2/2）与 CONFIG(PPS_MC_ATM)，启动模拟",
+      "expect": "安卓上报 emulating"
+    },
+    {
+      "step": 2,
+      "action": "操作员在 POS 上发起 15.00 EUR 现金（9C=01）非接交易并拍卡",
+      "expect": "POS SELECT PPSE（单候选）→ SELECT ADF（PDOL 9F02/9F33/9C/9F03）→ GPO（9F33=000008、9C=01）→ 读 SFI 2/1、2/2（空）、3/1、3/2 → 以 P1=0x80（ARQC）发起 GENERATE AC"
+    },
+    {
+      "step": 3,
+      "action": "第一拍：卡片对 GENERATE AC 静默",
+      "expect": "POS 超时收尾：TRY AGAIN/END APPLICATION + DF8115 L1=01（超时）+ ui 请求，不产生 DataRecord"
+    },
+    {
+      "step": 4,
+      "action": "同一笔交易再拍一次",
+      "expect": "卡片回 ARQC（CID=80）→ 终端因 TVR b8 命中卡片 IAC-Online b8 转联机 → OUT = ONLINE REQUEST"
+    },
+    {
+      "step": 5,
+      "action": "主机判定 POS 的 OUT 与读写器侧命令",
+      "expect": "outs.0=TRY AGAIN、最终 outcome=online_request/online=online/resp_code=00；GPO/GAC 命令里 9F33/9F35/9F40/9C 与日志逐字节一致"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {"path": "card.gpo.pdol.9F02", "op": "eq", "expect": "000000001500"},
+    {"path": "card.gpo.pdol.9F03", "op": "eq", "expect": "000000001000"},
+    {"path": "card.gpo.pdol.9F33", "op": "eq", "expect": "000008"},
+    {"path": "card.gpo.pdol.9C", "op": "eq", "expect": "01"},
+    {"path": "card.gac.command", "op": "prefix", "expect": "80AE80"},
+    {"path": "card.gac.cdol.9F02", "op": "eq", "expect": "000000001500"},
+    {"path": "card.gac.cdol.9F03", "op": "eq", "expect": "000000001000"},
+    {"path": "card.gac.cdol.9C", "op": "eq", "expect": "01"},
+    {"path": "card.gac.cdol.9F33", "op": "eq", "expect": "000808"},
+    {"path": "card.gac.cdol.9F35", "op": "eq", "expect": "14"},
+    {"path": "card.gac.cdol.9F40", "op": "eq", "expect": "8000000000"},
+    {"path": "outs.0.ops.status", "op": "eq", "expect": "TRY AGAIN"},
+    {"path": "outs.0.ops.status_bits", "op": "eq", "expect": "0111"},
+    {"path": "outcome", "op": "eq", "expect": "online_request"},
+    {"path": "online", "op": "eq", "expect": "online"},
+    {"path": "resp_code", "op": "eq", "expect": "00"},
+    {"path": "outs.1.ops.status", "op": "eq", "expect": "ONLINE REQUEST"},
+    {"path": "outs.0.discdata.DF8115", "op": "eq", "expect": "010000000021", "severity": "warn"},
+    {"path": "card.gac.response", "op": "eq", "expect": "", "severity": "warn"},
+    {"path": "card.gac.mode", "op": "eq", "expect": "emv", "severity": "warn"}
+  ],
+  "notes": [
+    "日志定性：TEI 自动跑（TEST_INFO+ACT，无 CONFIG）→ 读写器内置 PPS_MC_ATM；含一笔完整交易 + 第二笔（重拍）开头即截断",
+    "第一拍收尾证据（日志 392102-392141）：DF8115=01 00 00 00 00 21（L1=01 超时）、DF812D=000000 → outcome_try_again_end_application（OUT 报文内容未打印，只有 data_count=3）",
+    "第二拍 OUT 日志里没有（截断到 EMV_PreProcess）——按裁决：最终期望 = ONLINE REQUEST（卡端 acBehavior=online_request，与日志里读写器 P1=0x80 的 ARQC 请求一致）；该期望属 host 定义，需真机验证",
+    "ARQC 的成因（日志可证）：GAC 的 95(TVR)=8000000001 → byte1 b8「未做脱机认证」命中卡片 9F0F(IAC-Online)=F070848000 的 b8 → 必须联机；AIP=1880 → 本笔不做 ODA，故无需密钥",
+    "九条读写器侧断言全部来自日志：GPO 83 10 数据（9F02/9F33=000008/9C=01/9F03）、GAC 80 AE 80 00 2B 数据（9F33=000808 比 GPO 多置「无 CVM 要求」位、9F35=14、9F40=8000000000、9F34=1F0302）",
+    "配置差异（该机内置 vs CTEL2 v4.1 Table 16）：DF19 150.00 vs 100.00、DF21 2000.00 vs 200.00（2000.00 在文档里不存在）；本笔 15.00 低于两者，行为等价",
+    "空记录：SFI 2/2 = 70 00，档案用 fields:[] 表达（host 已放开 min_length），卡端需支持（docs/change-notice-card-empty-record.md）",
+    "证书：SFI 2/1 的 176B issuer PK 证书按日志逐字节照抄（无 ODA，惰性数据）；9F32=03、92 为空（日志为 present-but-empty）——空 92 是否照发取决于卡端对空字段的处理，见需求文档",
+    "信任边界：日志 PPSE 的 61 模板无 87（本档案按优先级 1 下发，卡端 PPSE 是否带 87 由卡端实现决定，不影响本笔判定）",
+    "AFL 首项 `08 01 01 00`（SFI 1/1）未配置记录，案例库会给出 warn —— 与日志一致：该项被内核按 C-2 §3.3.2 丢弃（emv_initiate_application.c:864，日志 DSL 的读序列正是 SFI 2/1→2/2→3/1→3/2）"
+  ]
+}

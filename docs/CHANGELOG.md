@@ -5,6 +5,103 @@
 > 日期采用仓库内 runs/日志可回溯的日期；早期无提交历史，日期为大致区间。
 > 编号说明：N/H/O = 与安卓侧协商项；V = 上位机功能轮次。
 
+## 2026-10-10（修复：Amex CAPK `A000000025/07` 的 DF03 按公式更正 + 全量审计）
+
+### 背景与根因
+- 用户 `list` 报 32 个 amex 配置出现 `DF03 校验和不符` 告警。全量审计（`cases/**` 所有
+  CAPK：**85 文件 / 897 条**）后确认**只有一条**不符：`A000000025/07`（126B 模数、指数 03），
+  文件里 `4C3681CD…` vs 公式值 `5DC21CFD0B4348E8F374ECD71406580DA62A4068`。
+- **根因**：Expresspay 4.2.0 XML 把密钥 **`A000000025/01` 的 DF03 复制到了 `/07`**
+  （`/01` 自身的值就是 `4C3681CD…` 且校验通过；CONF_01 的 `/01` 已被本机 CDA 案例的本地
+  CA 密钥替换，故只剩 `/07` 残留）。这也解释了它为何在 32 个文件中逐字节相同。
+
+### 修复（用户裁定：以 `SHA1(9F06‖9F22‖DF02‖DF04)` 为准）
+- **32 个 amex 配置文件**的 `/07` DF03 → `5DC21CFD0B4348E8F374ECD71406580DA62A4068`；
+  改动为 JSON 感知改写（`json.dumps(indent=2, ensure_ascii=False)` 与原文逐字节一致，
+  仅该 checksum 串变化），`/01` 上的同值未被触碰；
+- `tools/import_expresspay_xml.py`：新增 `CAPK_DF03_CORRECTIONS`（含根因注释）+
+  `build_capk` 复核公式并把"修正/保留"写入导入报告与 `index.json` 的 `capk_df03_notes`
+  —— **重新导入也会保持正确**；未列入修正表的其它不符条目仍按原样保留并报告；
+- `cases/amex/pos_configs/index.json`：新增 `capk_df03_notes`（32 条逐配置溯源）；
+- `refernce/Expresspay 4.2.0/TerminalConfig/CONF_*.xml` **保持原样**（vendor 只读参考）；
+- 审计报告：`docs/capk-df03-audit.md`（范围/结论/根因/处置/复核）。
+
+### 验证
+- 全量重算：**0 条不符、0 条缺 DF03**（897 条）；案例库加载 **0 error、amex 告警 0**；
+- 导入器修正逻辑用 vendor XML 单独复核（`CONF_03.xml` → `/07` = `5DC21CFD…`，并产出
+  修正注记）；`pytest` **400 passed**。
+
+## 2026-10-10（案例：Mastercard ATM 现金 `3M08-5132A` + 空记录支持 + `card` 视图两处修复）
+
+### 数据：新增案例 `3M08-5132A`（mastercard / 非接 / 配置 `PPS_MC_ATM`）
+- **来源**：`Log/3M08-5132A(PPS_MC_ATM).txt`（TEI 自动跑、**无 CONFIG** → 读写器内置 `PPS_MC_ATM`；
+  含一笔完整交易 + 第二笔重拍开头即截断）。ATM 现金：`9C=01`、`9F35=14`（随 ACT 下发）、
+  金额 15.00/其他 10.00；`AIP=1880`（无 SDA/DDA/CDA → 不需要密钥）、PDOL `9F02/9F33/9C/9F03`。
+- **第一拍**：卡片对 GENERATE AC **完全不应答**（`GAC SW = FFFFFFFF` 超时）→ `DF8115=01 00 00 00 00 21`
+  （L1=01）+ `DF812D=000000` → `outcome_try_again_end_application`（OUT 报文该固件未打印）。
+- **第二拍**：日志截断 → 按裁定 host 定义期望为 **ONLINE REQUEST**（卡端 `acBehavior=online_request`，
+  与日志 P1=0x80 的 ARQC 请求一致；ARQC 成因：GAC 的 `95=8000000001` byte1 b8 命中卡片
+  `9F0F`(IAC-Online) b8）→ 需真机验证。
+- **断言**：9 条**读写器侧**规则逐字节取自日志（`card.gpo.pdol.9F02/9F03/9F33=000008/9C`、
+  `card.gac.command` 前缀 `80AE80`、`card.gac.cdol.9F02/9F03/9C/9F33=000808/9F35=14/9F40=8000000000`）
+  + `outs.0=TRY AGAIN`、最终 `outcome=online_request/online=online/resp_code=00`；
+  warn：`outs.0.discdata.DF8115=010000000021`、`card.gac.response=""`（卡片静默）、`card.gac.mode=emv`。
+- **配置差异**（该机内置 vs CTEL2 v4.1 Table 16，不影响本笔）：`DF19` 150.00 vs 100.00、
+  `DF21` 2000.00 vs 200.00（2000.00 在文档中不存在）；按裁定用文档版配置，差异写入案例 notes。
+
+### 功能：空记录（`fields: []` → `70 00`）
+- `models.py`：`RecordConfig.fields` 由 `min_length=1` 放开为可空，语义 = "**存在但内容为空**的
+  记录（`70 00`）"，与"未配置 → 6A83"区分（日志 SFI 2/2 = `70 00`）；
+- 新增卡端通知 `docs/change-notice-card-empty-record.md`（含空字符串字段 `92 00` 口径待确认）；
+- `docs/protocol.md` §8 `records[]` 行注明该语义。
+
+### 修复：`card` 视图（P2 反解）两处
+- **静默命令不再丢失**：`judge/card_apdu.py` 现在把"有 COMMAND 无 RESPONSE"的条目也纳入
+  `entries`（前后两条命令之间 flush + 末尾 flush），否则被 `noResponseCommands` 静默的
+  `GENERATE AC`/`GPO` 完全不可断言；
+- **CDOL1 从任意记录提取**：`8C/8D` 不只取第一条 READ RECORD（本案例在 SFI 3/2），
+  改为扫描全部已读记录后再拆 GENERATE AC 数据。
+
+### 验证
+- `pytest` **400 passed**（`test_mastercard_atm_case.py` 7 例：档案/配置/空记录可表达、
+  card 视图逐字节、两拍 PASS、9F35 非 14 必 FAIL、重拍被拒必 FAIL）；案例库加载 **0 error**
+  （`3M08-5132A` 1 条 warn：AFL 首项 `08 01 01 00` 未配置记录 —— 与日志一致，内核按 C-2 §3.3.2 丢弃）。
+
+## 2026-10-10（卡端 MSD 协商定稿：两个 MSD 案例 + `CCC` 注册 + `msdMode` 采纳）
+
+### 数据：新增 MSD（磁条）案例 `3G06-1241-Case07` / `-Case08`（mastercard / 非接）
+- **来源**：`Log/3G06-1241-Case07-08.txt` —— **一个 ACT + 两次拍卡**：两笔都是 Kernel 2 磁条模式
+  （`AIP=0200` → 卡不支持 EMV 模式；终端 kernel_config=0x20 → 选 MSD），仅 CCC 应答不同：
+  - Case07 `77{9F36, DF4B=000100}` → 内核 S13.41"请求二次拍卡" → 期望 `END APPLICATION` + **Start=B**
+    + `ui_on_restart` + MSD 数据记录（`50/84/9F6D/9F6B`），无错误指示；
+  - Case08 `77{9F61=EB85, 9F36, DF4B=000000}` → 走 CVC3 路径，金额 10.01 > `DF21`(CVM 限额 10.00)
+    → S14.21.1 **`DF8115` L2=6（卡片数据错误）** → 期望 `END APPLICATION` + `ui_on_outcome`
+    + `UIRD=1C00000013…` + 无 DataRecord（`DF8115` 属 DiscData，规则用 warn 级）。
+- **配置**：`PPS_MChip1`（日志 AID 行 + TERM 与 24 个配置逐字节一致，取其 CTEL2 EMV 基线）。
+- **卡数据**：3 候选 AID（含 Maestro/`B012345678`）、FCI 无 PDOL、AFL 4 项、SFI 1/1 = MSD 四对象、
+  `msdTrack2Data` 打包后与日志 `9F6B` 逐字节一致；后三项 AFL 无记录（MSD 只读首项），案例库 warn 属预期。
+
+### 修复：`card.gac` 兼容 MSD AC（INS `2A`）
+- `judge/card_apdu.py`：除 EMV 的 `80 AE` 外，`80 2A 8E 80`（CCC/MSD AC）也纳入 `card.gac`，
+  新增 `card.gac.mode = "emv"|"msd"`（MSD 无 CDOL1，`cdol` 为空），使 MSD 应答可作为断言证据。
+
+### 协商（卡端《卡端-MSD-确认回复》2026-10-10）→ 定稿
+- **A 采纳** `msdMode` 显式开关：Case07/08 档案加 `"msdMode":"msd"`（缺省=自动，行为不变）；
+  host 校验器加 `_MSD_MODES={msd,emv}` 白名单告警（`validation.py`）；
+- **B** 静默命令注册表 7→8 名：`CCC`（MSD AC / COMPUTE CRYPTOGRAPHIC CHECKSUM，`80 2A 8E 80`）
+  为正式名，`MSD_AC` 为等价别名（两者都接受）——`docs/protocol.md` §8.4 + 命令映射表、
+  `validation.py`、`frontend/AddCasePage.tsx`、`docs/N12_协商说明_指令不响应.md` 同步；
+- **C 接受** MSD 下 PPSE 目录省 `50`（与日志逐字节一致；ADF FCI 的 `50` 保留）；
+- **D 以日志为准**：修订 `docs/change-notice-card-msd.md` §2.5 的 TLV 顺序，并把
+  `card.gac.response` 断言升级为 **regex**（Case07 `^770B9F3602[0-9A-F]{4}DF4B030001009000$`、
+  Case08 `^77109F6102EB859F3602[0-9A-F]{4}DF4B030000009000$`，ATC 通配）→ 顺序不符即 FAIL；
+- 认可卡端 A-4（长度错回 `6700`）、A-5（不做读取限制）；ATC 初值差异不需 `atcStart`（host 不断言）。
+- **交付**：`docs/卡端-MSD-裁决回复.md`（host → 卡端）；卡端本轮**无需改码**。
+
+### 验证
+- `pytest` **393 passed**（`test_mastercard_msd_cases.py` 12 例：`msdMode` 下发/extras 不过滤、
+  regex 锁顺序、顺序错必 FAIL、`msdMode` 白名单告警、`CCC` 注册、`card.gac.mode`）；案例库加载 **0 error**。
+
 ## 2026-09-24（三方联调首轮：CONFIG 被判 NO 的两处根因 —— CAPK DF05/DF07 编码 + keys 空段）
 
 ### 修复：capk[] 的 DF07 写 01（RSA）、DF05 恒写 8 字节 ASCII —— 否则 POS 全部 CAPK 添加失败

@@ -116,6 +116,21 @@ cases/
 > `transaction.act`（`{id, value}`，value 为大写 hex，随 `act` 帧下发）；legacy `transaction.pos_params`
 > 保留在模型里但**不再下发**（详见 docs/protocol.md §8.1）。
 
+> **MSD（磁条）案例（2026-10-10）**：`mastercard/contactless/cases/3G06-1241-Case07.json` /
+> `-Case08.json` 覆盖 Kernel 2 磁条模式（参考日志 `Log/3G06-1241-Case07-08.txt`，一个 ACT
+> 两次拍卡）：卡端档案用 `msdMode:"msd"` + `msdPcvc3Track2`/`msdTtq`/`msdTrack2Data`/
+> `msdNatcTrack2` 出记录，用 `msdPosInteractionInfo`/`msdCvc3Track2` 决定 `80 2A 8E 80`
+> （**CCC**，别名 `MSD_AC`）的应答；host 把该命令纳入 `card.gac`（`card.gac.mode="msd"`），
+> 并用 `card.gac.response` 的 **regex** 锁 TLV 顺序（ATC 通配）。卡端实现口径见
+> `docs/change-notice-card-msd.md`，本轮协商结论见 `docs/卡端-MSD-裁决回复.md`。
+
+> **ATM 现金案例（2026-10-10）**：`mastercard/contactless/cases/3M08-5132A.json`（配置
+> `PPS_MC_ATM`）覆盖"卡片在 GENERATE AC 静默 → TRY AGAIN/END APPLICATION → 重拍转联机"，
+> 断言同时看**读写器侧命令**（`card.gpo.pdol.*` / `card.gac.cdol.*`，逐字节取自日志）与
+> **两拍 OUT**（`outs.0`/`outs.1`）。该案例用 `records[].fields: []` 表达**空记录**（`70 00`）——
+> 卡端口径见 `docs/change-notice-card-empty-record.md`。`card` 视图对"有命令无应答"的静默
+> 命令同样可见（`card.gac.response == ""`）。
+
 `brand.json`（`pos_params` 为 legacy 卡组默认模板，v2 **不下发**）：
 
 ```json

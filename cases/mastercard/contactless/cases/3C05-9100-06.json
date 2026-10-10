@@ -1,0 +1,249 @@
+{
+  "case_id": "3C05-9100-06",
+  "title": "MC contactless CDA 卡在离线终端脱机批准（TC + CDA，0.01 EUR）",
+  "summary": "Mastercard 非接 L2 案例 3C05-9100-06：Kernel 2、离线专用终端（Terminal Type 26，配置 PPS_perf_MC），卡片支持 CDA（AIP=1980、AFL 含 ODA 记录、9F4A=82），金额 0.01 EUR。读写器应以 P1=0x50（TC + CDA 请求）发起 GENERATE AC，卡片应答 CID=0x40 + 9F4B(SDAD)，终端完成 ODA/CDA 验签后**脱机批准**（OPS Status=APPROVED、CVM=NO_CVM、DataRecord 含 9F26/9F27=40/9F36、DiscData 的 DF8115 无错误指示）。日志中读写器内置参数（r-terpara + aid param）与 `PPS_perf_MC` 的 MC/00 行逐字节一致，故本案例下发该配置（其中 capk 索引 01 是**本案例本地生成**的测试 CA 公钥——参考卡的 8F 指向 文档 Appendix B 的 F3，其私钥不可得，无法复现其 9F46/9F4B）。",
+  "brand": "mastercard",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "3C05-9100-06",
+    "name": "Mastercard CDA（3C05-9100-06）",
+    "description": "参考日志 3C05-9100-06 的卡片数据；ICC 私钥随案例下发，证书链由 tools/make_mc_cda_case.py 生成",
+    "network": "MASTERCARD",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A0000000041010",
+        "label": "MasterCard",
+        "priority": 1
+      }
+    ],
+    "pan": "5413339000001513",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "MC TEST CARD",
+    "track2EquivalentData": "353431333333393030303030313531333D34393132323031303030303030303030303030",
+    "applicationLabel": "MasterCard",
+    "applicationVersionNumber": "0002",
+    "aip": "1980",
+    "afl": "08010100100101011801010020010200",
+    "issuerCountryCode": "0250",
+    "pdol": "9F4005",
+    "cdol1": "9F02069F03069F1A0295055F2A029A039C019F37049F35019F45029F4C089F34039F21039F7C14",
+    "cdol2": "910A8A0295059F37049F4C089F02069F0306",
+    "cvmList": [
+      {
+        "cvmCode": 31,
+        "cvmCondition": 3,
+        "applySucceedingCvm": 1
+      }
+    ],
+    "applicationUsageControl": "FF00",
+    "applicationCurrencyCode": "0978",
+    "applicationEffectiveDate": "060101",
+    "iacDefault": "F840642000",
+    "iacDenial": "0010880000",
+    "iacOnline": "F86064F800",
+    "caPublicKeyIndex": "01",
+    "issuerPublicKeyCertificate": "0BA41575CBF9DECD533EC50554D0ABD7921D08EE0632E585EC92EB65737ECF45EADF0750059518C6EF6C46BB40AC7471A50A929163966A88B152CD7AED0B79FF22A64758A3C38CC2800427622CDE96F7D8F6742DAD20DA8C2BDFB9A0A124566B213F64E98173E15DD25180465FD921791F1A50C70C51EAFBF44D289C20E9EE30",
+    "issuerPublicKeyRemainder": "49259347552E9BF03F4CD8130F267A3E82D9D34550DF0EE6015322500D931A056F76FEC1",
+    "issuerPublicKeyExponent": "010001",
+    "iccPrivateKeyId": "cda-icc-mc-3c05",
+    "iccPublicKeyCertificate": "C2703C93C58ED9A5B6519A8C7AFC44E4AEA77169FA83A12BDF4E4B9B994CFF69589A34C71D82B3F675C6F4E7403CA1C36F87E766E41D7EC96769C236C4D8E3CBABF3F7DD1D8516B163F3EFF95DD80BDB84E615C19B34970F97A474E2967F7C565B642DD1118D376F00A28FF7DE1F2CFB562CB30A6A6EBA743860CC213A086984",
+    "iccPublicKeyExponent": "010001",
+    "iccPublicKeyRemainder": "6E53DD8960013703E2772FB623B58705A83448EB880E39C65C1013F72D6067910E17C17DA96A9E409285",
+    "acBehavior": "offline_approved",
+    "records": [
+      {
+        "sfi": 2,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "expiryDate",
+          "applicationEffectiveDate",
+          "issuerCountryCode",
+          "panSequenceNumber",
+          "cdol1",
+          "cdol2",
+          "cvmList",
+          "applicationUsageControl",
+          "applicationVersionNumber",
+          "iacDefault",
+          "iacDenial",
+          "iacOnline",
+          "applicationCurrencyCode",
+          "sdaTagList"
+        ]
+      },
+      {
+        "sfi": 3,
+        "record": 1,
+        "fields": [
+          "caPublicKeyIndex",
+          "issuerPublicKeyExponent",
+          "issuerPublicKeyRemainder",
+          "issuerPublicKeyCertificate"
+        ]
+      },
+      {
+        "sfi": 4,
+        "record": 1,
+        "fields": [
+          "iccPublicKeyRemainder",
+          "iccPublicKeyExponent"
+        ]
+      },
+      {
+        "sfi": 4,
+        "record": 2,
+        "fields": [
+          "iccPublicKeyCertificate"
+        ]
+      }
+    ]
+  },
+  "kernel_params_ref": "PPS_perf_MC",
+  "keys": {
+    "symmetric_keys": [],
+    "rsa_keys": [
+      {
+        "id": "cda-icc-mc-3c05",
+        "public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC8CibUtDGdfeOU0fQqq4NuC8ZeksUHOrnPs1Snc0OBiL+77iVeTxvjrth8b0RssP9lhhux8eUlPXogF4r64B+aJmfoLOrSOXq/mC98UMrc2x72oYky+G5T3YlgATcD4ncvtiO1hwWoNEjriA45xlwQE/ctYGeRDhfBfalqnkCShQIDAQAB",
+        "private_key": "MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBALwKJtS0MZ1945TR9Cqrg24Lxl6SxQc6uc+zVKdzQ4GIv7vuJV5PG+Ou2HxvRGyw/2WGG7Hx5SU9eiAXivrgH5omZ+gs6tI5er+YL3xQytzbHvahiTL4blPdiWABNwPidy+2I7WHBag0SOuIDjnGXBAT9y1gZ5EOF8F9qWqeQJKFAgMBAAECgYASxrC57IRHxZpD8fL/j8C/7E0ShHVIE4UaSD3bupazCIScr1rr39pZEcxsIHAkqkfWS13Ylt7aqRjYu4EVK+v7vKje05Aq8/EBxADjHfuekAh8sNj3cLRpyMiO2mwKwqNdjmQy72kN0pkGoxyLviMg66kgbk/ODkdtO9QFTPHAwQJBANxgAu3CbTPjhJFp8bBDjHvNg92AXIKpsjRsn8SK7X0cOQUwUMHrN48vGkMYOM8heqXDVVNLgWEDEgql1nSQb2cCQQDab/lqYqm2QeHzQ7K63dNb6aycYWTKbdg5m4NoD2fRFhrs+Flcu2itmIRuxdpd7GGG2JzsjX6J0KLNuQztUvczAkEAysPcbf8Sk0en1lPweQnt3It/5PISLHcO7IV1i1V4pkCthkSqSYKvICNquoky3AIl4xcTDwzOAgDdPMbRx3aNyQJAInT7YR7DKq7l15vcO8H2L0+DHP/4CD6flybC6c1UURUtlifu4MPnVUrzyQ2IzrwU/lJ5Ho+LYG364HzKXz1xJQJAQg9IXCo3r4OlSqmD5ehsTgLUHakkp/1LvFXv0Y9TKqUtls5k5X7dHIZuFVpNhTmwziYo1AAhnKwNm7iI9k6+bA=="
+      }
+    ]
+  },
+  "transaction": {
+    "operator_instructions": {
+      "amount": "0.01",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "在 POS 上发起 0.01 EUR 非接交易并拍卡；期望脱机批准（不弹 CVM、不需联机）"
+    },
+    "expected_values": {
+      "amount": "0.01",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "9F02",
+        "value": "000000000001"
+      },
+      {
+        "id": "9F03",
+        "value": "000000000000"
+      },
+      {
+        "id": "5F2A",
+        "value": "0978"
+      },
+      {
+        "id": "5F36",
+        "value": "02"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台",
+    "POS 下发 PPS_perf_MC（与日志读写器内置参数最接近：逐字节比对后，24 个配置里只有它同时对上 9F35=26、DF11=0400800000、DF13=DC50000000、DF19=DF21=DF8124=DF8125=000000900000、9F40=6000F00001、DF8117=60；仍有 2 处差异 —— DF811B=30（日志 20，只多置 Kernel Configuration bit5，本案例 CDA 必读全部记录，无行为差异）与 DF8133=01C2（日志为空，属文档 Table 17 的 RRP 宽限时间））",
+    "卡片 AIP=1980（b1=CDA 支持、b5=CVM 支持），9F4A=82 → ICC 证书哈希追加 AIP；AFL 首项 08 01 01 00 被内核丢弃（C-2 §3.3.2，emv_initiate_application.c:864），实际读 SFI 2/1（应用记录，ODA 记录）→ 3/1（发卡行公钥证书）→ 4/1（ICC 余数/指数）→ 4/2（ICC 证书）",
+    "配置文件里 capk 索引 01（RID A000000004）是本案例本地生成的测试 CA 公钥（tools/make_mc_cda_case.py），参考卡的 F3 私钥不可得；profile 的 8F 指向该索引",
+    "ICC 私钥随案例 keys.rsa_keys 下发（id=cda-icc-mc-3c05），卡端用它签 9F4B(SDAD)；证书链按 EMV Book 2 §5/§6.5 构造并在生成器中自检（终端验签链 + CDA 往返）",
+    "与参考日志的差异（不影响判定）：CA 密钥是我们生成的（证书/SDAD 字节与日志不同）；profile 无法表达记录里的 9F51(DRDOL) 与 FCI 里的 9F4D(Log Entry)；交易日期/时间由 POS 取当前值（日志为 2026-03-04）"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发卡片档案（AIP 1980 + CDA 证书链 + ICC 私钥）与 CONFIG(PPS_perf_MC)，启动模拟",
+      "expect": "安卓上报 emulating"
+    },
+    {
+      "step": 2,
+      "action": "操作员在 POS 上发起 0.01 EUR 非接交易并拍卡",
+      "expect": "POS 按 PDOL(9F4005) 组 GPO（9F40=6000F00001），读 SFI 2/1、3/1、4/1、4/2，恢复发卡行/ICC 公钥，并以 P1=0x50（TC + CDA）发起 GENERATE AC"
+    },
+    {
+      "step": 3,
+      "action": "主机判定卡端 GENERATE AC 应答",
+      "expect": "应答含 9F27=40(CID=TC)、9F36(ATC)、9F4B(SDAD, 128B)"
+    },
+    {
+      "step": 4,
+      "action": "主机判定 POS 的 OUT",
+      "expect": "outcome=approved / online=offline / resp_code=00、OPS Status=APPROVED、CVM=NO_CVM、9F27=40、9F36 present；warn 级再核对 9F34=1F0302、DiscData 无错误指示、9F4C（内核完成 CDA 校验后才存的 ICC Dynamic Number）"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "approved"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "offline"
+    },
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    },
+    {
+      "path": "out.ops.status",
+      "op": "eq",
+      "expect": "APPROVED"
+    },
+    {
+      "path": "out.ops.cvm",
+      "op": "eq",
+      "expect": "NO_CVM"
+    },
+    {
+      "path": "out.datarecord.9F27",
+      "op": "eq",
+      "expect": "40"
+    },
+    {
+      "path": "out.datarecord.9F36",
+      "op": "present"
+    },
+    {
+      "path": "out.datarecord.9F34",
+      "op": "eq",
+      "expect": "1F0302",
+      "severity": "warn"
+    },
+    {
+      "path": "out.discdata.DF8115",
+      "op": "eq",
+      "expect": "0000000000FF",
+      "severity": "warn"
+    },
+    {
+      "path": "out.datarecord.9F4C",
+      "op": "present",
+      "severity": "warn"
+    },
+    {
+      "path": "card.gac.response",
+      "op": "contains",
+      "expect": "9F4B",
+      "severity": "warn"
+    }
+  ],
+  "notes": [
+    "SFI 2/1 record reproduces the log byte-for-byte when the unsupported tag(s) 9F51 are appended",
+    "profile cannot express 9F51 (6B) -> dropped from the static data (and therefore from the 9F46 hash)",
+    "profile cannot express 9F4D (Log Entry) in the ADF FCI",
+    "AFL 首项 08 01 01 00 没有对应记录，案例库会给出 warn（AFL 指向未配置的记录 [(1, 1)]）：这是**有意的**——C-2 §3.3.2 规定内核在该项恰为 08 01 01 00 且 Kernel Configuration 的 MSD 位未置位时丢弃首项（emv_initiate_application.c:864；日志 kernel_config=0x20、本案例下发的 PPS_perf_MC 为 0x30，两者 0x80 位均为 0），日志的读记录序列（SFI 2/1 → 3/1 → 4/1 → 4/2）也证明了这一点；参考卡该项背后的记录内容日志从未读出，故不复现，也不臆造。"
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "case_id": "3G06-1241-Case08",
+  "title": "MC 非接 MSD(磁条)模式 —— 卡片回 CVC3 且金额超 CVM 限额 → END APPLICATION + 卡片数据错误",
+  "summary": "Mastercard 非接 L2 案例 3G06-1241 Case 08（参考日志 Log/3G06-1241-Case07-08.txt 第二笔）。与 Case 07 完全相同的 MSD 流程，差别只在卡端 MSD AC 应答：`77{9F61=EB85(CVC3 Track2), 9F36=0105, DF4B=000000}` —— DF4B 未请求二次拍卡（poi[1]&0x03=0），于是内核走 CVC3 校验路径（emv_compute_cry_checksum S14.20/S14.21），因金额 10.01 > DF21(CVM Required Limit)=10.00（exceed_cvmlmt）触发 **S14.21.1 → DF8115 L2=6 = CARD_DATA_ERROR**，期望终端结束应用（END APPLICATION）并给出 UI 请求（ui_request_on_outcome=1、UIRD=1C00000013…）、**不产生数据记录**，Discretionary Data 的错误指示为 `00060000001C`。",
+  "brand": "mastercard",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "3G06-1241-Case08",
+    "name": "Mastercard MSD CVC3/超限额（3G06-1241-Case08）",
+    "description": "参考日志 3G06-1241-Case07-08 的 MSD 卡（与 Case 07 同卡数据）：MSD AC 应答含 9F61 CVC3、DF4B=000000（不请求二次拍卡）→ 触发内核卡片数据错误路径",
+    "network": "MASTERCARD",
+    "isActive": true,
+    "aids": [
+      {"aid": "A0000000041010", "label": "MASTERCARD", "priority": 1},
+      {"aid": "A0000000043060", "label": "MAESTRO", "priority": 2},
+      {"aid": "B012345678", "label": "TEST AID", "priority": 3}
+    ],
+    "pan": "5413339000001513",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "491231",
+    "cardholderName": "MC TEST CARD",
+    "track2EquivalentData": "353431333333393030303030313531333D3439313231303139303030393930303030303030",
+    "applicationLabel": "MASTERCARD",
+    "aip": "0200",
+    "afl": "08010100100101011801010020010200",
+    "acBehavior": "offline_approved",
+    "msdMode": "msd",
+    "msdPcvc3Track2": "000E",
+    "msdTtq": "0E70",
+    "msdTrack2Data": "353431333333393030303030313531333D3439313231303139303030393930303030303030",
+    "msdNatcTrack2": "03",
+    "msdPosInteractionInfo": "000000",
+    "msdCvc3Track2": "EB85",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": ["msdPcvc3Track2", "msdTtq", "msdTrack2Data", "msdNatcTrack2"]
+      }
+    ]
+  },
+  "kernel_params_ref": "PPS_MChip1",
+  "transaction": {
+    "operator_instructions": {
+      "amount": "10.01",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "拍卡一次：期望 POS 报 END APPLICATION + 卡片数据错误（DF8115 L2=6），不产生数据记录"
+    },
+    "expected_values": {
+      "amount": "10.01",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {"id": "5F57", "value": ""},
+      {"id": "9F02", "value": "000000001001"},
+      {"id": "9F03", "value": ""},
+      {"id": "DF8104", "value": ""},
+      {"id": "DF8105", "value": ""},
+      {"id": "9F7C", "value": "1122334455667788990011223344556677889900"},
+      {"id": "9F53", "value": "46"},
+      {"id": "5F2A", "value": "0978"},
+      {"id": "5F36", "value": "02"},
+      {"id": "9A", "value": "260127"},
+      {"id": "9F21", "value": "100257"},
+      {"id": "9C", "value": "00"}
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台",
+    "POS 下发 PPS_MChip1（DF811B=20、DF21=10.00 —— **本案例必须用带该 CVM 限额的配置**，否则 exceed_cvmlmt 不成立、不会报卡片数据错误）",
+    "卡端必须支持 MSD/磁条模式（见 docs/change-notice-card-msd.md），且本案例的 MSD AC 应答须含 9F61(CVC3 Track2)=EB85、DF4B=000000",
+    "金额 10.01 EUR > DF21(CVM Required Limit)=10.00 —— 这是触发 S14.21.1 的必要条件（日志一致）",
+    "与日志的差异（不影响判定）：profile 表达不了日志 PPSE 里其余候选 AID 的 ADF 数据；AFL 后三项在 MSD 模式不读、未配置记录（案例库 warn 属预期）；日志 ATC=0105、CVC3=EB85 由卡端按 profile 发出，案例不断言其计算正确性"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发档案（3 个候选 AID、AIP=0200、MSD 对象 + 9F61/DF4B）与 CONFIG(PPS_MChip1)，启动模拟",
+      "expect": "安卓上报 emulating"
+    },
+    {
+      "step": 2,
+      "action": "操作员在 POS 上发起 10.01 EUR 非接交易并拍卡",
+      "expect": "POS 走 MSD 模式：SELECT PPSE → SELECT ADF（无 PDOL）→ GPO → 读 SFI 1/1 → `80 2A 8E 80` 发起 MSD AC"
+    },
+    {
+      "step": 3,
+      "action": "卡端应答 MSD AC",
+      "expect": "77{9F61=EB85, 9F36, DF4B=000000}（DF4B 不请求二次拍卡）"
+    },
+    {
+      "step": 4,
+      "action": "主机判定 POS 的 OUT",
+      "expect": "END APPLICATION + ui_on_outcome=1 + UIRD=1C00000013… + 无 DataRecord；DiscData 的 DF8115=00060000001C（L2=6 卡片数据错误）"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {"path": "outcome", "op": "eq", "expect": "end_application"},
+    {"path": "out.ops.status", "op": "eq", "expect": "END APPLICATION"},
+    {"path": "out.ops.ui_request_on_outcome", "op": "eq", "expect": "1"},
+    {"path": "out.ops.data_record_present", "op": "eq", "expect": "0"},
+    {"path": "out.ops.discretionary_data_present", "op": "eq", "expect": "1"},
+    {"path": "out.uird", "op": "eq", "expect": "1C000000130000000000000000"},
+    {"path": "out.discdata.DF8115", "op": "eq", "expect": "00060000001C", "severity": "warn"},
+    {"path": "out.discdata.DF812B", "op": "present", "severity": "warn"},
+    {"path": "out.ops.cvm", "op": "eq", "expect": "N/A", "severity": "warn"},
+    {"path": "card.gac.mode", "op": "eq", "expect": "msd", "severity": "warn"},
+    {"path": "card.gac.response", "op": "regex",
+     "expect": "^77109F6102EB859F3602[0-9A-F]{4}DF4B030000009000$"}
+  ],
+  "notes": [
+    "OPS 逐字节取自日志：40 F0 F0 F0 90 F0 FF 0D → status=END APPLICATION(4)、start/online/cvm=N/A(F)、flags=0x90(ui_on_outcome+DiscData)、removal_timeout=0x0D",
+    "UIRD 取自日志：1C000000130000000000000000（UI 请求位图，错误路径专用）",
+    "DiscData 取自日志：DF812B=9000990000000F + DF8115=00060000001C → DF8115 的 byte2 = L2 = 0x06 = ERR_INFO_L2_CARD_DATA_ERROR",
+    "内核路径：deal_ccc_resp → emv_compute_cry_checksum S14.20（poi[1]&0x10=0）→ S14.21（exceed_cvmlmt=true）→ S14.21.1 置 L2=CARD_DATA_ERROR 并 return EMV_FAIL → outcome_other_card（emv_compute_cry_checksum.c:~858-875）",
+    "本案例不产生 DataRecord（PresentFlag bit5=0），是内核在错误路径下不回数据记录的表现 —— 断言 data_record_present=0 正是针对这一点",
+    "配置选择同 Case 07：日志 MC/00 行 + TERM 与 24 个配置逐字节一致，按裁定用 PPS_MChip1；其中 DF21=10.00 是本案必需项",
+    "DF8115 属 DiscData（protocol.md §7.6：本轮 host 不断言，POS 可不报），故相关断言用 warn 级：缺项只会降为 WARN，不会造假 PASS",
+    "2026-10-10 卡端 MSD 回复后定稿（协商项 A）：profile 显式下发 msdMode=\"msd\"（缺省=自动，行为不变，仅固定口径）",
+    "card.gac.response 断言用 regex 锁 TLV 顺序（Case08: 9F61→9F36→DF4B，与日志 §1 一致；协商项 D 以日志为准），ATC 位用 [0-9A-F]{4} 通配；该规则依赖卡端 APDU trace（v2 恒开）"
+  ]
+}

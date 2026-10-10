@@ -100,8 +100,11 @@ const NO_EXPECT_OPS = new Set(["present", "absent"]);
 const AC_BEHAVIORS = ["", "offline_approved", "offline_declined", "online_request"];
 const PPSE_MODES = ["", "auto", "disabled", "empty", "custom"];
 // v1.1 N12: command-name registry for noResponseCommands (silence behavior)
+// 2026-10-10: `CCC` = MSD AC / COMPUTE CRYPTOGRAPHIC CHECKSUM (80 2A 8E 80),
+// `MSD_AC` is the accepted alias (both are valid registry names).
 const NO_RESPONSE_COMMANDS = [
   "PPSE", "SELECT", "GPO", "READ_RECORD", "GET_DATA", "GENERATE_AC", "VERIFY",
+  "CCC", "MSD_AC",
 ];
 // v2: CTEL2 ids documented by the protocol although they are not EMV tags
 // (test_info / *_ack / out signalData ids); mirrors validation._CTEL2_SIGNAL_IDS

@@ -17,6 +17,11 @@ what the terminal actually put on the wire, e.g.::
     {"path": "card.gpo.pdol.9F35", "op": "eq", "expect": "E2"}
     {"path": "card.gac.cdol.9F35", "op": "eq", "expect": "22"}
 
+Kernel 2 mag-stripe mode asks with ``80 2A 8E 80`` (no CDOL1) instead of
+``80 AE ...``; that command also lands in ``card.gac`` with ``mode: "msd"`` and
+an empty ``cdol``, so ``card.gac.response`` can carry MSD evidence (9F36 / DF4B /
+9F61) as well.
+
 Layout::
 
     {
@@ -25,7 +30,8 @@ Layout::
                      "pdol": {...}, "cdol1": {...}, "afl": "..."},
       "gpo": {"command": "<hex>", "response": "<hex>", "pdol": {"9F35": "E2", ...},
               "aip": "5880", "afl": "1701010008010100"},
-      "gac": {"command": "<hex>", "response": "<hex>", "cdol": {"9F35": "22", ...}},
+      "gac": {"command": "<hex>", "response": "<hex>", "mode": "emv"|"msd",
+              "cdol": {"9F35": "22", ...}},
       "read_record": {"command": ..., "cdol1": ..., "cdol2": ...,
                       "records": {"<SFI>": {"<record>": {"<TAG>": "<hex>"}}}},
       "commands": [{"cla": "00", "ins": "A4", "data": "...", "raw": "..."}, ...],
@@ -209,6 +215,11 @@ def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, An
     entries: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
     for item in apdus:
         if str(item.get("direction", "")).upper() == "COMMAND":
+            if pending_command is not None:
+                # the previous command got no response (silenced by
+                # ``noResponseCommands``): keep it so ``card.*`` can still
+                # assert what the terminal put on the wire.
+                entries.append((pending_command, None))
             pending_command = item
             view["commands"].append({
                 "cla": item.get("cla", ""), "ins": item.get("ins", ""),
@@ -218,6 +229,8 @@ def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, An
         else:
             entries.append((pending_command, item))
             pending_command = None
+    if pending_command is not None:
+        entries.append((pending_command, None))     # last command unanswered
 
     def _find(ins: str, cla: str = "80") -> dict[str, Any] | None:
         for command, _response in entries:
@@ -287,6 +300,15 @@ def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, An
         records.setdefault(str(sfi), {})[str(int(p1, 16))] = parse_tlv(body)
     if records:
         view.setdefault("read_record", {})["records"] = records
+        # CDOL1/CDOL2 may live in *any* record, not only the first one read
+        # (log 3M08-5132A keeps 8C in SFI 3/2), so scan them all.
+        current = view.setdefault("read_record", {})
+        for per_record in records.values():
+            for record_tlvs in per_record.values():
+                if not current.get("cdol1") and record_tlvs.get("8C"):
+                    current["cdol1"] = record_tlvs["8C"]
+                if not current.get("cdol2") and record_tlvs.get("8D"):
+                    current["cdol2"] = record_tlvs["8D"]
 
     # --- GPO (80 A8): split its PDOL data against the card's 9F38 -----------
     gpo_cmd = _find("A8")
@@ -307,8 +329,16 @@ def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, An
                     if pdol_template else {},
         }
 
-    # --- GENERATE AC (80 AE): split CDOL1 data ------------------------------
+    # --- GENERATE AC (80 AE) / MSD AC (80 2A) -------------------------------
+    # Kernel 2 mag-stripe mode has no CDOL1: the card is asked with
+    # ``80 2A 8E 80`` and answers 9F36 / DF4B (+ 9F61 CVC3).  Both are the
+    # transaction's "generate AC" command, so both land in ``card.gac``;
+    # ``mode`` tells them apart and ``cdol`` stays empty for MSD.
     gac_cmd = _find("AE")
+    gac_mode = "emv"
+    if gac_cmd is None:
+        gac_cmd = _find("2A")
+        gac_mode = "msd"
     if gac_cmd is not None:
         _cla, _ins, _p1, _p2, data = _apdu_fields(str(gac_cmd.get("data_hex", "")))
         cdol1_template = ((view.get("select_aid") or {}).get("cdol1")
@@ -317,6 +347,7 @@ def build_card_view(trace_messages: list[dict[str, Any]] | None) -> dict[str, An
         view["gac"] = {
             "command": gac_cmd.get("data_hex", ""),
             "response": _response_for(gac_cmd),
+            "mode": gac_mode,
             "cdol_template": cdol1_template,
             "cdol": split_by_template(cdol1_template, data) if cdol1_template else {},
         }

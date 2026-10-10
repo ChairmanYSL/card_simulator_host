@@ -493,12 +493,16 @@ host 仅消费以下子集，其余字段原样透传（extra 透传）：
 | `pdol`/`cdol1`/`cdol2`/`tdol`/`ddol` | hex TLV 模板 | 透传（也是 P2 APDU 反解依据） |
 | `symmetricKeyId` | 指向 keys.symmetric_keys[].id；无 → 假密文 | 真假判定 |
 | `rsaKeyId` / `certificateProfileId` | ODA / 证书引用 | 透传 |
-| `records[]` | `{sfi(1..31), record(≥1), fields[token]}`；空数组=旧行为；未配置 (sfi,record) → 0x6A83 | 记录配置 |
+| `records[]` | `{sfi(1..31), record(≥1), fields[token]}`；**`fields: []` = 空记录（卡端回 `70 00`，见 `docs/change-notice-card-empty-record.md`）**；空数组=旧行为；未配置 (sfi,record) → 0x6A83 | 记录配置 |
 | `acBehavior` | `online_request/offline_approved/offline_declined`；非法→缺省（跟随终端 P1）warn | ac 行为 |
 | `ppseMode` | `auto/disabled/empty/custom`（缺省 auto）；非法→auto（warn） | PPSE 行为 |
 | `ppseSw` | 大写 4 位 hex；**任意 mode 的全局 SW 覆盖**（缺省为各 mode 默认 SW） | PPSE 行为 |
 | `ppseData` | 偶长 hex 完整 PPSE FCI 模板（仅 custom 使用）；host 加载期 TLV 长度一致性检查（warning），app 侧非法 → 6700 | PPSE 行为 |
 | `noResponseCommands` | **指令不响应（静默）列表**，见 §8.4；缺省 `[]` | 静默行为 |
+| `msdMode` | 卡端 **MSD（磁条）流程开关**：`msd`（强制 MSD）/`emv`（强制 EMV）/缺省或空=自动（任一 `msd*` 非空即 MSD）；非法值 → 按自动（warn） | 透传（2026-10-10 协商项 A） |
+| `msdPcvc3Track2` / `msdTtq` / `msdNatcTrack2` | MSD 记录对象 tag `9F65`(2B) / `9F66`(2B) / `9F67`(1B)，只进 READ RECORD | 透传 |
+| `msdTrack2Data` | MSD Track2（tag `9F6B`）：**ASCII track2 的 hex**，口径同 `track2EquivalentData`（`'='`→`'D'`，奇数长度补 `F`） | 透传 |
+| `msdPosInteractionInfo` / `msdCvc3Track2` | CCC（`80 2A 8E 80`）应答对象 `DF4B`(3B) / `9F61`(2B，空串=不发) | 透传（§8.4 CCC） |
 | `createdAt` / `updatedAt` | app 管理 | 透传 |
 | 其它未知字段 | Gson 默认忽略 | 透传 |
 
@@ -508,6 +512,7 @@ host 仅消费以下子集，其余字段原样透传（extra 透传）：
 
 host 加载校验（针对案例内嵌 profile / brand.json card_template）：Luhn；有效期 YYMMDD；
 hex 偶长；afl 4N+first≤last；records sfi∈[1,31]、无重复；aids hex；acBehavior 非法仅 warning；
+msdMode 非法仅 warning（按自动处理）；
 内嵌 keys 校验 base64 与 id 模式 `^[A-Za-z0-9_-]{1,64}$`；`act` 的 id 归一化为大写、value 去空白并大写；
 profile.id 与 case_id 绑定：缺省自动补全 = case_id，不一致仅 warning。
 
@@ -576,7 +581,10 @@ profile.id 与 case_id 绑定：缺省自动补全 = case_id，不一致仅 warn
   = **仅前 N 次静默**，第 N+1 次起恢复正常应答；
 * 指令名（**命令名注册表**，第一期，host 校验未知项为 warning、app 侧忽略）：
   `PPSE`（SELECT PPSE）、`SELECT`（SELECT AID）、`GPO`（GET PROCESSING OPTIONS）、
-  `READ_RECORD`、`GET_DATA`、`GENERATE_AC`、`VERIFY`（PIN）；
+  `READ_RECORD`、`GET_DATA`、`GENERATE_AC`、`VERIFY`（PIN）、
+  `CCC`（MSD AC / COMPUTE CRYPTOGRAPHIC CHECKSUM，`80 2A 8E 80`；`MSD_AC` 为
+  等价别名，两者都接受 —— 2026-10-10 与卡端协商项 B 定稿：正式名取与 POS 内核
+  函数/状态机一致的 `CCC`）；
 * 静默期间 app **不发送任何响应 APDU**（无 TLV、无 SW）；终端行为由 POS 实现决定
   （通常重发或超时中止），host 不判定安卓静默本身，判定仍以 POS 结果（OUT）为准；
 * 空列表 / 字段缺省 = 全部指令正常响应；同一指令重复配置 → host warning、
@@ -592,6 +600,7 @@ profile.id 与 case_id 绑定：缺省自动补全 = case_id，不一致仅 warn
 | READ_RECORD | 00 | B2 | 不限定 | — |
 | GET_DATA | 80 | CA | 不限定 | — |
 | GENERATE_AC | 80 | AE | 不限定 | — |
+| CCC（别名 MSD_AC） | 80 | 2A | 8E/80 | MSD（磁条）模式的 AC 命令；EMV 模式不会出现 |
 | VERIFY | 00 | 20 | 不限定 | — |
 
 * 匹配策略：按 CLA+INS（PPSE/SELECT 再按数据域是否等于 PPSE DF 名区分）匹配，

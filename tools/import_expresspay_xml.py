@@ -39,6 +39,9 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from emv_host.protocol.kernel_tlv import compute_capk_checksum  # noqa: E402
+
 DEFAULT_VERSION = "4.2.0"
 
 
@@ -136,21 +139,53 @@ def build_aid(node: ET.Element) -> dict:
     return {"aid": aid, "fields": fields}
 
 
-def build_capk(node: ET.Element) -> dict:
+#: Vendor CAPK entries whose XML DF03 does not verify, and the value the
+#: importer writes instead (user ruling 2026-10-10: ``SHA1(9F06‖9F22‖DF02‖DF04)``
+#: is authoritative).  The Expresspay 4.2.0 XML set carries key
+#: ``A000000025/01``'s DF03 on key ``A000000025/07`` as well (a copy/paste in
+#: the vendor sample: 8 of the 9 entries verify, /07's stored value equals
+#: /01's).  Entries *not* listed here keep the vendor value and are reported.
+CAPK_DF03_CORRECTIONS: dict[tuple[str, str], str] = {
+    ("A000000025", "07"): "5DC21CFD0B4348E8F374ECD71406580DA62A4068",
+}
+
+
+def build_capk(node: ET.Element, notes: list[str] | None = None) -> dict:
     values = cfg_map(node)
     for required in ("9F06", "9F22", "DF05", "DF06", "DF07",
                      "DF02", "DF04", "DF03"):
         if required not in values:
             raise ImportError_(f"CAPK entry missing {required}")
     encoding, expiry, raw = decode_df05(values["DF05"])
+    rid = values["9F06"].upper()
+    key_index = values["9F22"].upper()
+    modulus = values["DF02"].upper()
+    exponent = values["DF04"].upper()
+    checksum = values["DF03"].upper()
+    try:
+        expected = compute_capk_checksum(rid, key_index, modulus, exponent)
+    except ValueError:
+        expected = ""      # malformed field: the loader reports it instead
+    if expected and checksum != expected:
+        if (rid, key_index) in CAPK_DF03_CORRECTIONS:
+            if notes is not None:
+                notes.append(
+                    f"CAPK {rid}/{key_index} DF03 corrected "
+                    f"{checksum} -> {expected} "
+                    f"(vendor XML value does not verify)")
+            checksum = expected
+        elif notes is not None:
+            notes.append(
+                f"CAPK {rid}/{key_index} DF03 kept as-is: vendor value "
+                f"{checksum} does not verify (computed {expected})")
     entry: dict = {
-        "rid": values["9F06"].upper(),
-        "key_index": values["9F22"].upper(),
+        "rid": rid,
+        "key_index": key_index,
         "hash_alg": int(values["DF06"], 16),
         "key_alg": int(values["DF07"], 16),
-        "modulus": values["DF02"].upper(),
-        "exponent": values["DF04"].upper(),
-        "checksum": values["DF03"].upper(),
+        "modulus": modulus,
+        "exponent": exponent,
+        "checksum": checksum,
     }
     if encoding == "raw":
         entry["expiry_encoding"] = "raw"
@@ -196,7 +231,8 @@ def profile_number(stem: str) -> str | None:
     return match.group(1) if match else None
 
 
-def build_conf(conf_path: Path, version: str) -> dict:
+def build_conf(conf_path: Path, version: str,
+               notes: list[str] | None = None) -> dict:
     """One CONF module: AID/CAPK/DRL/ExceptionFile + TerminalParameter term.
 
     The Profile part is deliberately NOT merged here: CONF and Profile are two
@@ -206,7 +242,7 @@ def build_conf(conf_path: Path, version: str) -> dict:
     root = read_xml(conf_path)
     return {
         "aids": [build_aid(n) for n in root.findall("KernelAidCombination")],
-        "caps": [build_capk(n) for n in root.findall("CAPK")],
+        "caps": [build_capk(n, notes) for n in root.findall("CAPK")],
         "drl": [build_drl(n) for n in root.findall("CRL")],
         "exception_file": [build_exception_file(n)
                            for n in root.findall("ExceptionFile")],
@@ -276,14 +312,17 @@ def main(argv: list[str] | None = None) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         index_entries: list[dict] = []
         errors: list[str] = []
+        capk_notes: list[str] = []
         for conf_path in conf_paths:
+            notes: list[str] = []
             try:
-                config = build_conf(conf_path, args.version)
+                config = build_conf(conf_path, args.version, notes)
             except ImportError_ as exc:
                 errors.append(f"{conf_path.name}: {exc}")
                 continue
             ref = conf_path.stem
             write_json(out_dir / f"{ref}.json", config)
+            capk_notes.extend(f"{ref}: {note}" for note in notes)
             index_entries.append({
                 "id": ref, "kind": "conf", "file": f"{ref}.json",
                 "source": conf_path.name,
@@ -311,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
             "source_config_dir": str(config_dir),
             "source_profile_dir": str(profile_dir) if profile_dir else "",
             "configs": index_entries,
+            **({"capk_df03_notes": sorted(set(capk_notes))} if capk_notes else {}),
         })
     except (ImportError_, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -318,6 +358,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"wrote {len(index_entries)} modules to {out_dir}")
     print(f"reference: {config_dir}")
+    if capk_notes:
+        print(f"\nCAPK DF03 notes ({len(capk_notes)}):")
+        for line in sorted(set(capk_notes))[:10]:
+            print(f"  {line}")
+        if len(set(capk_notes)) > 10:
+            print(f"  … {len(set(capk_notes)) - 10} more (see index.json)")
     if profile_dir:
         print(f"reference: {profile_dir}")
     if errors:

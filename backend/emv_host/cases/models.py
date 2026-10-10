@@ -76,15 +76,20 @@ class TlvField(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    tag: str = Field(description="EMV tag, 1-2 bytes hex (e.g. DF11/9F1B)")
+    tag: str = Field(description="EMV tag, 1-3 bytes hex (e.g. DF11/9F1B/DF8124)")
     value: str = Field(default="", description="even-length hex value")
 
     @field_validator("tag")
     @classmethod
     def _normalize_tag(cls, value: str) -> str:
+        # Mastercard kernel objects are three-byte tags (DF811B Kernel
+        # Configuration, DF8124/DF8125 Reader CTL, DF8117-DF811F CVM/security
+        # capability, DF8132-DF8136 RRP), so the field accepts 1-3 bytes --
+        # the same shape PosParam.tag, validation._TAG_SHAPE and the add-case
+        # page already use.
         tag = value.strip().upper()
-        if not re.fullmatch(r"[0-9A-F]{2}(?:[0-9A-F]{2})?", tag):
-            raise ValueError(f"TLV tag 须为 1-2 字节 hex：{value!r}")
+        if not re.fullmatch(r"[0-9A-F]{2}(?:[0-9A-F]{2}){0,2}", tag):
+            raise ValueError(f"TLV tag 须为 1-3 字节 hex：{value!r}")
         return tag
 
     @field_validator("value")
@@ -318,7 +323,11 @@ class CvmEntry(BaseModel):
 class RecordConfig(BaseModel):
     sfi: int = Field(ge=1, le=31)
     record: int = Field(ge=1)
-    fields: list[str] = Field(default_factory=list, min_length=1)
+    #: Empty ``fields`` = an **empty record**: the card answers ``70 00`` + 9000
+    #: (log 3M08-5132A reads SFI 2/2 as an empty record).  An *unconfigured*
+    #: (sfi, record) still answers 6A83 -- see docs/protocol.md §8 and
+    #: docs/change-notice-card-empty-record.md.
+    fields: list[str] = Field(default_factory=list)
 
 
 class NoResponseSpec(BaseModel):

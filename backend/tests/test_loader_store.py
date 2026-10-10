@@ -629,6 +629,80 @@ def test_case_level_kernel_params_are_validated(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# v1.2.x M5: one AID may repeat once per transaction type (9C) and per Kernel
+# Identifier (9F2A)
+# ---------------------------------------------------------------------------
+# The Mastercard CTEL2 configuration data set keys its AID combinations by
+# AID x transaction type, and the reference runtime additionally splits Kernel 2
+# from Kernel 8 with 9F2A.  Duplicate-AID detection therefore has to look at the
+# (9F06, 9C, 9F2A) triple, not at 9F06 alone.
+
+def _aid_entry(aid, txn=None, kernel=None, **fields):
+    entry = {"aid": aid, "fields": []}
+    if txn is not None:
+        entry["fields"].append({"tag": "9C", "value": txn})
+    if kernel is not None:
+        entry["fields"].append({"tag": "9F2A", "value": kernel})
+    entry["fields"].extend({"tag": tag, "value": value}
+                           for tag, value in fields.items())
+    return entry
+
+
+def test_same_aid_with_distinct_transaction_types_is_valid(tmp_path):
+    root = make_library(tmp_path)
+    case = json.loads(json.dumps(CASE))
+    case["kernel_params"] = {
+        "aids": [_aid_entry("A0000000031010", "00", DF11="0000000000"),
+                 _aid_entry("A0000000031010", "01", DF11="0000000000")],
+    }
+    _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", case)
+    library = load_library(root)
+    loaded = library.get_case("visa", "contactless", "VIS-CL-001")
+    assert [len(a.fields) for a in loaded.kernel_params.aids] == [2, 2]
+    assert not _errors(library)
+
+
+def test_same_aid_txn_with_distinct_kernel_ids_is_valid(tmp_path):
+    root = make_library(tmp_path)
+    case = json.loads(json.dumps(CASE))
+    case["kernel_params"] = {
+        "aids": [_aid_entry("A0000000031010", "09", "02", DF11="0000000000"),
+                 _aid_entry("A0000000031010", "09", "08", DF11="0000000000")],
+    }
+    _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", case)
+    library = load_library(root)
+    assert not _errors(library)
+
+
+def test_same_aid_and_transaction_type_is_an_error(tmp_path):
+    root = make_library(tmp_path)
+    case = json.loads(json.dumps(CASE))
+    case["kernel_params"] = {
+        "aids": [_aid_entry("A0000000031010", "00", "02", DF11="0000000000"),
+                 _aid_entry("A0000000031010", "00", "02", DF11="0000000000")],
+    }
+    _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", case)
+    library = load_library(root)
+    assert any("AID 重复" in i.message and i.severity == "error"
+               for i in library.issues)
+
+
+def test_same_aid_without_transaction_type_is_still_an_error(tmp_path):
+    root = make_library(tmp_path)
+    case = json.loads(json.dumps(CASE))
+    case["kernel_params"] = {
+        "aids": [{"aid": "A0000000031010", "fields": [{"tag": "9F09",
+                                                       "value": "0002"}]},
+                 {"aid": "A0000000031010", "fields": [{"tag": "9F09",
+                                                       "value": "0003"}]}],
+    }
+    _write(root / "visa" / "contactless" / "cases" / "VIS-CL-001.json", case)
+    library = load_library(root)
+    assert any("AID 重复" in i.message and i.severity == "error"
+               for i in library.issues)
+
+
+# ---------------------------------------------------------------------------
 # v1.2 T11: atomic writes
 # ---------------------------------------------------------------------------
 

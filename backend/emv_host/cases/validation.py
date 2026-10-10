@@ -47,10 +47,16 @@ _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _HEX_FIELDS = ("aip", "afl", "track2EquivalentData", "issuerApplicationData",
                "issuerCountryCode", "pdol", "cdol1", "cdol2", "tdol", "ddol")
 _AC_BEHAVIORS = {"online_request", "offline_approved", "offline_declined"}
+#: Card-side MSD switch (2026-10-10 reply, negotiation A); "" / absent = auto.
+_MSD_MODES = {"msd", "emv"}
 _PPSE_MODES = {"auto", "disabled", "empty", "custom"}
-# v1.1 N12: command-name registry for noResponseCommands (silence behavior)
+# v1.1 N12: command-name registry for noResponseCommands (silence behavior).
+# 2026-10-10 (negotiation B): the MSD AC / COMPUTE CRYPTOGRAPHIC CHECKSUM
+# (``80 2A 8E 80``) is registered as ``CCC`` (EMV Book 3 name, matches the POS
+# kernel's ``emvicc_compute_crypyographic_checksum``); ``MSD_AC`` is an alias.
 _NO_RESPONSE_COMMANDS = {
     "PPSE", "SELECT", "GPO", "READ_RECORD", "GET_DATA", "GENERATE_AC", "VERIFY",
+    "CCC", "MSD_AC",
 }
 # TLV skeleton containers used by the ppseData consistency check
 _PPSE_CONTAINERS = {0x6F, 0xA5, 0x61, 0xBF0C}
@@ -170,6 +176,14 @@ def validate_profile(profile: CardProfile) -> Report:
     if profile.acBehavior and profile.acBehavior not in _AC_BEHAVIORS:
         report.add(pid, "warning",
                    f"acBehavior={profile.acBehavior!r} 非法，按缺省（跟随终端 P1）处理")
+
+    # MSD (mag-stripe) support: ``msdMode`` is the card side's explicit switch
+    # (2026-10-10 reply, negotiation A).  Absent/empty = auto (any non-empty
+    # ``msd*`` field means MSD), which is what the notice originally specified.
+    msd_mode = str(getattr(profile, "msdMode", "") or "")
+    if msd_mode and msd_mode.lower() not in _MSD_MODES:
+        report.add(pid, "warning",
+                   f"msdMode={msd_mode!r} 非法，按缺省（自动：任一 msd* 字段非空即 MSD）处理")
 
     # PPSE behavior overrides (v1.1 N11)
     if profile.ppseMode and profile.ppseMode not in _PPSE_MODES:
@@ -424,8 +438,13 @@ def validate_kernel_params(params: KernelParams | None, owner: str, *,
 
     Per v1.2 §1.9 the host only rejects what the kernel itself would reject:
 
-    * AID: ``9F06`` must be 5–8 bytes, whole-byte hex, unique per entry, and no
-      entry may repeat an AID; every trailing field must be even-length hex;
+    * AID: ``9F06`` must be 5–8 bytes, whole-byte hex; every trailing field must
+      be even-length hex; the ``(9F06, 9C, 9F2A)`` triple must be unique.  The
+      same AID legitimately repeats once per transaction type *and* once per
+      Kernel Identifier (the Mastercard CTEL2 configuration data set keys its
+      AID combinations by AID × ``9C``, and the reference runtime additionally
+      distinguishes Kernel 2 from Kernel 8 with ``9F2A``).  A repeated triple is
+      an error; a repeated AID alone is not;
     * CAPK: RID exactly 5 bytes, key index 1 byte, ``DF05`` a valid date,
       ``DF06``/``DF07`` present, modulus a whole number of bytes at most
       ``MAX_MODULUS_BYTES``, and ``DF03`` must equal
@@ -440,16 +459,21 @@ def validate_kernel_params(params: KernelParams | None, owner: str, *,
     if params is None:
         return report
 
-    seen_aids: set[str] = set()
+    seen_aids: set[tuple[str, str, str]] = set()
     for i, aid in enumerate(params.aids, start=1):
         where = f"kernel_params.aid[{i}]"
         if len(aid.aid) % 2 or len(aid.aid) < 10 or len(aid.aid) > 16 \
                 or not _HEX_RE.fullmatch(aid.aid or "0"):
             report.add(owner, "error",
                        f"{where} 9F06 须为 5-8 字节偶数长度 hex：{aid.aid!r}")
-        if aid.aid in seen_aids:
-            report.add(owner, "error", f"{where} AID 重复：{aid.aid}")
-        seen_aids.add(aid.aid)
+        txn_type = next((f.value for f in aid.fields if f.tag == "9C"), "")
+        kernel_id = next((f.value for f in aid.fields if f.tag == "9F2A"), "")
+        if (aid.aid, txn_type, kernel_id) in seen_aids:
+            report.add(owner, "error",
+                       f"{where} AID 重复：{aid.aid}"
+                       f"（9C={txn_type or '缺失'}, 9F2A={kernel_id or '缺失'}）；"
+                       f"同一 AID 只有以 9C 交易类型 / 9F2A Kernel ID 区分时才允许重复")
+        seen_aids.add((aid.aid, txn_type, kernel_id))
         if not aid.fields:
             report.add(owner, "warning",
                        f"{where} {aid.aid} 除 9F06 外没有任何元素")

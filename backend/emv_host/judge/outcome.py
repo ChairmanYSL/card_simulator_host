@@ -20,6 +20,16 @@ Builds the judgeable result dict consumed by ``judge.asserter.assert_result``:
       "resp_code": "00",
       "card": {},              # filled by the APDU judge (P2)
     }
+
+One ACT can produce **several** OUTs (CTEL2: dual tap, or Select Next followed by
+the next application's transaction), so an attempt accumulates every OUT it sees:
+
+* ``compose_result`` keeps them in arrival order under ``outs`` and makes ``out``
+  the transaction's **final** OUT (the first one that is not Try Again / Select
+  Next), which is what the derived ``outcome`` / ``online`` / ``resp_code`` and
+  the run view use;
+* ``is_final_out`` is the rule the executor uses to decide whether the attempt
+  can finish.
 """
 
 from __future__ import annotations
@@ -39,10 +49,17 @@ _OPS_CVM = {
     0b0011: "CONFIRMATION_CODE_VERIFIED", 0b1111: "N/A",
 }
 
+#: OUT statuses that only ask for another tap / the next application: the reader
+#: keeps the same ACT open and will send another OUT, so an attempt that has seen
+#: only these is not finished yet.
+INTERMEDIATE_STATUSES = frozenset({"TRY AGAIN", "SELECT NEXT"})
+
 #: DataRecord tag used for resp_code when present (Authorization Response Code).
 RESP_CODE_TAG = "8A"
 #: DataRecord tag for the CID (Cryptogram Information Data), used for online.
 CID_TAG = "9F27"
+
+_OUT_KEYS = ("ops", "datarecord", "discdata", "uird", "kernelid")
 
 
 def _nibble(value: int) -> str:
@@ -115,17 +132,63 @@ def _signal(signal_data: Any, item_id: str) -> Any:
 def build_result(signal_data: list[dict[str, Any]],
                  card: dict[str, Any] | None = None) -> dict[str, Any]:
     """Turn one OUT ``signalData`` into the judgeable result dict."""
+    view = out_view(signal_data)
+    return compose_result([view], card=card)
+
+
+def out_view(signal_data: list[dict[str, Any]]) -> dict[str, Any]:
+    """Decode one OUT ``signalData`` into its ``out`` view (no derivation)."""
     ops_value = _signal(signal_data, "OPS")
     if ops_value is None:
         raise ValueError("OUT 缺少 OPS（CTEL2 必填）")
-    ops = decode_ops(str(ops_value))
-    datarecord = _parse_tlv_dict(str(_signal(signal_data, "DataRecord") or ""),
-                                 "DataRecord")
-    discdata = _parse_tlv_dict(str(_signal(signal_data, "DiscData") or ""),
-                               "DiscData")
-    uird = _signal(signal_data, "UIRD")
-    kernelid = _signal(signal_data, "KernelId")
+    return {
+        "ops": decode_ops(str(ops_value)),
+        "datarecord": _parse_tlv_dict(str(_signal(signal_data, "DataRecord") or ""),
+                                      "DataRecord"),
+        "discdata": _parse_tlv_dict(str(_signal(signal_data, "DiscData") or ""),
+                                    "DiscData"),
+        "uird": _signal(signal_data, "UIRD"),
+        "kernelid": _signal(signal_data, "KernelId"),
+    }
 
+
+def is_final_out(ops: dict[str, Any]) -> bool:
+    """True when this OUT ends the transaction (not another tap/selection)."""
+    return ops.get("status") not in INTERMEDIATE_STATUSES
+
+
+def compose_result(outs: list[dict[str, Any]],
+                   card: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Accumulate one ACT's OUT views into the judgeable result.
+
+    ``out`` is the transaction's **final** OUT (the first view whose status is
+    not Try Again / Select Next); while only intermediate views have arrived it
+    is the last one, so the run view can show the Try Again outcome live.
+    ``outs`` keeps every view in arrival order for per-OUT assertions
+    (``outs.0.ops.status`` …).
+    """
+    if not outs:
+        raise ValueError("OUT 列表为空：至少需要一条 OUT")
+    final = outs[-1]
+    for view in outs:
+        if is_final_out(view["ops"]):
+            final = view
+            break
+    outcome, online, resp_code = _derive(final)
+    return {
+        "out": {key: final[key] for key in _OUT_KEYS},
+        "outs": [{key: view[key] for key in _OUT_KEYS} for view in outs],
+        "outcome": outcome,
+        "online": online,
+        "resp_code": resp_code,
+        "card": dict(card or {}),
+    }
+
+
+def _derive(view: dict[str, Any]) -> tuple[str, str, str]:
+    """``(outcome, online, resp_code)`` for one OUT view."""
+    ops = view["ops"]
+    datarecord = view["datarecord"]
     resp_code = datarecord.get(RESP_CODE_TAG)
     if not resp_code:
         resp_code = {"APPROVED": "00", "DECLINED": "05",
@@ -139,17 +202,4 @@ def build_result(signal_data: list[dict[str, Any]],
             online = "offline"
     elif ops["status"] == "ONLINE REQUEST":
         online = "online"
-
-    return {
-        "out": {
-            "ops": ops,
-            "datarecord": datarecord,
-            "discdata": discdata,
-            "uird": uird,
-            "kernelid": kernelid,
-        },
-        "outcome": ops["outcome"],
-        "online": online,
-        "resp_code": resp_code,
-        "card": dict(card or {}),
-    }
+    return ops["outcome"], online, resp_code

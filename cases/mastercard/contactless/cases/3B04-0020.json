@@ -1,0 +1,212 @@
+{
+  "case_id": "3B04-0020",
+  "title": "MC contactless SELECT ADF 静默（无 R-APDU/SW）→ Try Again，二次拍卡联机请求",
+  "summary": "Mastercard 非接 L2 案例 3B04-0020：卡片对 SELECT ADF **完全不响应**（无数据、无 SW），读写器必须在应用选择阶段超时终止并返回 Try Again（OPS Status=TRY AGAIN、Start=B 表示需再拍卡、Error Indication L1=超时），且该 OUT **不得提供 Kernel Identifier-Terminal**；随后同一 ACT 的第二次拍卡应正常完成（GPO/READ RECORD/GENERATE AC → 联机请求）。本案例用 `PPS_MChip1`（CTEL2 默认 EMV 配置，与日志中读写器内置的 AID 参数/TERM 逐字节一致）下发终端参数，卡端档案对首次 SELECT 静默（times=1）→ 断言第一条 OUT = Try Again、第二条 OUT = ONLINE REQUEST。KernelId 不进断言：按日志 2026-03-04 的修复（emv_application_selection.c 超时分支把 kernel_id_len 置 0），该项需在读写器侧 OUT 报文/日志核对，host 侧 POS 当前不上报 KernelId（写了会恒真）。",
+  "brand": "mastercard",
+  "entry_mode": "contactless",
+  "profile": {
+    "id": "3B04-0020",
+    "name": "Mastercard 静默 SELECT ADF（3B04-0020）",
+    "description": "对首次 SELECT AID 不发送任何响应字节，第二次拍卡正常应答；acBehavior=online_request 复现日志第二拍的 ARQC",
+    "network": "MASTERCARD",
+    "isActive": true,
+    "aids": [
+      {
+        "aid": "A0000000041010",
+        "label": "MASTERCARD",
+        "priority": 0
+      }
+    ],
+    "pan": "5412750000000001",
+    "panSequenceNumber": 1,
+    "applicationExpirationDate": "281231",
+    "cardholderName": "MC TEST CARD",
+    "track2EquivalentData": "353431323735303030303030303030313d32383132323031",
+    "applicationLabel": "MASTERCARD",
+    "applicationVersionNumber": "0001",
+    "aip": "5800",
+    "afl": "08010100",
+    "issuerCountryCode": "0156",
+    "records": [
+      {
+        "sfi": 1,
+        "record": 1,
+        "fields": [
+          "track2",
+          "pan",
+          "cardholderName",
+          "expiryDate",
+          "issuerCountryCode",
+          "cvmList"
+        ]
+      }
+    ],
+    "acBehavior": "online_request",
+    "noResponseCommands": [
+      {
+        "command": "SELECT",
+        "times": 1
+      }
+    ]
+  },
+  "kernel_params_ref": "PPS_MChip1",
+  "transaction": {
+    "operator_instructions": {
+      "amount": "15.00",
+      "currency": "EUR",
+      "entry_mode": "contactless",
+      "pin_hint": "none",
+      "notes": "第一次拍卡：卡片对 SELECT AID 不响应，POS 应报 Try Again（不要求交易完成）；请在同一笔交易上再拍一次卡，第二拍应走完 GPO/READ RECORD/GENERATE AC 并报联机请求"
+    },
+    "expected_values": {
+      "amount": "15.00",
+      "currency": "978",
+      "entry_mode": "contactless"
+    },
+    "act": [
+      {
+        "id": "5F57",
+        "value": ""
+      },
+      {
+        "id": "9F02",
+        "value": "000000001500"
+      },
+      {
+        "id": "9F03",
+        "value": ""
+      },
+      {
+        "id": "DF8104",
+        "value": ""
+      },
+      {
+        "id": "DF8105",
+        "value": ""
+      },
+      {
+        "id": "9F7C",
+        "value": "1122334455667788990011223344556677889900"
+      },
+      {
+        "id": "9F53",
+        "value": "46"
+      },
+      {
+        "id": "5F2A",
+        "value": "0978"
+      },
+      {
+        "id": "5F36",
+        "value": "02"
+      },
+      {
+        "id": "9A",
+        "value": "260304"
+      },
+      {
+        "id": "9F21",
+        "value": "110351"
+      },
+      {
+        "id": "9C",
+        "value": "00"
+      }
+    ]
+  },
+  "preconditions": [
+    "手机 NFC 已开启，模拟 app 保持前台",
+    "POS（读写器）已装载 PPS_MChip1 对应的 CTEL2 默认参数；本案例经 CONFIG 下发 `PPS_MChip1`（= 日志中读写器内置的 AID 参数/TERM，逐字节一致）",
+    "卡端对**首次** SELECT AID 静默（`noResponseCommands: [{\"command\":\"SELECT\",\"times\":1}]`，计数按单次模拟会话）；SELECT PPSE 必须正常应答（否则测的是 CS-08/CS-09 类错 SW）",
+    "读写器超时门限：日志实测 SELECT ADF 无响应约 1.95s 后判超时（`emvicc_select=FFFFFFFF`）",
+    "双拍需在同一 ACT 内完成：读写器第一次拍卡后提示再拍（OPS Start=B），host 在收到最终 OUT 前不会停止卡端模拟"
+  ],
+  "test_plan": [
+    {
+      "step": 1,
+      "action": "主机下发含 noResponseCommands 的档案（首次 SELECT AID 静默）并启动模拟；随后下发 CONFIG(PPS_MChip1) 与 ACT（15.00 EUR、9C=00）",
+      "expect": "安卓上报 emulating；POS 应用参数后进入交易"
+    },
+    {
+      "step": 2,
+      "action": "第一次拍卡：POS SELECT PPSE（正常应答应含 A0000000041010）→ SELECT ADF `00A4040007A000000004101000`",
+      "expect": "卡片对该 SELECT ADF 不发任何响应字节（无 R-APDU、无 SW），POS 等待后判超时"
+    },
+    {
+      "step": 3,
+      "action": "host 断言第一条 OUT（日志样例 OPS=7010F0F010F0FF00）",
+      "expect": "out.ops.status=TRY AGAIN、status_bits=0111、start=B、DataRecord Present=0、DiscData Present=1；DiscData 的 DF8115=0100000000FF（L1=超时）"
+    },
+    {
+      "step": 4,
+      "action": "同一笔交易再拍一次卡（OPS Start=B 提示再拍）",
+      "expect": "第二次 SELECT ADF 正常返回 9000，POS 继续 GPO/READ RECORD/GENERATE AC(ARQC)"
+    },
+    {
+      "step": 5,
+      "action": "host 断言第二条 OUT（日志样例 OPS=30F0F010B8F0FF00）",
+      "expect": "out.ops.status=ONLINE REQUEST、outcome=online_request、online=online、resp_code=00（DataRecord 9F27=80）"
+    }
+  ],
+  "timeout_seconds": 180,
+  "retry_on_fail": 0,
+  "expected_results": [
+    {
+      "path": "outs.0.ops.status",
+      "op": "eq",
+      "expect": "TRY AGAIN"
+    },
+    {
+      "path": "outs.0.ops.status_bits",
+      "op": "eq",
+      "expect": "0111"
+    },
+    {
+      "path": "outs.0.ops.start",
+      "op": "eq",
+      "expect": "B"
+    },
+    {
+      "path": "outs.0.ops.data_record_present",
+      "op": "eq",
+      "expect": "0"
+    },
+    {
+      "path": "outs.0.ops.discretionary_data_present",
+      "op": "eq",
+      "expect": "1"
+    },
+    {
+      "path": "outs.0.discdata.DF8115",
+      "op": "eq",
+      "expect": "0100000000FF",
+      "severity": "warn"
+    },
+    {
+      "path": "outs.1.ops.status",
+      "op": "eq",
+      "expect": "ONLINE REQUEST"
+    },
+    {
+      "path": "outs.1.datarecord.9F27",
+      "op": "eq",
+      "expect": "80",
+      "severity": "warn"
+    },
+    {
+      "path": "outcome",
+      "op": "eq",
+      "expect": "online_request"
+    },
+    {
+      "path": "online",
+      "op": "eq",
+      "expect": "online"
+    },
+    {
+      "path": "resp_code",
+      "op": "eq",
+      "expect": "00"
+    }
+  ]
+}

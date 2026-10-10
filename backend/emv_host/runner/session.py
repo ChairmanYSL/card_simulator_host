@@ -43,6 +43,11 @@ class RunSession:
 
         # v2: CTEL2 MSG (UIRD) frames collected for the current attempt
         self.pos_msgs: list[dict[str, Any]] = []
+        # v2 dual tap: every OUT ``out`` view received in the current attempt, in
+        # arrival order.  One ACT can produce several OUTs (Try Again then the
+        # re-tap, or Select Next then the next application); the attempt only
+        # finishes on the first OUT that is not intermediate.
+        self.pos_outs: list[dict[str, Any]] = []
         # v2 P2: card APDU stream collected for the current attempt
         # (``card.gpo.pdol.*`` / ``card.gac.cdol*.*`` assertion source)
         self.card_apdus: dict[str, Any] = {}
@@ -71,6 +76,7 @@ class RunSession:
         self.judged_msg_ids = set()
         self.card_emulating = False
         self.pos_msgs = []
+        self.pos_outs = []
         self.card_apdus = {}
         self._result_waiter = None
         self._emulation_waiter = None
@@ -80,9 +86,16 @@ class RunSession:
         self.current_attempt_id = None
         self.card_emulating = False
         self.pos_msgs = []
+        self.pos_outs = []
         self.card_apdus = {}
         self._result_waiter = None
         self._emulation_waiter = None
+
+    # -- OUT accumulation (v2 dual tap) ---------------------------------------
+    def add_out(self, view: dict[str, Any]) -> int:
+        """Record one decoded OUT view; returns the 1-based OUT count."""
+        self.pos_outs.append(view)
+        return len(self.pos_outs)
 
     # -- result delivery ------------------------------------------------------
     def is_waiting_result(self, attempt_id: str) -> bool:

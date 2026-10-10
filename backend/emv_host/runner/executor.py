@@ -35,7 +35,7 @@ from ..cases import CaseLibrary, TestCase
 from ..cases.models import KernelParams
 from ..judge.asserter import assert_result
 from ..judge.card_apdu import build_card_view
-from ..judge.outcome import build_result
+from ..judge.outcome import build_result, compose_result, is_final_out
 from ..protocol.connection import ConnectionClosed
 from ..protocol.messages import (
     CLIENT_ANDROID,
@@ -484,8 +484,8 @@ class RunExecutor:
             await self._ack(conn, msg_id, ok=True, detail="quarantined")
             return
         try:
-            outcome, detail = self._judge(session, case, frame.get("signalData"),
-                                          frame)
+            outcome, detail, final = self._judge(session, case,
+                                                 frame.get("signalData"), frame)
         except Exception as exc:  # noqa: BLE001 - persistence must be loud
             logger.exception("failed to persist OUT for %s", case.case_id)
             await self.log("error", f"[{case.case_id}] OUT 落盘失败，未 ack 成功：{exc}")
@@ -493,8 +493,18 @@ class RunExecutor:
             return
         if msg_id:
             session.judged_msg_ids.add(msg_id)
-        session.deliver_result(outcome)
-        await self.log("info", f"OUT received for {case.case_id} -> {outcome}")
+        if final:
+            session.deliver_result(outcome)
+            await self.log("info", f"OUT received for {case.case_id} -> {outcome} "
+                                   f"(final, {len(session.pos_outs)} out)")
+        else:
+            # v2 dual tap: Try Again / Select Next keeps the ACT open, so the
+            # attempt is NOT finished -- the operator re-taps and the reader
+            # answers with the transaction's final OUT on the same connection.
+            status = session.pos_outs[-1]["ops"].get("status", "")
+            await self.log("info", f"[{case.case_id}] intermediate OUT "
+                                   f"{len(session.pos_outs)} ({status}); waiting "
+                                   f"for the final OUT")
         await self._ack(conn, msg_id, ok=True, detail=detail)
 
     async def _quarantine(self, session: RunSession | None,
@@ -985,22 +995,31 @@ class RunExecutor:
             await self.log("debug", f"stop_emulation ack not received: {exc}")
 
     def _judge(self, session: RunSession, case: TestCase,
-               signal_data: Any, frame: dict[str, Any]) -> tuple[str, str]:
+               signal_data: Any, frame: dict[str, Any]) -> tuple[str, str, bool]:
         """Build the v2 result from one OUT and judge + PERSIST it.
 
         The result carries ``out.ops`` / ``out.datarecord`` / ``out.discdata``
         plus the derived ``outcome`` / ``online`` / ``resp_code``; ``card`` is
         filled by the APDU judge (P2).
+
+        v2 dual tap: one ACT may answer with several OUTs.  Every OUT is decoded
+        and persisted (``outs`` keeps them in arrival order, ``out`` is the
+        transaction's final one), but the case verdict only settles on a **final**
+        OUT -- an intermediate Try Again / Select Next must not fail the case
+        while the reader is still waiting for the re-tap.  Returns
+        ``(outcome, detail, final)``.
         """
+        card = build_card_view(session.card_apdus.get("apdus"))
         try:
-            result = build_result(signal_data if isinstance(signal_data, list)
-                                  else [],
-                                  card=build_card_view(
-                                      session.card_apdus.get("apdus")))
+            single = build_result(signal_data if isinstance(signal_data, list)
+                                  else [], card=card)
         except ValueError as exc:
             self.store.write_quarantine(session.run, {
                 "at": time.time(), "reason": str(exc), "frame": frame})
-            return "fail", "out_invalid"
+            return "fail", "out_invalid", True
+        session.add_out(single["out"])
+        final = is_final_out(single["out"]["ops"])
+        result = compose_result(session.pos_outs, card=card)
         record = {
             "case_id": case.case_id,
             # F3: both write paths emit BOTH keys  attempt is 0-based (which try
@@ -1009,19 +1028,31 @@ class RunExecutor:
             "attempts": session.current_attempt + 1,
             "attempt_id": session.current_attempt_id,
             "received_at": time.time(),
+            "out_count": len(session.pos_outs),
             "raw_result": result,
             "pos_meta": {k: frame.get(k) for k in
                          ("device_id", "app_version", "ts", "msg_id")},
         }
+        verdict = assert_result(result, case.expected_results)
+        record["verdict"] = verdict.public()
+        record["status"] = verdict.status
+        record["finished_at"] = time.time()
+        if not final:
+            # Keep the decoded OUTs and the rule detail in the record, but the
+            # case is still running: only the transaction's final OUT (or the
+            # attempt timeout) can settle it.  ``verdict`` in the run summary
+            # stays unset until then (the RunPage shows RUNNING).
+            record["status"] = "RUNNING"
+            record["pending_final_out"] = True
+            self.store.write_case_result(session.run, case.case_id, record)
+            session.run["results"][case.case_id]["verdict"] = None
+            self.store.update_run(session.run)
+            return "running", "intermediate", False
         # D2 (owner choice a): the kernel did not produce an outcome
         # (OPS status bits = 0000 + empty DataRecord) -> the case FAILs with an
         # explicit reason instead of a fabricated decline code.
         no_outcome = (result["out"]["ops"].get("status_bits") == "0000"
                       and not result["out"]["datarecord"])
-        verdict = assert_result(result, case.expected_results)
-        record["verdict"] = verdict.public()
-        record["status"] = verdict.status
-        record["finished_at"] = time.time()
         if no_outcome and verdict.status != "PASS":
             record["failure_reason"] = "out_no_outcome"
         elif verdict.status == "FAIL":
@@ -1047,7 +1078,7 @@ class RunExecutor:
         elif no_outcome:
             session.failure_reason = session.failure_reason or "out_no_outcome"
         return {"PASS": "pass", "WARN": "warn", "FAIL": "fail"}[verdict.status], \
-            "persisted"
+            "persisted", True
 
     async def _finalize_case(self, session: RunSession, case: TestCase,
                              outcome: str, attempt: int) -> None:
@@ -1089,9 +1120,22 @@ class RunExecutor:
                     record["error"] = android_error
             self.store.write_case_result(session.run, case.case_id, record)
         else:
-            # keep the pre-existing record's failure_reason visible in the index
             existing = self.store.get_case_result(
                 session.run["run_id"], case.case_id) or {}
+            if existing.get("pending_final_out"):
+                # v2 dual tap: the record was written for an intermediate OUT
+                # (Try Again / Select Next) and the transaction's final OUT never
+                # arrived, so the attempt's end status is authoritative while the
+                # decoded OUTs and the rule detail stay in the record.
+                existing.pop("pending_final_out", None)
+                existing.update({"status": status, "attempts": attempt + 1,
+                                 "finished_at": time.time()})
+                if outcome in ("fail", "error") and session.failure_reason:
+                    existing["failure_reason"] = session.failure_reason
+                self.store.write_case_result(session.run, case.case_id, existing)
+                existing = self.store.get_case_result(
+                    session.run["run_id"], case.case_id) or existing
+            # keep the pre-existing record's failure_reason visible in the index
             if existing.get("failure_reason"):
                 session.run["results"][case.case_id]["failure_reason"] = \
                     existing["failure_reason"]

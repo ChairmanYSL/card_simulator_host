@@ -194,17 +194,18 @@ def _judge_one(tmp_path, ops: str, datarecord: str, case: TestCase) -> tuple:
 
     signal_data = [{"id": "OPS", "value": ops},
                    {"id": "DataRecord", "value": datarecord}]
-    outcome, detail = executor._judge(session, case, signal_data,
-                                      {"device_id": "pos-1"})
-    return executor, store, session, outcome, detail
+    # v2 dual tap: ``_judge`` also reports whether the OUT ended the attempt.
+    outcome, detail, final = executor._judge(session, case, signal_data,
+                                             {"device_id": "pos-1"})
+    return executor, store, session, outcome, detail, final
 
 
 def test_judge_publishes_out_outcome_in_live_session_payload(tmp_path):
     """_judge must not clobber the summary write_case_result just wrote."""
-    executor, store, session, outcome, detail = _judge_one(
+    executor, store, session, outcome, detail, final = _judge_one(
         tmp_path, OPS_APPROVED, DATA_RECORD, _case())
 
-    assert (outcome, detail) == ("pass", "persisted")
+    assert (outcome, detail, final) == ("pass", "persisted", True)
 
     # 1) the in-memory run-level summary (RunSession.snapshot source)
     live = session.snapshot()["results"][CASE_ID]
@@ -231,7 +232,7 @@ def test_judge_publishes_out_outcome_in_live_session_payload(tmp_path):
 
 def test_judge_out_no_outcome_is_visible_live(tmp_path):
     """The D2 ruling reaches the live view as RFU(0000), with no resp_code."""
-    _, _, session, outcome, _ = _judge_one(tmp_path, OPS_ZERO, "", _case())
+    _, _, session, outcome, _, _ = _judge_one(tmp_path, OPS_ZERO, "", _case())
 
     assert outcome == "fail"
     live = session.snapshot()["results"][CASE_ID]
